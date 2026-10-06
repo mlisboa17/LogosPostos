@@ -1,0 +1,38 @@
+{
+  "_fonte": "Matriz de destino informada pelo negocio em 2026-10-06 + V1/CONTAS. Sem numeros de conta nem chaves (apenas NOME da variavel de ambiente).",
+  "unidades": [
+    {
+      "empresa_codigo": 74014,
+      "nome": "POSTO DOZE FILIAL II",
+      "chave_env": "WEBPOSTO_API_KEY_POSTO_DOZE_FILIAL_II",
+      "destinos": [
+        {"conta_codigo": 86248, "tipo": "deposito_direto", "banco": "BB", "terminais": ["POSTO REAL FOSFATO ATMR"]},
+        {"conta_codigo": 86081, "tipo": "cofre", "banco": "BB", "prazo_dias": 1}
+      ]
+    },
+    {
+      "empresa_codigo": 11495,
+      "nome": "POSTO VIP",
+      "chave_env": "WEBPOSTO_API_KEY_POSTO_VIP",
+      "destinos": [
+        {"conta_codigo": 65321, "tipo": "deposito_direto", "banco": "BRADESCO"},
+        {"conta_codigo": 55028, "tipo": "cofre", "banco": "ITAU", "prazo_dias": 1}
+      ]
+    },
+    {
+      "empresa_codigo": 5555,
+      "nome": "AP CASA CAIADA",
+      "chave_env": "WEBPOSTO_API_KEY_CASA_CAIADA",
+      "destino_padrao": 17837,
+      "destinos": [
+        {"conta_codigo": 17837, "tipo": "cofre", "banco": "BB", "prazo_dias": 1}
+      ]
+    },
+    {
+      "empresa_codigo": 118508,
+      "nome": "CONVENIENCIA 24 HORAS",
+      "chave_env": "WEBPOSTO_API_KEY_CONVENIENCIA_24_HORAS",
+      "destinos": []
+    }
+  ]
+}
