@@ -859,6 +859,149 @@ label.empresa-ms__row {
   gap: 1rem;
 }
 
+.cash-audit {
+  --ca-bg: #111827;
+  --ca-panel: #1f2937;
+  --ca-line: #374151;
+  --ca-text: #f3f4f6;
+  --ca-muted: #aab4c3;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1rem;
+  border-radius: 14px;
+  color: var(--ca-text);
+  background: var(--ca-bg);
+}
+
+.cash-audit h2,
+.cash-audit h3,
+.cash-audit h4,
+.cash-audit p {
+  margin-top: 0;
+}
+
+.ca-header p,
+.ca-kpi span,
+.ca-provenance {
+  color: var(--ca-muted);
+}
+
+.ca-filters,
+.ca-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.75rem;
+}
+
+.ca-filters {
+  align-items: end;
+  padding: 1rem;
+  border: 1px solid var(--ca-line);
+  border-radius: 10px;
+  background: var(--ca-panel);
+}
+
+.ca-filters label {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.ca-filters input,
+.ca-filters select,
+.ca-filters button {
+  min-height: 2.4rem;
+  padding: 0.4rem 0.6rem;
+}
+
+.ca-kpi,
+.ca-panel {
+  padding: 1rem;
+  border: 1px solid var(--ca-line);
+  border-radius: 10px;
+  background: var(--ca-panel);
+}
+
+.ca-kpi span,
+.ca-kpi strong {
+  display: block;
+}
+
+.ca-kpi span {
+  margin-bottom: 0.35rem;
+  font-size: 0.82rem;
+}
+
+.ca-kpi strong {
+  font-size: 1.2rem;
+}
+
+.ca-table-wrap {
+  overflow-x: auto;
+}
+
+.ca-table {
+  min-width: 760px;
+}
+
+.cash-audit .table-compact th,
+.cash-audit .table-compact td {
+  border-color: var(--ca-line);
+}
+
+.ca-row {
+  cursor: pointer;
+}
+
+.ca-row:hover,
+.ca-row:focus {
+  outline: 2px solid #64748b;
+  outline-offset: -2px;
+}
+
+.ca-row--vermelho {
+  background: rgba(153, 27, 27, 0.34);
+  box-shadow: inset 4px 0 #ef4444;
+}
+
+.ca-row--laranja {
+  background: rgba(154, 87, 14, 0.3);
+  box-shadow: inset 4px 0 #f59e0b;
+}
+
+.ca-detail > td {
+  padding: 1rem !important;
+  background: #172033;
+}
+
+.ca-detail-grid {
+  display: grid;
+  grid-template-columns: minmax(300px, 2fr) minmax(220px, 1fr);
+  gap: 1.25rem;
+}
+
+.ca-detail-grid ul {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+.ca-error {
+  padding: 0.75rem;
+  border: 1px solid #ef4444;
+  border-radius: 8px;
+  color: #fecaca;
+  background: rgba(127, 29, 29, 0.35);
+}
+
+.ca-empty {
+  color: var(--ca-muted);
+}
+
+.ca-provenance {
+  margin: 0;
+  font-size: 0.78rem;
+}
+
 .cf-sparkline {
   display: flex;
   align-items: flex-end;
@@ -957,4 +1100,3 @@ label.empresa-ms__row {
     overflow: auto;
   }
 }
-

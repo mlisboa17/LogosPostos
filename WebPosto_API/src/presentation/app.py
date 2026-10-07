@@ -355,6 +355,15 @@ def create_unified_app() -> FastAPI:
 
         logging.getLogger(__name__).warning("Rotas audit não carregadas: %s", exc)
 
+    try:
+        from src.modules.cash_reconciliation.interfaces.http import router as cash_audit_router
+
+        app.include_router(cash_audit_router)
+    except Exception as exc:
+        import logging
+
+        logging.getLogger(__name__).warning("Rotas cash-audit não carregadas: %s", exc)
+
     # Auditoria (Mongo) — opcional
     try:
         from src.interfaces.http.routes import auditoria

@@ -36,6 +36,7 @@ import { renderExecutiveDashboard } from "./pages/executiveDashboard.js";
 import { renderFuelExecutiveDashboard } from "./pages/fuelExecutiveDashboard.js";
 import { renderFinanceCenter } from "./pages/financeCenter.js";
 import { renderCashFlow } from "./pages/cashFlow.js";
+import { renderCashAudit } from "./pages/cashAudit.js";
 import { renderCompanySwitcher } from "./components/CompanySwitcher.js";
 import { createTableState } from "./services/tableState.js";
 import {
@@ -58,11 +59,14 @@ const VIEW_ALIASES = {
   financecenter: "financeCenter",
   "cash-flow": "cashFlow",
   cashflow: "cashFlow",
+  "cash-audit": "cashAudit",
+  cashaudit: "cashAudit",
 };
 
 const VIEW_URL_NAMES = {
   financeCenter: "finance-center",
   cashFlow: "cash-flow",
+  cashAudit: "cash-audit",
 };
 
 function normalizeViewId(view) {
@@ -314,6 +318,7 @@ const expensesNode = document.querySelector("#expensesView");
 const accountsNode = document.querySelector("#accountsView");
 const financeCenterNode = document.querySelector("#financeCenterView");
 const cashFlowNode = document.querySelector("#cashFlowView");
+const cashAuditNode = document.querySelector("#cashAuditView");
 const fuelsNode = document.querySelector("#fuelsView");
 const salesNode = document.querySelector("#salesView");
 const stockNode = document.querySelector("#stockView");
@@ -342,6 +347,7 @@ function setView(view) {
   accountsNode.classList.toggle("hidden", view !== "accounts");
   financeCenterNode.classList.toggle("hidden", view !== "financeCenter");
   cashFlowNode.classList.toggle("hidden", view !== "cashFlow");
+  cashAuditNode.classList.toggle("hidden", view !== "cashAudit");
   fuelsNode.classList.toggle("hidden", view !== "fuels");
   salesNode.classList.toggle("hidden", view !== "sales");
   stockNode.classList.toggle("hidden", view !== "stock");
@@ -628,6 +634,7 @@ function renderAll() {
       await refreshAll(true);
     },
   });
+  if (state.view === "cashAudit") void renderCashAudit(cashAuditNode);
 
   renderStock(
     stockNode,
@@ -975,6 +982,10 @@ async function refreshAll(bypassCache = false) {
 
     if (state.view === "cashFlow") {
       await loadCashFlowWithSnapshotFirst(bypassCache);
+    }
+
+    if (state.view === "cashAudit") {
+      await renderCashAudit(cashAuditNode, { load: true });
     }
 
     if (state.view === "stock") {
