@@ -5,8 +5,12 @@ param(
 
 $ErrorActionPreference = "Stop"
 $FusoWindows = [System.TimeZoneInfo]::Local
-if ($FusoWindows.BaseUtcOffset -ne [TimeSpan]::FromHours(-3) -or $FusoWindows.SupportsDaylightSavingTime) {
-    Write-Warning "O fuso do Windows nao e UTC-03:00 fixo. Ajuste para o horario de Brasilia/Recife antes de agendar: 03:00 segue o relogio do Windows."
+# Verifica o deslocamento REAL as 03:00 de hoje e dos proximos 12 meses. Nao usar SupportsDaylightSavingTime:
+# o fuso de Brasilia do Windows ainda traz as regras antigas de horario de verao (extinto em 2019) e daria alarme falso.
+$Hoje = [DateTime]::Today.AddHours(3)
+$ForaDoFuso = 0..12 | Where-Object { $FusoWindows.GetUtcOffset($Hoje.AddMonths($_)) -ne [TimeSpan]::FromHours(-3) }
+if ($ForaDoFuso) {
+    Write-Warning "O relogio do Windows nao fica em UTC-03:00 o ano todo (fuso atual: $($FusoWindows.Id)). Ajuste para o horario de Brasilia/Recife antes de agendar: 03:00 segue o relogio do Windows."
 }
 $Repositorio = Split-Path -Parent $PSScriptRoot
 $DiretorioApi = Join-Path $Repositorio "WebPosto_API"
