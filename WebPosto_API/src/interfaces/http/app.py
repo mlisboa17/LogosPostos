@@ -1,3 +1,4 @@
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -15,11 +16,16 @@ from src.interfaces.http.routes import analytics
 from src.interfaces.http.routes import finance_center
 from src.interfaces.http.routes import cash_flow
 from src.interfaces.http.routes import financial_intelligence
+from src.modules.cash_reconciliation.interfaces.http import router as cash_audit_router
 from src.shared.logger import setup_logging
 
 
 def create_app() -> FastAPI:
     """Factory para criar instância da aplicação FastAPI."""
+
+    root = Path(__file__).resolve().parents[3]
+    # Modulos (ex.: cash_reconciliation) leem chaves por unidade via os.getenv
+    load_dotenv(root / ".env", override=False)
 
     # Setup logging
     setup_logging(settings.log_level, settings.log_format)
@@ -53,8 +59,8 @@ def create_app() -> FastAPI:
     app.include_router(finance_center.router)
     app.include_router(cash_flow.router)
     app.include_router(financial_intelligence.router)
+    app.include_router(cash_audit_router)
 
-    root = Path(__file__).resolve().parents[3]
     frontend_dir = root / "frontend"
     if frontend_dir.is_dir():
         app.mount("/frontend", StaticFiles(directory=str(frontend_dir)), name="frontend")

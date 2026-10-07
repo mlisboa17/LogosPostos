@@ -110,6 +110,7 @@ class FinancialHealthScoreService:
         outros_pct = float(cls.get("outrosPercent") or 0)
         outros_v3_pct = float(cls.get("outrosV3Percent") or outros_pct)
         plano_source_pct = float(cls.get("planoContaSourcePercent") or 0)
+        if branch_compare:
             for branch in branch_compare:
                 emp = str(branch.get("empresaCodigo"))
                 exp_total = _dec(branch.get("valor"))
