@@ -1,9 +1,11 @@
-"""Regras de auditoria do fechamento — FECHAMENTO_V1.
+"""Regras de auditoria do fechamento — FECHAMENTO_V2.
 
   vermelho: quebra em qualquer modalidade acima do limite (padrao R$ 10)
             sangria sem conta de destino
-  laranja:  caixa nao consolidado (inclui caixa ainda aberto)
+  laranja:  caixa fechado e nao consolidado
+            caixa aberto (em andamento: quebra nao e calculada ate o fechamento)
             sangria alterada depois de lancada
+V2: caixa aberto nao gera quebra (antes mostrava todo o apurado como "falta").
 Mudou alguma regra? Crie nova VERSAO.
 """
 from __future__ import annotations
@@ -14,7 +16,7 @@ from typing import Iterable
 from ..domain.fechamento import Alerta, AuditoriaCaixa, Caixa, LinhaModalidade, Severidade
 from ..domain.models import Sangria
 
-VERSAO = "FECHAMENTO_V1"
+VERSAO = "FECHAMENTO_V2"
 LIMITE_QUEBRA = Decimal("10")
 
 
@@ -32,15 +34,17 @@ def auditar_caixa(
     do_caixa = tuple(s for s in sangrias if s.caixa_codigo == caixa.codigo)
     alertas: list[Alerta] = []
 
-    for m in linhas:
+    for m in (linhas if caixa.fechado else ()):
         if abs(m.diferenca) > limite:
             tipo = "falta" if m.diferenca < 0 else "sobra"
             alertas.append(Alerta(codigo="QUEBRA", severidade=Severidade.VERMELHO, valor=m.diferenca,
                                   referencia=caixa.codigo, mensagem=f"{m.rotulo}: {tipo} de {_brl(abs(m.diferenca))}"))
-    if not caixa.consolidado:
-        situacao = "aberto" if not caixa.fechado else "fechado e não consolidado"
+    if not caixa.fechado:
+        alertas.append(Alerta(codigo="CAIXA_ABERTO", severidade=Severidade.LARANJA, referencia=caixa.codigo,
+                              mensagem="Caixa em andamento: quebra só após o fechamento"))
+    elif not caixa.consolidado:
         alertas.append(Alerta(codigo="NAO_CONSOLIDADO", severidade=Severidade.LARANJA,
-                              referencia=caixa.codigo, mensagem=f"Caixa {situacao}"))
+                              referencia=caixa.codigo, mensagem="Caixa fechado e não consolidado"))
     for s in do_caixa:
         if s.conta_codigo is None:
             alertas.append(Alerta(codigo="SANGRIA_SEM_DESTINO", severidade=Severidade.VERMELHO, valor=s.valor,

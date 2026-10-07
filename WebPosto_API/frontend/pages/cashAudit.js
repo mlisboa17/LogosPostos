@@ -5,6 +5,20 @@ const UNIDADES_URL = "/api/v1/cash-audit/unidades";
 const FECHAMENTO_URL = "/api/v1/cash-audit/fechamento";
 let unidadesCarregadas = null;
 
+// Centros de custo da rede (V1/CENTROS_CUSTO, 2026-10-06)
+const CENTROS_CUSTO = {
+  7295: "Pista", 10529: "Pista GNV", 18713: "Fechamento", 21650: "Loja",
+  22310: "Conveniência", 24886: "Conveniência 24h", 24423: "Food",
+  23036: "Lubrificantes (inativo)", 23069: "Lubrificante", 24290: "Grupo A",
+};
+const ALERTA_ROTULO = {
+  QUEBRA: "Quebra",
+  NAO_CONSOLIDADO: "Não consolidado",
+  CAIXA_ABERTO: "Em andamento",
+  SANGRIA_SEM_DESTINO: "Sangria sem destino",
+  SANGRIA_ALTERADA: "Sangria alterada",
+};
+
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (char) => ({
     "&": "&amp;",
@@ -37,13 +51,20 @@ function renderKpis(resultado) {
   const caixas = resultado?.caixas || [];
   const alertas = caixas.flatMap((item) => item.alertas || []);
   const quantidade = (codigo) => alertas.filter((alerta) => alerta.codigo === codigo).length;
+  const quebra = Number(resultado?.quebra_total || 0);
+  const kpi = (rotulo, valor, tom = "") =>
+    `<article class="ca-kpi${tom ? ` ca-kpi--${tom}` : ""}"><span>${rotulo}</span><strong>${valor}</strong></article>`;
+  const vermelhos = caixas.filter((item) => item.severidade === "vermelho").length;
+  const naoConsolidados = caixas.filter((item) => item.caixa?.fechado && !item.caixa?.consolidado).length;
+  const emAndamento = caixas.filter((item) => !item.caixa?.fechado).length;
   return `
     <div class="ca-kpis">
-      <article class="ca-kpi"><span>Quebra total do período</span><strong>${safeCurrency(resultado?.quebra_total)}</strong></article>
-      <article class="ca-kpi"><span>Caixas com alerta vermelho</span><strong>${caixas.filter((item) => item.severidade === "vermelho").length}</strong></article>
-      <article class="ca-kpi"><span>Caixas não consolidados</span><strong>${caixas.filter((item) => !item.caixa?.consolidado).length}</strong></article>
-      <article class="ca-kpi"><span>Sangrias sem destino</span><strong>${quantidade("SANGRIA_SEM_DESTINO")}</strong></article>
-      <article class="ca-kpi"><span>Sangrias alteradas</span><strong>${quantidade("SANGRIA_ALTERADA")}</strong></article>
+      ${kpi("Quebra do período (caixas fechados)", safeCurrency(quebra), quebra < -10 ? "vermelho" : "")}
+      ${kpi("Caixas com alerta vermelho", `${vermelhos} <small>de ${caixas.length}</small>`, vermelhos ? "vermelho" : "")}
+      ${kpi("Fechados não consolidados", naoConsolidados, naoConsolidados ? "laranja" : "")}
+      ${kpi("Sangrias sem destino", quantidade("SANGRIA_SEM_DESTINO"), quantidade("SANGRIA_SEM_DESTINO") ? "vermelho" : "")}
+      ${kpi("Sangrias alteradas", quantidade("SANGRIA_ALTERADA"), quantidade("SANGRIA_ALTERADA") ? "laranja" : "")}
+      ${emAndamento ? kpi("Caixas em andamento", emAndamento) : ""}
     </div>
   `;
 }
@@ -53,9 +74,9 @@ function renderDetalhes(auditoria) {
     ? auditoria.modalidades.map((item) => `
       <tr>
         <td>${escapeHtml(item.rotulo)}</td>
-        <td>${safeCurrency(item.apresentado)}</td>
-        <td>${safeCurrency(item.apurado)}</td>
-        <td>${safeCurrency(item.diferenca)}</td>
+        <td class="ca-num">${safeCurrency(item.apresentado)}</td>
+        <td class="ca-num">${safeCurrency(item.apurado)}</td>
+        <td class="ca-num ${Number(item.diferenca) < -10 ? "ca-neg" : Number(item.diferenca) > 10 ? "ca-pos" : ""}">${safeCurrency(item.diferenca)}</td>
       </tr>`).join("")
     : '<tr><td colspan="4">Sem modalidades apresentadas.</td></tr>';
   const alertas = auditoria.alertas?.length
@@ -64,11 +85,25 @@ function renderDetalhes(auditoria) {
   return `
     <div class="ca-detail-grid">
       <div><h4>Modalidades</h4>
-        <table class="table-compact"><thead><tr><th>Modalidade</th><th>Apresentado</th><th>Apurado</th><th>Diferença</th></tr></thead>
+        <table class="table-compact"><thead><tr><th>Modalidade</th><th class="ca-num">Apresentado</th><th class="ca-num">Apurado</th><th class="ca-num">Diferença</th></tr></thead>
         <tbody>${modalidades}</tbody></table>
       </div>
       <div><h4>Alertas</h4>${alertas}</div>
     </div>`;
+}
+
+function renderChips(alertas) {
+  if (!alertas?.length) return '<span class="ca-ok">OK</span>';
+  const grupos = new Map();
+  alertas.forEach((alerta) => {
+    const atual = grupos.get(alerta.codigo) || { ...alerta, n: 0 };
+    atual.n += 1;
+    grupos.set(alerta.codigo, atual);
+  });
+  return [...grupos.values()].map((g) =>
+    `<span class="ca-chip ca-chip--${escapeHtml(g.severidade)}" title="${escapeHtml(g.mensagem)}">` +
+    `${escapeHtml(ALERTA_ROTULO[g.codigo] || g.codigo)}${g.n > 1 ? ` ×${g.n}` : ""}</span>`
+  ).join("");
 }
 
 function renderTabela(resultado) {
@@ -79,23 +114,33 @@ function renderTabela(resultado) {
     const nivel = auditoria.severidade === "vermelho" || auditoria.severidade === "laranja"
       ? ` ca-row--${auditoria.severidade}`
       : "";
-    const situacao = !caixa.fechado ? "Aberto" : caixa.consolidado ? "Consolidado" : "Fechado";
-    const resumo = auditoria.alertas?.length
-      ? auditoria.alertas.map((alerta) => alerta.mensagem).join(" · ")
-      : "Sem alertas";
+    const situacao = !caixa.fechado
+      ? '<span class="ca-badge ca-badge--andamento">Em andamento</span>'
+      : caixa.consolidado
+        ? '<span class="ca-badge ca-badge--ok">Consolidado</span>'
+        : '<span class="ca-badge ca-badge--pendente">Fechado</span>';
+    const quebra = Number(auditoria.quebra || 0);
+    const quebraHtml = !caixa.fechado
+      ? '<span class="ca-muted">—</span>'
+      : `<span class="${quebra < -10 ? "ca-neg" : quebra > 10 ? "ca-pos" : ""}">${safeCurrency(quebra)}</span>`;
+    const centro = CENTROS_CUSTO[caixa.centro_custo] || caixa.centro_custo || "—";
     return `
       <tr class="ca-row${nivel}" data-ca-row="${indice}" tabindex="0" aria-expanded="false">
-        <td>${escapeHtml(formatDate(caixa.data))}</td><td>${escapeHtml(caixa.turno)}</td>
-        <td>${escapeHtml(caixa.centro_custo ?? "—")}</td><td>${situacao}</td>
-        <td>${safeCurrency(auditoria.quebra)}</td><td>${escapeHtml(resumo)}</td>
+        <td>${escapeHtml(formatDate(caixa.data))}</td>
+        <td>${escapeHtml(String(caixa.turno || "").replace(" TURNO", "º turno").replace("ºº", "º"))}</td>
+        <td>${escapeHtml(centro)}</td>
+        <td>${situacao}</td>
+        <td class="ca-num">${quebraHtml}</td>
+        <td><div class="ca-chips">${renderChips(auditoria.alertas)}</div></td>
       </tr>
       <tr class="ca-detail hidden" data-ca-detail="${indice}"><td colspan="6">${renderDetalhes(auditoria)}</td></tr>`;
   }).join("");
   return `
     <div class="ca-table-wrap"><table class="table-compact ca-table">
-      <thead><tr><th>Data</th><th>Turno</th><th>Centro de custo</th><th>Situação</th><th>Quebra (R$)</th><th>Alertas</th></tr></thead>
+      <thead><tr><th>Data</th><th>Turno</th><th>Centro de custo</th><th>Situação</th><th class="ca-num">Quebra</th><th>Alertas</th></tr></thead>
       <tbody>${linhas}</tbody>
-    </table></div>`;
+    </table></div>
+    <p class="ca-hint">Clique em um caixa para ver as modalidades e os alertas em detalhe.</p>`;
 }
 
 function showError(container, error) {
@@ -133,7 +178,7 @@ async function carregarAuditoria(container) {
     conteudo.innerHTML = `${renderKpis(resultado)}<section class="ca-panel"><h3>Caixas auditados</h3>${renderTabela(resultado)}</section>`;
     const proveniencia = resultado.proveniencia || {};
     container.querySelector("#caProveniencia").textContent =
-      `Regra ${proveniencia.versao_regra || "—"} · Executado em ${proveniencia.executado_em || "—"}`;
+      `Fonte: webPosto · Regra ${proveniencia.versao_regra || "—"} · Consultado em ${proveniencia.executado_em ? new Date(proveniencia.executado_em).toLocaleString("pt-BR") : "—"}`;
     container.querySelectorAll("[data-ca-row]").forEach((row) => {
       const toggle = () => {
         const index = row.dataset.caRow;

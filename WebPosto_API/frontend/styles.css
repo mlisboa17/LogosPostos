@@ -222,6 +222,7 @@ select {
   padding: 0.55rem;
   background: #fff;
   background-color: #f7f4ed;
+}
 
 .list-toolbar__group-title {
   font-size: 0.72rem;
@@ -941,7 +942,7 @@ label.empresa-ms__row {
 }
 
 .ca-table {
-  min-width: 760px;
+  min-width: 620px;
 }
 
 .cash-audit .table-compact th,
@@ -976,8 +977,9 @@ label.empresa-ms__row {
 
 .ca-detail-grid {
   display: grid;
-  grid-template-columns: minmax(300px, 2fr) minmax(220px, 1fr);
-  gap: 1.25rem;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+  max-width: 720px;
 }
 
 .ca-detail-grid ul {
@@ -1000,6 +1002,85 @@ label.empresa-ms__row {
 .ca-provenance {
   margin: 0;
   font-size: 0.78rem;
+}
+
+.ca-filters {
+  grid-template-columns: minmax(220px, 2fr) repeat(2, minmax(140px, 1fr)) auto;
+}
+
+.ca-filters button {
+  border: 0;
+  border-radius: 8px;
+  font-weight: 600;
+  color: #0b1220;
+  background: #5eead4;
+  cursor: pointer;
+}
+
+.ca-kpi strong small {
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: var(--ca-muted);
+}
+
+.ca-kpi--vermelho { border-color: #ef4444; box-shadow: inset 0 3px #ef4444; }
+.ca-kpi--vermelho strong { color: #fca5a5; }
+.ca-kpi--laranja { border-color: #f59e0b; box-shadow: inset 0 3px #f59e0b; }
+.ca-kpi--laranja strong { color: #fcd34d; }
+
+.cash-audit .table-compact th {
+  color: var(--ca-muted);
+  background: transparent;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.cash-audit .table-compact td {
+  padding: 0.55rem 0.5rem;
+  vertical-align: middle;
+}
+
+.ca-num { text-align: right !important; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ca-neg { color: #fca5a5; font-weight: 600; }
+.ca-pos { color: #93c5fd; font-weight: 600; }
+.ca-muted, .ca-hint { color: var(--ca-muted); }
+.ca-hint { margin: 0.5rem 0 0; font-size: 0.78rem; }
+.ca-ok { color: #86efac; font-size: 0.8rem; }
+
+.ca-badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.ca-badge--ok { color: #86efac; background: rgba(34, 197, 94, 0.15); }
+.ca-badge--pendente { color: #fcd34d; background: rgba(245, 158, 11, 0.15); }
+.ca-badge--andamento { color: #93c5fd; background: rgba(59, 130, 246, 0.15); }
+
+.ca-chips { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.ca-table td:nth-child(-n+4) { white-space: nowrap; }
+
+.ca-chip {
+  padding: 0.12rem 0.45rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.ca-chip--vermelho { color: #fecaca; background: rgba(239, 68, 68, 0.25); }
+.ca-chip--laranja { color: #fde68a; background: rgba(245, 158, 11, 0.22); }
+
+.ca-row--vermelho { background: rgba(153, 27, 27, 0.18); }
+.ca-row--laranja { background: rgba(154, 87, 14, 0.14); }
+
+@media (max-width: 720px) {
+  .ca-filters { grid-template-columns: 1fr 1fr; }
+  .ca-filters label:first-child, .ca-filters button { grid-column: 1 / -1; }
+  .ca-detail-grid { grid-template-columns: 1fr; }
 }
 
 .cf-sparkline {

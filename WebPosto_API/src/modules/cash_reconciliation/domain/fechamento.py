@@ -78,6 +78,9 @@ class AuditoriaCaixa(_Frozen):
 
     @property
     def quebra(self) -> Decimal:
+        """Caixa aberto nao tem quebra: o apresentado so existe apos o fechamento."""
+        if not self.caixa.fechado:
+            return Decimal(0)
         return sum((m.diferenca for m in self.modalidades), Decimal(0))
 
     @property

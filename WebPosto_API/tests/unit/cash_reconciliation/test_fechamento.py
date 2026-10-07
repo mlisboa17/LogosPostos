@@ -49,10 +49,17 @@ def test_quebra_acima_do_limite_e_vermelha():
     assert "Cartão: falta de R$ 50,00" == alerta.mensagem
 
 
-def test_nao_consolidado_e_aberto_sao_laranja():
-    aberto = auditar_caixa(caixa(fechado=False, consolidado=False, fechamento=None), (), [])
-    assert [(x.codigo, x.mensagem) for x in aberto.alertas] == [("NAO_CONSOLIDADO", "Caixa aberto")]
-    assert aberto.severidade is Severidade.LARANJA
+def test_fechado_nao_consolidado_e_laranja():
+    a = auditar_caixa(caixa(consolidado=False), (), [])
+    assert [(x.codigo, x.mensagem) for x in a.alertas] == [("NAO_CONSOLIDADO", "Caixa fechado e não consolidado")]
+    assert a.severidade is Severidade.LARANJA
+
+
+def test_caixa_aberto_nao_gera_quebra():
+    linhas = para_modalidades({**APRESENTADO_API, "dinheiroDiferenca": -11560.89})
+    a = auditar_caixa(caixa(fechado=False, consolidado=False, fechamento=None), linhas, [])
+    assert [x.codigo for x in a.alertas] == ["CAIXA_ABERTO"]
+    assert a.quebra == Decimal(0) and a.severidade is Severidade.LARANJA
 
 
 def test_sangrias_sem_destino_e_alterada_do_proprio_caixa():
