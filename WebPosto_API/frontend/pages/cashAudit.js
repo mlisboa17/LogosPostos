@@ -3,7 +3,9 @@ import { formatCurrency, formatDate } from "../services/format.js";
 
 const UNIDADES_URL = "/api/v1/cash-audit/unidades";
 const FECHAMENTO_URL = "/api/v1/cash-audit/fechamento";
+const RECEBIMENTOS_URL = "/api/v1/cash-audit/recebimentos";
 let unidadesCarregadas = null;
+const consultas = new WeakMap();
 
 // Centros de custo da rede (V1/CENTROS_CUSTO, 2026-10-06)
 const CENTROS_CUSTO = {
@@ -45,6 +47,151 @@ function defaultPeriod() {
   const inicio = new Date(fim);
   inicio.setDate(inicio.getDate() - 6);
   return { inicio: localDate(inicio), fim: localDate(fim) };
+}
+
+export function diasDoPeriodo(inicio, fim) {
+  const primeiro = new Date(`${inicio}T00:00:00Z`);
+  const ultimo = new Date(`${fim}T00:00:00Z`);
+  const quantidade = (ultimo - primeiro) / 86400000 + 1;
+  if (!Number.isInteger(quantidade) || quantidade < 1 || quantidade > 31
+      || primeiro.toISOString().slice(0, 10) !== inicio || ultimo.toISOString().slice(0, 10) !== fim) {
+    throw new Error("O período deve ser válido e conter no máximo 31 dias.");
+  }
+  return Array.from({ length: quantidade }, (_, index) =>
+    new Date(primeiro.getTime() + index * 86400000).toISOString().slice(0, 10)
+  );
+}
+
+export function rankingFrentistas(dias) {
+  const ranking = new Map();
+  dias.forEach((dia) => {
+    (dia.adquirentes || []).filter((item) => item.situacao === "ok").forEach((item) => {
+      const investigacoes = [
+        ...item.a_maior,
+        ...item.pares_provaveis.map((par) => par.investigacao),
+      ];
+      investigacoes.forEach((inv) => {
+        const atribuido = inv.atribuicao === "atribuido" && inv.frentista != null;
+        const frentistas = atribuido
+          ? [inv.frentista]
+          : inv.atribuicao === "sugestao"
+            ? [...new Set(inv.candidatos.map((c) => c.abastecimento.frentista).filter((id) => id != null))]
+            : [];
+        frentistas.forEach((id) => {
+          const linha = ranking.get(id) || { frentista: id, atribuidos: 0, sugestoes: 0 };
+          linha[atribuido ? "atribuidos" : "sugestoes"] += 1;
+          ranking.set(id, linha);
+        });
+      });
+    });
+  });
+  return [...ranking.values()].sort((a, b) =>
+    (b.atribuidos + b.sugestoes) - (a.atribuidos + a.sugestoes) || a.frentista - b.frentista
+  );
+}
+
+function renderAtribuicao(inv) {
+  if (!inv) return '<span class="ca-muted">Sem atribuição</span>';
+  const rotulo = inv.atribuicao === "atribuido"
+    ? inv.frentista == null ? "Atribuído sem código de frentista" : `Frentista #${inv.frentista} · atribuído`
+    : inv.atribuicao === "sugestao" ? `Sugestão (${inv.candidatos.length} candidatos)` : "Sem abastecimento";
+  const candidatos = inv.candidatos.map((c) =>
+    `<li>Frentista ${escapeHtml(c.abastecimento.frentista == null ? "não informado" : `#${c.abastecimento.frentista}`)}:
+    ${escapeHtml(c.pontos)} pontos · ${escapeHtml(c.motivos.join(" · "))}</li>`
+  ).join("");
+  return `<strong>${escapeHtml(rotulo)}</strong>${candidatos ? `<ul class="ca-candidates">${candidatos}</ul>` : ""}`;
+}
+
+function renderDivergencia(dia, transacao, classificacao, tom, investigacao = null, cartao = null) {
+  const momento = transacao.momento || "";
+  const detalhePar = cartao
+    ? `<p class="ca-hint">ERP: ${escapeHtml(String(cartao.momento).slice(11, 19))} · ${safeCurrency(cartao.valor)}</p>`
+    : "";
+  return `<tr class="ca-row--${tom}">
+    <td>${escapeHtml(formatDate(dia))}</td><td>${escapeHtml(String(momento).slice(11, 19))}</td>
+    <td class="ca-num">${safeCurrency(transacao.valor)}</td>
+    <td>${escapeHtml(transacao.bandeira || transacao.administradora || "—")}</td>
+    <td><span class="ca-chip ca-chip--${tom}">${classificacao}</span>${detalhePar}</td>
+    <td>${renderAtribuicao(investigacao)}</td>
+  </tr>`;
+}
+
+export function renderRecebimentos(dias, falhas = []) {
+  const grupos = new Map();
+  dias.forEach((dia) => (dia.adquirentes || []).forEach((item) => {
+    const grupo = grupos.get(item.adquirente) || [];
+    grupo.push({ dia: dia.dia, ...item });
+    grupos.set(item.adquirente, grupo);
+  }));
+  const adquirentes = [...grupos.entries()].map(([nome, itens]) => {
+    const ok = itens.filter((item) => item.situacao === "ok");
+    const estados = [...new Set(itens.filter((item) => item.situacao !== "ok").map((item) => item.erro || item.situacao))];
+    const avisos = estados.map((estado) =>
+      `<span class="ca-badge ca-badge--pendente">${escapeHtml(estado)}</span>`
+    ).join(" ");
+    if (!ok.length) {
+      return `<article class="ca-panel"><h4>${escapeHtml(nome)} ${avisos}</h4>
+        <p class="ca-muted">Sem conciliação disponível. Nenhum dado estimado.</p></article>`;
+    }
+    const resumo = {
+      casados: ok.reduce((sum, item) => sum + item.casados.quantidade, 0),
+      total: ok.reduce((sum, item) => sum + Number(item.casados.total), 0),
+      maior: ok.reduce((sum, item) => sum + item.a_maior.length, 0),
+      menor: ok.reduce((sum, item) => sum + item.a_menor.length, 0),
+      pares: ok.reduce((sum, item) => sum + item.pares_provaveis.length, 0),
+    };
+    const linhas = ok.map((item) => [
+      ...item.a_menor.map((cartao) => renderDivergencia(item.dia, cartao, "A menor", "vermelho")),
+      ...item.a_maior.map((inv) => renderDivergencia(item.dia, inv.transacao, "A maior", "laranja", inv)),
+      ...item.pares_provaveis.map((par) => renderDivergencia(item.dia, par.investigacao.transacao, "Par provável", "amarelo", par.investigacao, par.cartao)),
+    ].join("")).join("");
+    const fontes = ok.map((item) =>
+      `${item.dia}: ${item.proveniencia?.versao_regra || "—"} · ${item.proveniencia?.executado_em || "—"}`
+    ).join(" | ");
+    return `<article class="ca-panel"><h4>${escapeHtml(nome)} ${avisos}</h4>
+      <p class="ca-hint">${ok.length} de ${itens.length} dias com conciliação disponível.</p>
+      <div class="ca-kpis">
+        <article class="ca-kpi"><span>Casados</span><strong>${resumo.casados}</strong><small>${safeCurrency(resumo.total)}</small></article>
+        <article class="ca-kpi ca-kpi--laranja"><span>A maior</span><strong>${resumo.maior}</strong></article>
+        <article class="ca-kpi ca-kpi--vermelho"><span>A menor</span><strong>${resumo.menor}</strong></article>
+        <article class="ca-kpi"><span>Pares prováveis</span><strong>${resumo.pares}</strong></article>
+      </div>
+      ${linhas ? `<div class="ca-table-wrap"><table class="table-compact ca-receipts-table">
+        <thead><tr><th>Data</th><th>Hora</th><th class="ca-num">Valor</th><th>Bandeira / forma</th><th>Classificação</th><th>Frentista / motivos</th></tr></thead>
+        <tbody>${linhas}</tbody></table></div>` : '<p class="ca-ok">Sem divergências nos dias consultados.</p>'}
+      <p class="ca-provenance">${escapeHtml(fontes)}</p>
+    </article>`;
+  }).join("");
+  const ranking = rankingFrentistas(dias);
+  const rankingHtml = ranking.length
+    ? `<div class="ca-table-wrap"><table class="table-compact"><thead><tr><th>Frentista</th><th>Atribuídos</th><th>Sugestões</th></tr></thead>
+      <tbody>${ranking.map((linha) => `<tr><td>#${escapeHtml(linha.frentista)}</td><td>${linha.atribuidos}</td><td>${linha.sugestoes}</td></tr>`).join("")}</tbody></table></div>`
+    : '<p class="ca-muted">Sem atribuições ou sugestões nos dias disponíveis.</p>';
+  return `<h3>Recebimentos eletrônicos</h3>
+    ${falhas.length ? `<p class="ca-error" role="alert">Dias indisponíveis: ${escapeHtml(falhas.join(" · "))}. Totais e ranking são parciais.</p>` : ""}
+    ${adquirentes || '<p class="ca-muted">Sem adquirentes disponíveis.</p>'}
+    <section class="ca-panel"><h4>Ranking do período por frentista</h4>
+      <p class="ca-hint">Sugestões não são atribuições confirmadas. Um recebimento conta uma vez por candidato; pares estão incluídos.</p>${rankingHtml}
+    </section>`;
+}
+
+async function carregarRecebimentos(container, unidade, dias) {
+  const respostas = [];
+  const falhas = [];
+  let proximo = 0;
+  const worker = async () => {
+    while (proximo < dias.length) {
+      const dia = dias[proximo++];
+      try {
+        respostas.push(await apiClient.get(RECEBIMENTOS_URL, { params: { unidade, dia }, timeout: 200000 }));
+      } catch (error) {
+        falhas.push(`${dia}: ${error.message || "falha na consulta"}`);
+      }
+    }
+  };
+  await Promise.all([worker(), worker()]);
+  respostas.sort((a, b) => a.dia.localeCompare(b.dia));
+  container.querySelector("#caRecebimentos").innerHTML = renderRecebimentos(respostas, falhas);
 }
 
 function renderKpis(resultado) {
@@ -166,13 +313,35 @@ async function loadUnidades(select) {
 }
 
 async function carregarAuditoria(container) {
+  if (consultas.has(container)) return consultas.get(container);
+  const consulta = executarConsulta(container);
+  consultas.set(container, consulta);
+  try {
+    await consulta;
+  } finally {
+    consultas.delete(container);
+  }
+}
+
+async function executarConsulta(container) {
   const unidade = container.querySelector("#caUnidade").value;
   const inicio = container.querySelector("#caInicio").value;
   const fim = container.querySelector("#caFim").value;
   const mensagem = container.querySelector("#caError");
   const conteudo = container.querySelector("#caResults");
+  let dias;
+  try {
+    dias = diasDoPeriodo(inicio, fim);
+  } catch (error) {
+    showError(container, error);
+    return;
+  }
+  container.querySelectorAll("#caFilters input, #caFilters select, #caFilters button").forEach((node) => { node.disabled = true; });
   mensagem.classList.add("hidden");
   conteudo.innerHTML = '<p class="ca-empty">Carregando auditoria…</p>';
+  container.querySelector("#caRecebimentos").innerHTML = '<h3>Recebimentos eletrônicos</h3><p class="ca-muted">Carregando recebimentos…</p>';
+  container.querySelector("#caProveniencia").textContent = "";
+  const recebimentos = carregarRecebimentos(container, unidade, dias);
   try {
     const resultado = await apiClient.get(FECHAMENTO_URL, { params: { unidade, inicio, fim } });
     conteudo.innerHTML = `${renderKpis(resultado)}<section class="ca-panel"><h3>Caixas auditados</h3>${renderTabela(resultado)}</section>`;
@@ -198,6 +367,12 @@ async function carregarAuditoria(container) {
   } catch (error) {
     conteudo.innerHTML = "";
     showError(container, error);
+  } finally {
+    try {
+      await recebimentos;
+    } finally {
+      container.querySelectorAll("#caFilters input, #caFilters select, #caFilters button").forEach((node) => { node.disabled = false; });
+    }
   }
 }
 
@@ -215,6 +390,7 @@ export async function renderCashAudit(container, { load = false } = {}) {
         </form>
         <p id="caError" class="ca-error hidden" role="alert"></p>
         <div id="caResults"><p class="ca-empty">Selecione uma unidade para consultar.</p></div>
+        <section id="caRecebimentos" class="ca-receipts" aria-live="polite"></section>
         <footer id="caProveniencia" class="ca-provenance">Proveniência disponível após a consulta.</footer>
       </div>`;
     container.querySelector("#caFilters").addEventListener("submit", (event) => {

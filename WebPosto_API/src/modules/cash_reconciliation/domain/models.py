@@ -7,6 +7,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -61,12 +62,26 @@ class Destino(_Frozen):
     prazo_dias: int = 1
 
 
+class SituacaoAdquirente(str, Enum):
+    ATIVO = "ativo"
+    PENDENTE = "pendente"
+    CREDENCIAL_INVALIDA = "credencial inválida"
+
+
+class AdquirenteConfigurada(_Frozen):
+    nome: Literal["PAGBANK", "MAIS_PAGAMENTOS", "REDE", "CIELO", "PREMMIA"]
+    situacao: SituacaoAdquirente
+    modalidades: tuple[Literal["cartoes", "pix", "premmia"], ...]
+    setores: tuple[str, ...] = ()
+
+
 class Unidade(_Frozen):
     empresa_codigo: int
     nome: str
     chave_env: str                         # NOME da variavel de ambiente com a CHAVE (nunca o valor)
     destinos: tuple[Destino, ...]
     destino_padrao: int | None = None      # conta assumida quando a sangria vem sem contaCodigo
+    adquirentes: tuple[AdquirenteConfigurada, ...] = ()
 
     def destino(self, conta_codigo: int | None) -> Destino | None:
         return next((d for d in self.destinos if d.conta_codigo == conta_codigo), None)

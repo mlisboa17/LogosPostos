@@ -27,6 +27,10 @@ class PagBankErro(WebPostoErro):
     pass
 
 
+class PagBankCredencialInvalida(PagBankErro):
+    pass
+
+
 def _texto(v: Any) -> str | None:
     s = str(v).strip() if v is not None else ""
     return s or None
@@ -58,7 +62,7 @@ async def buscar_transacoes(
     user = (os.getenv(f"PAGBANK_USER_{empresa_codigo}") or "").strip()
     token = (os.getenv(f"PAGBANK_TOKEN_{empresa_codigo}") or "").strip()
     if not user or not token:
-        raise PagBankErro(f"credenciais PagBank ausentes para {empresa_codigo}")
+        raise PagBankCredencialInvalida(f"credenciais PagBank ausentes para {empresa_codigo}")
     proprio = client is None
     http = client or httpx.AsyncClient(base_url=BASE_URL, timeout=60.0)
     vistos: set[str] = set()
@@ -74,6 +78,8 @@ async def buscar_transacoes(
                 raise PagBankErro(type(exc).__name__) from None
             if resp.status_code == 404:
                 return saida
+            if resp.status_code in (401, 403):
+                raise PagBankCredencialInvalida("credencial inválida")
             if resp.status_code != 200:
                 raise PagBankErro(f"HTTP {resp.status_code}")
             payload = resp.json()

@@ -5,6 +5,10 @@
       "empresa_codigo": 74014,
       "nome": "POSTO DOZE FILIAL II",
       "chave_env": "WEBPOSTO_API_KEY_POSTO_DOZE_FILIAL_II",
+      "adquirentes": [
+        {"nome": "PAGBANK", "situacao": "ativo", "modalidades": ["cartoes", "pix"]},
+        {"nome": "PREMMIA", "situacao": "pendente", "modalidades": ["premmia"]}
+      ],
       "destinos": [
         {"conta_codigo": 86248, "tipo": "deposito_direto", "banco": "BB", "terminais": ["POSTO REAL FOSFATO ATMR"]},
         {"conta_codigo": 86081, "tipo": "cofre", "banco": "BB", "prazo_dias": 1}
@@ -14,6 +18,12 @@
       "empresa_codigo": 11495,
       "nome": "POSTO VIP",
       "chave_env": "WEBPOSTO_API_KEY_POSTO_VIP",
+      "adquirentes": [
+        {"nome": "MAIS_PAGAMENTOS", "situacao": "pendente", "modalidades": ["pix"], "setores": ["pista", "loja"]},
+        {"nome": "REDE", "situacao": "pendente", "modalidades": ["cartoes"], "setores": ["pista"]},
+        {"nome": "CIELO", "situacao": "pendente", "modalidades": ["cartoes"], "setores": ["loja"]},
+        {"nome": "PREMMIA", "situacao": "pendente", "modalidades": ["premmia"]}
+      ],
       "destinos": [
         {"conta_codigo": 65321, "tipo": "deposito_direto", "banco": "BRADESCO"},
         {"conta_codigo": 55028, "tipo": "cofre", "banco": "ITAU", "prazo_dias": 1}
@@ -23,6 +33,10 @@
       "empresa_codigo": 5555,
       "nome": "AP CASA CAIADA",
       "chave_env": "WEBPOSTO_API_KEY_CASA_CAIADA",
+      "adquirentes": [
+        {"nome": "PAGBANK", "situacao": "ativo", "modalidades": ["cartoes", "pix"]},
+        {"nome": "PREMMIA", "situacao": "pendente", "modalidades": ["premmia"]}
+      ],
       "destino_padrao": 17837,
       "destinos": [
         {"conta_codigo": 17837, "tipo": "cofre", "banco": "BB", "prazo_dias": 1}
@@ -32,6 +46,11 @@
       "empresa_codigo": 118508,
       "nome": "CONVENIENCIA 24 HORAS",
       "chave_env": "WEBPOSTO_API_KEY_CONVENIENCIA_24_HORAS",
+      "adquirentes": [
+        {"nome": "PAGBANK", "situacao": "credencial inválida", "modalidades": ["pix"]},
+        {"nome": "CIELO", "situacao": "pendente", "modalidades": ["cartoes"]},
+        {"nome": "PREMMIA", "situacao": "pendente", "modalidades": ["premmia"]}
+      ],
       "destinos": [
         {"conta_codigo": null, "tipo": "cofre", "banco": "BB", "prazo_dias": 7}
       ]

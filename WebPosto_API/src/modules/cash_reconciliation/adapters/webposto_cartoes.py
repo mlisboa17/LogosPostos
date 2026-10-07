@@ -72,6 +72,17 @@ async def buscar_abastecimentos(unidade: Unidade, inicio: date, fim: date, *, cl
 TIPO_PIX = "B"
 
 
+def _cancelada(valor: Any) -> bool:
+    if valor is None:
+        return False
+    marcador = str(valor).strip().upper()
+    if marcador in {"N", "FALSE", "0"}:
+        return False
+    if marcador in {"S", "TRUE", "1"}:
+        return True
+    raise ValueError("Marcador de cancelamento de venda inválido.")
+
+
 async def buscar_contexto_vendas(
     unidade: Unidade, inicio: date, fim: date, *, client: httpx.AsyncClient | None = None
 ) -> tuple[set[int], list[CartaoErp]]:
@@ -83,9 +94,20 @@ async def buscar_contexto_vendas(
     itens = await paginar(unidade, "/INTEGRACAO/V1/VENDAS/ITENS", p, client=client)
     formas = await paginar(unidade, "/INTEGRACAO/V1/VENDAS_FORMA_PAGAMENTO", p, client=client)
     vendas = await paginar(unidade, "/INTEGRACAO/V1/VENDAS", p, client=client)
-    hora = {v["vendaCodigo"]: v.get("dataHora") for v in vendas if not v.get("cancelada")}
-    vendas_dinheiro = {f["vendaCodigo"] for f in formas if f.get("tipoFormaPagamento") == TIPO_DINHEIRO}
-    itens_dinheiro = {i["vendaItemCodigo"] for i in itens if i.get("vendaCodigo") in vendas_dinheiro}
+    hora = {
+        v["vendaCodigo"]: v.get("dataHora")
+        for v in vendas
+        if v.get("empresaCodigo") == unidade.empresa_codigo and not _cancelada(v.get("cancelada"))
+    }
+    vendas_dinheiro = {
+        f["vendaCodigo"] for f in formas
+        if f.get("empresaCodigo") == unidade.empresa_codigo
+        and f.get("tipoFormaPagamento") == TIPO_DINHEIRO and f["vendaCodigo"] in hora
+    }
+    itens_dinheiro = {
+        i["vendaItemCodigo"] for i in itens
+        if i.get("empresaCodigo") == unidade.empresa_codigo and i.get("vendaCodigo") in vendas_dinheiro
+    }
     pix = [
         CartaoErp(
             codigo=f.get("codigo") or f["vendaCodigo"],

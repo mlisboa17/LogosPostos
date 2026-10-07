@@ -6,9 +6,21 @@ from fastapi import APIRouter, HTTPException, Query
 
 from ..adapters.webposto_http import WebPostoErro
 from ..application.auditar_fechamento import auditar_unidade
+from ..application.recebimentos import conciliar_recebimentos
 from ..config import carregar_unidades
+from ..domain.recebimentos import ResultadoRecebimentos
 
 router = APIRouter(prefix="/api/v1/cash-audit", tags=["cash-audit"])
+
+
+@router.get("/recebimentos", response_model=ResultadoRecebimentos)
+async def obter_recebimentos(
+    unidade: int = Query(...),
+    dia: date = Query(...),
+) -> ResultadoRecebimentos:
+    if unidade not in carregar_unidades():
+        raise HTTPException(status_code=404, detail="Unidade não encontrada.")
+    return await conciliar_recebimentos(unidade, dia)
 
 
 @router.get("/fechamento")
