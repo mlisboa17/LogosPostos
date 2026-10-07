@@ -121,6 +121,7 @@ class Proveniencia(_Frozen):
     versao_regra: str
     fonte_sangrias: str
     extratos: tuple[str, ...]  # "<arquivo>:<sha256>"
+    outras_fontes: tuple[str, ...] = ()
 
 
 class ResultadoConciliacao(_Frozen):
