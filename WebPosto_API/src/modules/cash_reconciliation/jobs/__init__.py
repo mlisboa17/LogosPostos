@@ -1,0 +1,1 @@
+"""Execucoes autonomas do modulo."""

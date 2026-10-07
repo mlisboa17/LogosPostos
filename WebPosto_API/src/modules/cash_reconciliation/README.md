@@ -33,3 +33,47 @@ Execute a partir de `WebPosto_API`, sem carregar credenciais nos testes unitári
 python -m pytest tests/unit/cash_reconciliation -q -o addopts=""
 node --test tests/frontend/cashAudit.test.mjs
 ```
+
+## Robô noturno
+
+Execute a partir de `WebPosto_API`:
+
+```powershell
+python -B -m src.modules.cash_reconciliation.jobs.noturno
+python -B -m src.modules.cash_reconciliation.jobs.noturno --dia 2026-10-06
+```
+
+Sem `--dia`, coleta ontem. O próprio processo carrega as variáveis locais com
+`load_dotenv` e recusa executar se `WEBPOSTO_WRITES` não for `0`.
+Fechamento e cada adquirente têm timeout de 180 segundos. Falhas são isoladas;
+pendências e credenciais inválidas configuradas não geram consultas externas.
+Código de saída `1` indica falha de coleta/processamento/persistência; estados
+pendentes ou credenciais inválidas permanecem explícitos nos resultados.
+
+Os arquivos ficam em `data/cash_audit/<dia>/<empresaCodigo>.json`, ignorados pelo
+Git, com id de execução, versões das regras e fontes. Uma nova execução substitui
+atomicamente o mesmo dia/unidade. O log resumido é `data/cash_audit/noturno.log`,
+sem valores de cliente ou mensagens brutas dos fornecedores.
+
+As rotas de recebimentos e fechamento usam o registro persistido quando existe.
+Um arquivo corrompido retorna erro explícito, sem consulta ao vivo silenciosa.
+Para períodos de fechamento parcialmente persistidos, apenas os dias ausentes
+são consultados ao vivo; `execucoes` preserva a proveniência de cada dia.
+Falhas persistidas continuam visíveis até uma nova execução substituir o registro.
+
+### Agendador do Windows
+
+O script não é executado automaticamente. Para registrar a tarefa às 03:00,
+rode a partir da raiz do repositório, com um Python que contenha as dependências:
+
+```powershell
+.\scripts\registrar_robo_noturno.ps1 -PythonExe "C:\caminho\python.exe"
+```
+
+A tarefa usa a conta Windows atual com logon S4U, diretório de trabalho
+`WebPosto_API`, impede instâncias sobrepostas e termina após no máximo 3 horas.
+Não depende de compartilhamentos de rede nem de autenticação integrada Windows;
+usa arquivos locais e HTTPS com credenciais do fornecedor. A conta precisa ter
+permissão de execução, leitura da configuração local e escrita no diretório `data`.
+O registro não sobrescreve tarefa existente: para substituí-la, remova a anterior
+explicitamente no Agendador. Credenciais não são incluídas nos argumentos da tarefa.

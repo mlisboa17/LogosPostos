@@ -16,4 +16,5 @@ htmlcov/
 node_modules/
 playwright-report/
 test-results/
+WebPosto_API/data/
 .venv/
