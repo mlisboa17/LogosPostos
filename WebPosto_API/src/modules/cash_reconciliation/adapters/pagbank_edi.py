@@ -9,13 +9,14 @@ Credenciais por unidade: PAGBANK_USER_<empresa> e PAGBANK_TOKEN_<empresa> (nunca
 from __future__ import annotations
 
 import os
-from datetime import date, datetime
+from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
 import httpx
 
 from ..domain.cartoes import TransacaoAdquirente
+from ..domain.tempo import ler_data_hora
 from .webposto_http import WebPostoErro
 
 BASE_URL = "https://edi.api.pagbank.com.br/movement/v3.00"
@@ -50,7 +51,7 @@ def para_transacao(r: dict[str, Any]) -> TransacaoAdquirente | None:
         nsu=_texto(r.get("nsu")),
         autorizacao=_texto(r.get("codigo_autorizacao")),
         valor=valor.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
-        momento=datetime.fromisoformat(f"{dia}T{hora}"),
+        momento=ler_data_hora(f"{dia}T{hora}"),
         bandeira=_texto(r.get("instituicao_financeira")),
         terminal=_texto(r.get("numero_serie_leitor")),
     )

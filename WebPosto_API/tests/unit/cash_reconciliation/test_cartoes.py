@@ -8,6 +8,7 @@ from src.modules.cash_reconciliation.adapters import pagbank_edi
 from src.modules.cash_reconciliation.adapters.webposto_cartoes import para_abastecimento, para_cartao
 from src.modules.cash_reconciliation.application.conciliar_cartoes import conciliar
 from src.modules.cash_reconciliation.domain.cartoes import Abastecimento, Atribuicao, CartaoErp, TransacaoAdquirente
+from src.modules.cash_reconciliation.domain.tempo import FUSO
 from src.modules.cash_reconciliation.rules.cartoes import VERSAO, casar, investigar
 
 DIA = date(2026, 10, 5)
@@ -107,7 +108,7 @@ def test_pagbank_transacao_real_data_e_hora_separadas_e_filtro_de_status():
             "data_inicial_transacao": "2026-10-05", "hora_inicial_transacao": "00:29:25", "status_pagamento": "1",
             "tipo_evento": "1", "instituicao_financeira": "VISA", "numero_serie_leitor": "SN1"}
     t = pagbank_edi.para_transacao(base)
-    assert t.momento == datetime(2026, 10, 5, 0, 29, 25) and t.valor == Decimal("87.43") and t.terminal == "SN1"
+    assert t.momento == datetime(2026, 10, 5, 0, 29, 25, tzinfo=FUSO) and t.valor == Decimal("87.43") and t.terminal == "SN1"
     assert pagbank_edi.para_transacao({**base, "status_pagamento": "3"}) is None
     assert pagbank_edi.para_transacao({**base, "tipo_evento": "2"}) is None
 
@@ -140,4 +141,4 @@ def test_mapeia_cartao_e_abastecimento_do_webposto():
     a = para_abastecimento({"abastecimentoCodigo": 2, "empresaCodigo": 74014, "dataHoraAbastecimento": "2026-10-05T00:28:48-03:00",
                             "codigoBico": 3, "valorTotal": 50, "codigoFrentista": 7, "vendaItemCodigo": 11})
     assert c.administradora == "MAESTRO PAGSEGURO" and c.valor == Decimal("10.5")
-    assert a.momento == datetime(2026, 10, 5, 0, 28, 48) and a.frentista == 7
+    assert a.momento == datetime(2026, 10, 5, 0, 28, 48, tzinfo=FUSO) and a.frentista == 7

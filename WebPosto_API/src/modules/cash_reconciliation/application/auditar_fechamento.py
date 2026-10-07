@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime
+from datetime import date
 from typing import Iterable
 
 from ..adapters.webposto_caixas import PATH_APRESENTADO, PATH_CAIXAS, buscar_apresentados, buscar_caixas
@@ -10,6 +10,7 @@ from ..adapters.webposto_sangrias import FONTE as FONTE_SANGRIAS, buscar_sangria
 from ..config import carregar_unidades
 from ..domain.fechamento import Caixa, LinhaModalidade, ResultadoAuditoria
 from ..domain.models import Proveniencia, Sangria
+from ..domain.tempo import agora
 from ..rules.fechamento import VERSAO, auditar_caixa
 
 
@@ -34,7 +35,7 @@ def auditar(
         caixas=auditorias,
         proveniencia=Proveniencia(
             execucao_id=uuid.uuid4().hex,
-            executado_em=datetime.now(),
+            executado_em=agora(),
             versao_regra=VERSAO,
             fonte_sangrias=FONTE_SANGRIAS,
             extratos=(),

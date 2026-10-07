@@ -11,6 +11,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .tempo import DataHoraLocal, para_local
+
 
 class _Frozen(BaseModel):
     model_config = ConfigDict(frozen=True)
@@ -34,7 +36,7 @@ class Sangria(_Frozen):
     conta_codigo: int | None
     funcionario_codigo: int
     valor: Decimal
-    momento: datetime
+    momento: DataHoraLocal
     alterada: bool = False
 
 
@@ -44,13 +46,13 @@ class DepositoBancario(_Frozen):
     conta: str
     valor: Decimal
     data: date
-    momento: datetime | None  # None quando o extrato nao informa hora
+    momento: DataHoraLocal | None  # None quando o extrato nao informa hora
     canal: Canal
     terminal: str | None = None
 
     @property
     def referencia(self) -> datetime:
-        return self.momento or datetime.combine(self.data, datetime.min.time())
+        return self.momento or para_local(datetime.combine(self.data, datetime.min.time()))
 
 
 class Destino(_Frozen):
@@ -132,7 +134,7 @@ class FluxoCofre(_Frozen):
 
 class Proveniencia(_Frozen):
     execucao_id: str
-    executado_em: datetime
+    executado_em: DataHoraLocal
     versao_regra: str
     fonte_sangrias: str
     extratos: tuple[str, ...]  # "<arquivo>:<sha256>"

@@ -1,13 +1,14 @@
 """Auditoria do fechamento de caixa (sem banco) — dados exclusivamente do webPosto."""
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date
 from decimal import Decimal
 from enum import Enum
 
 from pydantic import BaseModel, ConfigDict
 
 from .models import Proveniencia, Sangria
+from .tempo import DataHoraLocal
 
 
 class _Frozen(BaseModel):
@@ -47,8 +48,8 @@ class Caixa(_Frozen):
     pdv_codigo: int
     centro_custo: int | None = None  # distingue pista x conveniencia quando ha 2 caixas no dia
     funcionario_codigo: int
-    abertura: datetime
-    fechamento: datetime | None
+    abertura: DataHoraLocal
+    fechamento: DataHoraLocal | None
     fechado: bool
     consolidado: bool
     bloqueado: bool

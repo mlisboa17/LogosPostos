@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Self
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
@@ -23,7 +22,7 @@ class ResultadoDiario(BaseModel):
     versoes_regras: tuple[str, ...]
 
     @model_validator(mode="after")
-    def validar_escopo(self) -> Self:
+    def validar_escopo(self) -> ResultadoDiario:
         if (self.fechamento is None) == (self.erro_fechamento is None):
             raise ValueError("Fechamento deve conter resultado ou erro, exclusivamente.")
         if self.recebimentos.empresa_codigo != self.empresa_codigo or self.recebimentos.dia != self.dia:

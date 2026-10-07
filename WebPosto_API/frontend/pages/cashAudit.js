@@ -1,5 +1,5 @@
 import { apiClient } from "../services/apiClient.js";
-import { formatCurrency, formatDate } from "../services/format.js";
+import { formatCurrency, formatDate, formatTime, formatDateTime, recifeDateISO } from "../services/format.js";
 
 const UNIDADES_URL = "/api/v1/cash-audit/unidades";
 const FECHAMENTO_URL = "/api/v1/cash-audit/fechamento";
@@ -35,18 +35,11 @@ function safeCurrency(value) {
   return escapeHtml(formatCurrency(value));
 }
 
-function localDate(value) {
-  const year = value.getFullYear();
-  const month = String(value.getMonth() + 1).padStart(2, "0");
-  const day = String(value.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function defaultPeriod() {
-  const fim = new Date();
-  const inicio = new Date(fim);
-  inicio.setDate(inicio.getDate() - 6);
-  return { inicio: localDate(inicio), fim: localDate(fim) };
+export function periodoPadrao(instante = new Date()) {
+  const fim = recifeDateISO(instante);
+  const inicio = new Date(`${fim}T12:00:00Z`);
+  inicio.setUTCDate(inicio.getUTCDate() - 6);
+  return { inicio: inicio.toISOString().slice(0, 10), fim };
 }
 
 export function diasDoPeriodo(inicio, fim) {
@@ -105,10 +98,10 @@ function renderAtribuicao(inv) {
 function renderDivergencia(dia, transacao, classificacao, tom, investigacao = null, cartao = null) {
   const momento = transacao.momento || "";
   const detalhePar = cartao
-    ? `<p class="ca-hint">ERP: ${escapeHtml(String(cartao.momento).slice(11, 19))} · ${safeCurrency(cartao.valor)}</p>`
+    ? `<p class="ca-hint">ERP: ${escapeHtml(formatTime(cartao.momento))} · ${safeCurrency(cartao.valor)}</p>`
     : "";
   return `<tr class="ca-row--${tom}">
-    <td>${escapeHtml(formatDate(dia))}</td><td>${escapeHtml(String(momento).slice(11, 19))}</td>
+    <td>${escapeHtml(formatDate(dia))}</td><td>${escapeHtml(formatTime(momento))}</td>
     <td class="ca-num">${safeCurrency(transacao.valor)}</td>
     <td>${escapeHtml(transacao.bandeira || transacao.administradora || "—")}</td>
     <td><span class="ca-chip ca-chip--${tom}">${classificacao}</span>${detalhePar}</td>
@@ -146,7 +139,7 @@ export function renderRecebimentos(dias, falhas = []) {
       ...item.pares_provaveis.map((par) => renderDivergencia(item.dia, par.investigacao.transacao, "Par provável", "amarelo", par.investigacao, par.cartao)),
     ].join("")).join("");
     const fontes = ok.map((item) =>
-      `${item.dia}: ${item.proveniencia?.versao_regra || "—"} · ${item.proveniencia?.executado_em || "—"}`
+      `${formatDate(item.dia)}: ${item.proveniencia?.versao_regra || "—"} · ${formatDateTime(item.proveniencia?.executado_em)}`
     ).join(" | ");
     return `<article class="ca-panel"><h4>${escapeHtml(nome)} ${avisos}</h4>
       <p class="ca-hint">${ok.length} de ${itens.length} dias com conciliação disponível.</p>
@@ -185,7 +178,7 @@ async function carregarRecebimentos(container, unidade, dias) {
       try {
         respostas.push(await apiClient.get(RECEBIMENTOS_URL, { params: { unidade, dia }, timeout: 200000 }));
       } catch (error) {
-        falhas.push(`${dia}: ${error.message || "falha na consulta"}`);
+        falhas.push(`${formatDate(dia)}: ${error.message || "falha na consulta"}`);
       }
     }
   };
@@ -347,7 +340,7 @@ async function executarConsulta(container) {
     conteudo.innerHTML = `${renderKpis(resultado)}<section class="ca-panel"><h3>Caixas auditados</h3>${renderTabela(resultado)}</section>`;
     const proveniencia = resultado.proveniencia || {};
     container.querySelector("#caProveniencia").textContent =
-      `Fonte: webPosto · Regra ${proveniencia.versao_regra || "—"} · Consultado em ${proveniencia.executado_em ? new Date(proveniencia.executado_em).toLocaleString("pt-BR") : "—"}`;
+      `Fonte: webPosto · Regra ${proveniencia.versao_regra || "—"} · Consultado em ${formatDateTime(proveniencia.executado_em)} (Recife)`;
     container.querySelectorAll("[data-ca-row]").forEach((row) => {
       const toggle = () => {
         const index = row.dataset.caRow;
@@ -378,14 +371,14 @@ async function executarConsulta(container) {
 
 export async function renderCashAudit(container, { load = false } = {}) {
   if (!container.querySelector(".cash-audit")) {
-    const { inicio, fim } = defaultPeriod();
+    const { inicio, fim } = periodoPadrao();
     container.innerHTML = `
       <div class="cash-audit">
         <header class="ca-header"><div><h2>Fechamento do Dia</h2><p>Auditoria de caixa por unidade, período e modalidade.</p></div></header>
         <form id="caFilters" class="ca-filters">
           <label>Unidade<select id="caUnidade" required></select></label>
-          <label>Data início<input id="caInicio" type="date" value="${inicio}" required></label>
-          <label>Data fim<input id="caFim" type="date" value="${fim}" required></label>
+          <label>Data início<input id="caInicio" type="date" lang="pt-BR" value="${inicio}" required></label>
+          <label>Data fim<input id="caFim" type="date" lang="pt-BR" value="${fim}" required></label>
           <button type="submit">Consultar</button>
         </form>
         <p id="caError" class="ca-error hidden" role="alert"></p>

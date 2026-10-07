@@ -4,6 +4,10 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$FusoWindows = [System.TimeZoneInfo]::Local
+if ($FusoWindows.BaseUtcOffset -ne [TimeSpan]::FromHours(-3) -or $FusoWindows.SupportsDaylightSavingTime) {
+    Write-Warning "O fuso do Windows nao e UTC-03:00 fixo. Ajuste para o horario de Brasilia/Recife antes de agendar: 03:00 segue o relogio do Windows."
+}
 $Repositorio = Split-Path -Parent $PSScriptRoot
 $DiretorioApi = Join-Path $Repositorio "WebPosto_API"
 if (-not $PythonExe) {

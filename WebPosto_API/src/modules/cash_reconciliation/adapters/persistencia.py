@@ -10,6 +10,7 @@ from tempfile import NamedTemporaryFile
 from pydantic import ValidationError
 
 from ..domain.execucao import ResultadoDiario
+from ..domain.tempo import formatar_data
 
 DIRETORIO = Path(__file__).resolve().parents[4] / "data" / "cash_audit"
 logger = logging.getLogger(__name__)
@@ -30,7 +31,7 @@ def carregar_dia(empresa_codigo: int, dia: date, *, diretorio: Path | None = Non
     except FileNotFoundError:
         return None
     except (OSError, UnicodeError):
-        logger.error("Falha de leitura unidade=%s dia=%s", empresa_codigo, dia)
+        logger.error("Falha de leitura unidade=%s dia=%s", empresa_codigo, formatar_data(dia))
         raise PersistenciaErro("Falha ao ler auditoria persistida.") from None
     try:
         resultado = ResultadoDiario.model_validate_json(conteudo)
@@ -38,7 +39,7 @@ def carregar_dia(empresa_codigo: int, dia: date, *, diretorio: Path | None = Non
             raise ValueError("Escopo incorreto.")
         return resultado
     except (ValidationError, ValueError):
-        logger.error("Registro invalido unidade=%s dia=%s", empresa_codigo, dia)
+        logger.error("Registro invalido unidade=%s dia=%s", empresa_codigo, formatar_data(dia))
         raise PersistenciaErro("Auditoria persistida inválida.") from None
 
 
@@ -55,7 +56,7 @@ def salvar_dia(resultado: ResultadoDiario, *, diretorio: Path | None = None) -> 
         os.replace(temporario, caminho)
         return caminho
     except OSError:
-        logger.error("Falha de gravacao unidade=%s dia=%s", resultado.empresa_codigo, resultado.dia)
+        logger.error("Falha de gravacao unidade=%s dia=%s", resultado.empresa_codigo, formatar_data(resultado.dia))
         raise PersistenciaErro("Falha ao persistir auditoria.") from None
     finally:
         if temporario is not None and temporario.exists():

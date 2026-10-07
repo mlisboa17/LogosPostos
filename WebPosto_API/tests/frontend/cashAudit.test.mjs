@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 globalThis.window = { location: { origin: "http://localhost" } };
-const { diasDoPeriodo, rankingFrentistas, renderRecebimentos } = await import("../../frontend/pages/cashAudit.js");
+const { diasDoPeriodo, rankingFrentistas, renderRecebimentos, periodoPadrao } = await import("../../frontend/pages/cashAudit.js");
+const { formatDate, formatTime, formatDateTime, recifeDateISO } = await import("../../frontend/services/format.js");
 
 const candidato = (frentista) => ({
   abastecimento: { frentista }, pontos: 80,
@@ -55,7 +56,7 @@ test("pendencias e credenciais invalidas nao exibem KPIs ficticios", () => {
 });
 
 test("divergencias tem cores, motivos escapados, proveniencia e alerta de periodo parcial", () => {
-  const html = renderRecebimentos([dia], ["2026-01-03: timeout"]);
+  const html = renderRecebimentos([dia], ["03/01/2026: timeout"]);
   for (const tom of ["vermelho", "laranja", "amarelo"]) assert.match(html, new RegExp(`ca-row--${tom}`));
   assert.match(html, /Frentista #7 · atribuído/);
   assert.match(html, /Sugestão \(3 candidatos\)/);
@@ -63,4 +64,19 @@ test("divergencias tem cores, motivos escapados, proveniencia e alerta de period
   assert.match(html, /Totais e ranking são parciais/);
   assert.match(html, /&lt;script&gt;/);
   assert.doesNotMatch(html, /<script>/);
+  assert.doesNotMatch(html, /2026-01-\d{2}/);
+  assert.match(html, /02\/01\/2026/);
+  assert.match(html, /10:00/);
+  assert.doesNotMatch(html, /10:00:00/);
+});
+
+test("datas e horas sempre Recife independente do fuso do navegador", () => {
+  assert.equal(formatDateTime("2026-10-08T01:00:00Z"), "07/10/2026 22:00");
+  assert.equal(formatTime("2026-10-05T03:28:48Z"), "00:28");
+  assert.equal(formatDate("2026-10-05"), "05/10/2026");
+  assert.equal(formatDateTime("2026-10-07T14:05:00"), "07/10/2026 14:05");
+  assert.equal(recifeDateISO(new Date("2026-10-08T01:00:00Z")), "2026-10-07");
+  assert.deepEqual(periodoPadrao(new Date("2026-10-08T01:00:00Z")), {
+    inicio: "2026-10-01", fim: "2026-10-07",
+  });
 });

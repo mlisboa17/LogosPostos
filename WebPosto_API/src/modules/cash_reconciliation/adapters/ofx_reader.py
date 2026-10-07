@@ -15,6 +15,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from ..domain.models import Canal, DepositoBancario
+from ..domain.tempo import para_local
 
 BANCOS = {"1": "BB", "001": "BB", "237": "BRADESCO", "0237": "BRADESCO", "341": "ITAU", "0341": "ITAU"}
 
@@ -43,7 +44,7 @@ def _data(valor: str) -> date | None:
 
 def _momento(postado: date, dia: int, mes: int, hora: int, minuto: int) -> datetime:
     ano = postado.year - (1 if mes > postado.month + 1 else 0)  # virada de ano
-    return datetime(ano, mes, dia, hora, minuto)
+    return para_local(datetime(ano, mes, dia, hora, minuto))
 
 
 def _classificar(banco: str, nome: str, memo: str, postado: date) -> tuple[Canal, str | None, datetime | None] | None:

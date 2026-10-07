@@ -4,7 +4,7 @@ CAIXAS_APRESENTADO nao filtra por empresa: o filtro e feito pelos caixaCodigo da
 """
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date
 from decimal import Decimal
 from typing import Any
 
@@ -12,6 +12,7 @@ import httpx
 
 from ..domain.fechamento import MODALIDADES, Caixa, LinhaModalidade
 from ..domain.models import Unidade
+from ..domain.tempo import ler_data_hora
 from .webposto_http import paginar
 
 PATH_CAIXAS = "/INTEGRACAO/V1/CAIXAS"
@@ -31,8 +32,8 @@ def para_caixa(r: dict[str, Any]) -> Caixa:
         pdv_codigo=r["pdvCodigo"],
         centro_custo=r.get("centroCusto"),
         funcionario_codigo=r["funcionarioCodigo"],
-        abertura=datetime.fromisoformat(r["abertura"]),
-        fechamento=datetime.fromisoformat(r["fechamento"]) if r.get("fechamento") else None,
+        abertura=ler_data_hora(r["abertura"]),
+        fechamento=ler_data_hora(r["fechamento"]) if r.get("fechamento") else None,
         fechado=bool(r.get("fechado")),
         consolidado=bool(r.get("consolidado")),
         bloqueado=bool(r.get("bloqueado")),

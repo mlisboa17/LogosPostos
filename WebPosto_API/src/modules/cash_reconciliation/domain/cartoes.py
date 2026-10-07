@@ -4,13 +4,14 @@ Somente leitura: o sistema classifica e sugere; correcao no ERP e humana (WEBPOS
 """
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date
 from decimal import Decimal
 from enum import Enum
 
 from pydantic import BaseModel, ConfigDict
 
 from .models import Proveniencia
+from .tempo import DataHoraLocal
 
 
 class _Frozen(BaseModel):
@@ -24,7 +25,7 @@ class TransacaoAdquirente(_Frozen):
     nsu: str | None
     autorizacao: str | None
     valor: Decimal
-    momento: datetime
+    momento: DataHoraLocal
     bandeira: str | None = None
     terminal: str | None = None   # numero de serie da maquininha (compartilhada)
 
@@ -35,7 +36,7 @@ class CartaoErp(_Frozen):
     empresa_codigo: int
     venda_codigo: int | None
     valor: Decimal
-    momento: datetime
+    momento: DataHoraLocal
     administradora: str
     nsu: str | None
     nsu_tef: str | None
@@ -45,7 +46,7 @@ class CartaoErp(_Frozen):
 class Abastecimento(_Frozen):
     codigo: int
     empresa_codigo: int
-    momento: datetime
+    momento: DataHoraLocal
     bico: int | None
     valor: Decimal
     frentista: int | None          # codigoFrentista (identfid)

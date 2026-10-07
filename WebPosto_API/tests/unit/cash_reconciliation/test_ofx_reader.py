@@ -4,6 +4,7 @@ from decimal import Decimal
 
 from src.modules.cash_reconciliation.adapters.ofx_reader import ler_ofx
 from src.modules.cash_reconciliation.domain.models import Canal
+from src.modules.cash_reconciliation.domain.tempo import FUSO
 
 
 def _ofx(bankid: str, trns: str) -> bytes:
@@ -32,7 +33,7 @@ def test_bb_classifica_bco24h_atm_e_ignora_pix_e_debitos():
     assert [d.fitid for d in e.depositos] == ["1", "2"]
     d24, atm = e.depositos
     assert d24.canal is Canal.BCO24H and d24.terminal == "TERMINAL X ATMR"
-    assert d24.momento == datetime(2026, 9, 1, 5, 21) and d24.valor == Decimal("500.00")
+    assert d24.momento == datetime(2026, 9, 1, 5, 21, tzinfo=FUSO) and d24.valor == Decimal("500.00")
     assert atm.canal is Canal.ATM_AGENCIA
 
 
@@ -50,7 +51,7 @@ def test_bradesco_varejo_com_e_sem_hora_e_atm():
     ])))
     a, b, c = e.depositos
     assert e.banco == "BRADESCO"
-    assert a.canal is Canal.BCO24H and a.terminal == "00080921" and a.momento == datetime(2026, 9, 1, 16, 53)
+    assert a.canal is Canal.BCO24H and a.terminal == "00080921" and a.momento == datetime(2026, 9, 1, 16, 53, tzinfo=FUSO)
     assert b.momento is None and b.data == date(2026, 10, 6)
     assert c.canal is Canal.ATM_AGENCIA
 

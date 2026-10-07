@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -14,6 +14,7 @@ from ..config import carregar_unidades
 from ..domain.fechamento import ResultadoAuditoria
 from ..domain.models import Proveniencia
 from ..domain.recebimentos import ResultadoRecebimentos
+from ..domain.tempo import agora
 
 router = APIRouter(prefix="/api/v1/cash-audit", tags=["cash-audit"])
 
@@ -74,7 +75,7 @@ async def obter_fechamento(
                 key=lambda c: (c.caixa.data, c.caixa.abertura),
             )),
             proveniencia=Proveniencia(
-                execucao_id=uuid.uuid4().hex, executado_em=datetime.now(),
+                execucao_id=uuid.uuid4().hex, executado_em=agora(),
                 versao_regra=" + ".join(regras),
                 fonte_sangrias=" + ".join(sorted({p.fonte_sangrias for p in proveniencias})),
                 extratos=(), outras_fontes=tuple(sorted({fonte for p in proveniencias for fonte in p.outras_fontes})),

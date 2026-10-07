@@ -43,7 +43,8 @@ python -B -m src.modules.cash_reconciliation.jobs.noturno
 python -B -m src.modules.cash_reconciliation.jobs.noturno --dia 2026-10-06
 ```
 
-Sem `--dia`, coleta ontem. O próprio processo carrega as variáveis locais com
+Sem `--dia`, coleta ontem no fuso de Recife; também aceita `--dia 06/10/2026`.
+O próprio processo carrega as variáveis locais com
 `load_dotenv` e recusa executar se `WEBPOSTO_WRITES` não for `0`.
 Fechamento e cada adquirente têm timeout de 180 segundos. Falhas são isoladas;
 pendências e credenciais inválidas configuradas não geram consultas externas.
@@ -77,3 +78,19 @@ usa arquivos locais e HTTPS com credenciais do fornecedor. A conta precisa ter
 permissão de execução, leitura da configuração local e escrita no diretório `data`.
 O registro não sobrescreve tarefa existente: para substituí-la, remova a anterior
 explicitamente no Agendador. Credenciais não são incluídas nos argumentos da tarefa.
+O script avisa quando o fuso do Windows não é UTC−03:00 fixo.
+
+## Datas e fuso
+
+O fuso único do módulo é `America/Recife`, centralizado em `domain/tempo.py`.
+Horários sem fuso (incluindo JSONs antigos) são interpretados como horário local;
+horários UTC ou com outro offset são convertidos, nunca truncados. Campos
+temporais dos modelos são normalizados na validação, evitando misturar datetimes
+com e sem fuso. A dependência `tzdata` também é necessária no Windows.
+
+A tela e os logs do robô exibem `dd/mm/aaaa` e `HH:mm`, sem depender do fuso da
+máquina do usuário. Os campos nativos de data têm `lang="pt-BR"`; o período padrão
+é calculado em Recife. JSON, parâmetros de API, pastas e consultas aos fornecedores
+permanecem em ISO; timestamps serializados carregam `-03:00`.
+A proveniência de conciliação de depósitos apenas passou a usar o relógio local;
+suas regras e o fluxo de conciliação não foram alterados.

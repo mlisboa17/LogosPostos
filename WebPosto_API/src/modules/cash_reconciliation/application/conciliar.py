@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import uuid
 from collections import defaultdict
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Iterable
@@ -32,6 +32,7 @@ from ..domain.models import (
     Unidade,
 )
 from ..rules.matching import VERSAO, Parametros, casar
+from ..domain.tempo import agora
 
 
 def _do_destino(d: DepositoBancario, destino: Destino) -> bool:
@@ -64,7 +65,7 @@ def _sem_destino(unidade: Unidade, s: Sangria) -> bool:
 def _proveniencia(extratos: dict[str, Extrato]) -> Proveniencia:
     return Proveniencia(
         execucao_id=uuid.uuid4().hex,
-        executado_em=datetime.now(),
+        executado_em=agora(),
         versao_regra=VERSAO,
         fonte_sangrias=FONTE,
         extratos=tuple(f"{nome}:{e.sha256}" for nome, e in extratos.items()),

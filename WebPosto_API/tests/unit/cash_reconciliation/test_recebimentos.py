@@ -13,6 +13,7 @@ from src.modules.cash_reconciliation.application.conciliar_cartoes import concil
 from src.modules.cash_reconciliation.domain.cartoes import Abastecimento, CartaoErp, TransacaoAdquirente
 from src.modules.cash_reconciliation.domain.models import AdquirenteConfigurada, Unidade
 from src.modules.cash_reconciliation.domain.recebimentos import RecebimentoAdquirente, ResultadoRecebimentos
+from src.modules.cash_reconciliation.domain.tempo import FUSO
 from src.modules.cash_reconciliation.interfaces import http
 
 DIA = date(2026, 1, 2)
@@ -218,7 +219,7 @@ async def test_pix_preserva_hora_venda_nao_cancelada_e_isolamento(monkeypatch):
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://sintetico.invalid") as client:
         dinheiro, pix = await webposto_cartoes.buscar_contexto_vendas(unidade(), DIA, DIA, client=client)
     assert dinheiro == {101}
-    assert len(pix) == 1 and pix[0].momento == datetime(2026, 1, 2, 10, 12, 13)
+    assert len(pix) == 1 and pix[0].momento == datetime(2026, 1, 2, 10, 12, 13, tzinfo=FUSO)
     assert pix[0].empresa_codigo == EMPRESA and pix[0].valor == Decimal("10.15")
 
 

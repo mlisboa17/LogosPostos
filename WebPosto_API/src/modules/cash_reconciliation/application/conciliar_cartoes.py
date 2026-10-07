@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from typing import Iterable
 
 from ..adapters import pagbank_edi
@@ -10,6 +10,7 @@ from ..adapters.webposto_cartoes import buscar_abastecimentos, buscar_cartoes, b
 from ..config import carregar_unidades
 from ..domain.cartoes import Abastecimento, CartaoErp, ResultadoCartoes, TransacaoAdquirente
 from ..domain.models import Proveniencia
+from ..domain.tempo import agora
 from ..rules.cartoes import VERSAO, casar, investigar, parear_sobras
 
 # administradoras do webPosto liquidadas por cada adquirente (V1/ADMINISTRADORAS)
@@ -49,7 +50,7 @@ def conciliar(
         pares_provaveis=tuple(pares),
         proveniencia=Proveniencia(
             execucao_id=uuid.uuid4().hex,
-            executado_em=datetime.now(),
+            executado_em=agora(),
             versao_regra=VERSAO,
             fonte_sangrias="",
             extratos=(),

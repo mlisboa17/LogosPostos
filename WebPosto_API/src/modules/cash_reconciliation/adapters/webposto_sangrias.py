@@ -1,13 +1,14 @@
 """Adapter GET /INTEGRACAO/V1/SANGRIAS_CAIXA (contrato validado em producao, ADR-002)."""
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date
 from decimal import Decimal
 from typing import Any
 
 import httpx
 
 from ..domain.models import Sangria, Unidade
+from ..domain.tempo import ler_data_hora
 from .webposto_http import WebPostoErro, paginar  # noqa: F401  (WebPostoErro reexportado)
 
 PATH = "/INTEGRACAO/V1/SANGRIAS_CAIXA"
@@ -23,7 +24,7 @@ def para_sangria(r: dict[str, Any]) -> Sangria:
         conta_codigo=r.get("contaCodigo"),
         funcionario_codigo=r["funcionarioCodigo"],
         valor=Decimal(str(r.get("dinheiro") or 0)),
-        momento=datetime.fromisoformat(f"{r['dataSangria']}T{hora}"),
+        momento=ler_data_hora(f"{r['dataSangria']}T{hora}"),
         alterada=bool(r.get("alterada")),
     )
 

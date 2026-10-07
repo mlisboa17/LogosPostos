@@ -5,7 +5,7 @@ VENDAS/ITENS + VENDAS_FORMA_PAGAMENTO (abastecimento -> venda -> forma de pagame
 """
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date
 from decimal import Decimal
 from typing import Any
 
@@ -13,6 +13,7 @@ import httpx
 
 from ..domain.cartoes import Abastecimento, CartaoErp
 from ..domain.models import Unidade
+from ..domain.tempo import ler_data_hora
 from .webposto_http import paginar
 
 TIPO_DINHEIRO = "D"
@@ -33,7 +34,7 @@ def para_cartao(r: dict[str, Any]) -> CartaoErp:
         empresa_codigo=r["empresaCodigo"],
         venda_codigo=r.get("vendaCodigo"),
         valor=_dec(r.get("valor")),
-        momento=datetime.fromisoformat(f"{r['dataMovimento']}T{r.get('horaMovimento') or '00:00:00'}"),
+        momento=ler_data_hora(f"{r['dataMovimento']}T{r.get('horaMovimento') or '00:00:00'}"),
         administradora=str(r.get("adiministradoraDescricao") or ""),  # sic: grafia da API
         nsu=_texto(r.get("nsu")),
         nsu_tef=_texto(r.get("nsuTef")),
@@ -42,7 +43,7 @@ def para_cartao(r: dict[str, Any]) -> CartaoErp:
 
 
 def para_abastecimento(r: dict[str, Any]) -> Abastecimento:
-    momento = datetime.fromisoformat(r["dataHoraAbastecimento"]).replace(tzinfo=None)
+    momento = ler_data_hora(r["dataHoraAbastecimento"])
     return Abastecimento(
         codigo=r["abastecimentoCodigo"],
         empresa_codigo=r["empresaCodigo"],
@@ -114,7 +115,7 @@ async def buscar_contexto_vendas(
             empresa_codigo=f["empresaCodigo"],
             venda_codigo=f["vendaCodigo"],
             valor=_dec(f.get("valorPagamento")),
-            momento=datetime.fromisoformat(hora[f["vendaCodigo"]]).replace(tzinfo=None),
+            momento=ler_data_hora(hora[f["vendaCodigo"]]),
             administradora=f"PIX (venda) {f.get('nomeFormaPagamento') or ''}".strip(),
             nsu=None, nsu_tef=None, autorizacao=None,
         )
