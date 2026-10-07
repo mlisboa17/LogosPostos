@@ -53,7 +53,7 @@ class DepositoBancario(_Frozen):
 
 
 class Destino(_Frozen):
-    conta_codigo: int
+    conta_codigo: int | None              # None = sangrias lancadas sem conta no webPosto
     tipo: TipoDestino
     banco: str
     conta_sufixo: str = ""                 # opcional; numero de conta nao vai para o repositorio
@@ -73,6 +73,13 @@ class Unidade(_Frozen):
 
     def conta_efetiva(self, s: "Sangria") -> int | None:
         return s.conta_codigo if s.conta_codigo is not None else self.destino_padrao
+
+
+class ContaCompartilhada(_Frozen):
+    """Conta bancaria que recebe especie de mais de uma unidade."""
+    nome: str
+    banco: str
+    membros: tuple[int, ...]  # empresaCodigo das unidades que depositam nela
 
 
 class Casamento(_Frozen):
@@ -125,3 +132,18 @@ class ResultadoConciliacao(_Frozen):
     sangrias_sem_destino: tuple[Sangria, ...] = Field(default=())
     sangrias_alteradas: tuple[Sangria, ...] = Field(default=())
     proveniencia: Proveniencia
+
+
+class ResultadoContaCompartilhada(_Frozen):
+    conta: ContaCompartilhada
+    inicio: date
+    fim: date
+    dias: tuple[DiaCofre, ...]
+    entradas_por_unidade: tuple[tuple[int, Decimal], ...]
+    sangrias_sem_destino: tuple[Sangria, ...] = Field(default=())
+    sangrias_alteradas: tuple[Sangria, ...] = Field(default=())
+    proveniencia: Proveniencia
+
+    @property
+    def saldo_final(self) -> Decimal:
+        return self.dias[-1].saldo if self.dias else Decimal(0)

@@ -78,3 +78,28 @@ def test_destino_padrao_entra_no_cofre_mas_segue_como_alerta():
     r = conciliar(unidade, [S(1, None, "200", "2026-09-01T20:00")], extrato(), date(2026, 9, 1), date(2026, 9, 1))
     assert r.fluxos_cofre[0].saldo_final == Decimal(200)
     assert [s.codigo for s in r.sangrias_sem_destino] == [1]
+
+
+def test_conta_compartilhada_soma_cofres_das_unidades():
+    from src.modules.cash_reconciliation.application.conciliar import conciliar_conta
+    from src.modules.cash_reconciliation.domain.models import ContaCompartilhada
+
+    casa = Unidade(empresa_codigo=1, nome="CASA", chave_env="X", destino_padrao=99,
+                   destinos=(Destino(conta_codigo=99, tipo=TipoDestino.COFRE, banco="BB"),))
+    conv = Unidade(empresa_codigo=2, nome="CONV", chave_env="Y",
+                   destinos=(Destino(conta_codigo=None, tipo=TipoDestino.COFRE, banco="BB", prazo_dias=7),))
+    conta = ContaCompartilhada(nome="BB", banco="BB", membros=(1, 2))
+    sangrias = [S(1, None, "300", "2026-09-01T20:00"), S(2, 99, "100", "2026-09-01T21:00"),
+                S(3, None, "200", "2026-09-02T10:00", empresa=2), S(4, 5, "999", "2026-09-02T10:00", empresa=3)]
+    deps = extrato(D("a", "250", "2026-09-02T09:00", canal=Canal.ATM_AGENCIA, terminal="AG"),
+                   D("b", "300", "2026-09-02T18:00", terminal="OUTRO POSTO"),
+                   D("c", "50", "2026-09-02T18:00", banco="ITAU"))
+
+    r = conciliar_conta(conta, {1: casa, 2: conv}, sangrias, deps, date(2026, 9, 1), date(2026, 9, 2))
+
+    assert r.entradas_por_unidade == ((1, Decimal(400)), (2, Decimal(200)))
+    assert [(d.entradas, d.depositos, d.saldo) for d in r.dias] == [
+        (Decimal(400), Decimal(0), Decimal(400)),
+        (Decimal(200), Decimal(550), Decimal(50)),
+    ]
+    assert sorted(s.codigo for s in r.sangrias_sem_destino) == [1, 3]

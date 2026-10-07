@@ -32,7 +32,13 @@
       "empresa_codigo": 118508,
       "nome": "CONVENIENCIA 24 HORAS",
       "chave_env": "WEBPOSTO_API_KEY_CONVENIENCIA_24_HORAS",
-      "destinos": []
+      "destinos": [
+        {"conta_codigo": null, "tipo": "cofre", "banco": "BB", "prazo_dias": 7}
+      ]
     }
+  ],
+  "contas_compartilhadas": [
+    {"nome": "BB CASA CAIADA", "banco": "BB", "membros": [5555, 118508],
+     "_obs": "Conv 24h deposita semanalmente aqui; deposito do Casa Caiada tambem ocorre no Bco24h do Posto BR Shopping (rota do chefe de pista)"}
   ]
 }

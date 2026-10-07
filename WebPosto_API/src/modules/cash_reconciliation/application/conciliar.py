@@ -15,9 +15,10 @@ from typing import Iterable
 
 from ..adapters.ofx_reader import Extrato, ler_arquivo
 from ..adapters.webposto_sangrias import FONTE, buscar_sangrias
-from ..config import carregar_unidades
+from ..config import carregar_contas_compartilhadas, carregar_unidades
 from ..domain.models import (
     Canal,
+    ContaCompartilhada,
     DepositoBancario,
     Destino,
     DiaCofre,
@@ -25,6 +26,7 @@ from ..domain.models import (
     FluxoDireto,
     Proveniencia,
     ResultadoConciliacao,
+    ResultadoContaCompartilhada,
     Sangria,
     TipoDestino,
     Unidade,
@@ -40,7 +42,7 @@ def _terminal_ok(d: DepositoBancario, destino: Destino) -> bool:
     return not destino.terminais or (d.terminal or "") in destino.terminais
 
 
-def _fluxo_cofre(destino: Destino, sangrias: list[Sangria], depositos: list[DepositoBancario], inicio: date, fim: date) -> FluxoCofre:
+def _dias(sangrias: Iterable[Sangria], depositos: Iterable[DepositoBancario], inicio: date, fim: date) -> tuple[DiaCofre, ...]:
     entradas: dict[date, Decimal] = defaultdict(Decimal)
     saidas: dict[date, Decimal] = defaultdict(Decimal)
     for s in sangrias:
@@ -52,7 +54,21 @@ def _fluxo_cofre(destino: Destino, sangrias: list[Sangria], depositos: list[Depo
         saldo += entradas[dia] - saidas[dia]
         dias.append(DiaCofre(dia=dia, entradas=entradas[dia], depositos=saidas[dia], saldo=saldo))
         dia += timedelta(days=1)
-    return FluxoCofre(destino=destino, dias=tuple(dias))
+    return tuple(dias)
+
+
+def _sem_destino(unidade: Unidade, s: Sangria) -> bool:
+    return s.conta_codigo is None or unidade.destino(s.conta_codigo) is None
+
+
+def _proveniencia(extratos: dict[str, Extrato]) -> Proveniencia:
+    return Proveniencia(
+        execucao_id=uuid.uuid4().hex,
+        executado_em=datetime.now(),
+        versao_regra=VERSAO,
+        fonte_sangrias=FONTE,
+        extratos=tuple(f"{nome}:{e.sha256}" for nome, e in extratos.items()),
+    )
 
 
 def conciliar(
@@ -81,13 +97,12 @@ def conciliar(
                                    sangrias_sem_deposito=tuple(sem_dep), depositos_sem_sangria=tuple(sem_sang)))
 
     cofres = [
-        _fluxo_cofre(
-            destino,
+        FluxoCofre(destino=destino, dias=_dias(
             [s for s in periodo if unidade.conta_efetiva(s) == destino.conta_codigo],
             [d for d in livres if _do_destino(d, destino) and d.data <= fim],
             inicio,
             fim,
-        )
+        ))
         for destino in unidade.destinos
         if destino.tipo is TipoDestino.COFRE
     ]
@@ -98,15 +113,45 @@ def conciliar(
         fim=fim,
         fluxos_diretos=tuple(diretos),
         fluxos_cofre=tuple(cofres),
-        sangrias_sem_destino=tuple(s for s in periodo if unidade.destino(s.conta_codigo) is None),
+        sangrias_sem_destino=tuple(s for s in periodo if _sem_destino(unidade, s)),
         sangrias_alteradas=tuple(s for s in periodo if s.alterada),
-        proveniencia=Proveniencia(
-            execucao_id=uuid.uuid4().hex,
-            executado_em=datetime.now(),
-            versao_regra=VERSAO,
-            fonte_sangrias=FONTE,
-            extratos=tuple(f"{nome}:{e.sha256}" for nome, e in extratos.items()),
-        ),
+        proveniencia=_proveniencia(extratos),
+    )
+
+
+def conciliar_conta(
+    conta: ContaCompartilhada,
+    unidades: dict[int, Unidade],
+    sangrias: Iterable[Sangria],
+    extratos: dict[str, Extrato],
+    inicio: date,
+    fim: date,
+) -> ResultadoContaCompartilhada:
+    """Conta que recebe especie de varias unidades: soma os cofres de todas antes de comparar."""
+    membros = [unidades[c] for c in conta.membros]
+    cofre: list[Sangria] = []
+    periodo: list[Sangria] = []
+    for u in membros:
+        da_unidade = [s for s in sangrias if s.empresa_codigo == u.empresa_codigo and inicio <= s.momento.date() <= fim]
+        periodo += da_unidade
+        for s in da_unidade:
+            destino = u.destino(u.conta_efetiva(s))
+            if destino and destino.tipo is TipoDestino.COFRE and destino.banco == conta.banco:
+                cofre.append(s)
+    depositos = [d for e in extratos.values() for d in e.depositos if d.banco == conta.banco and inicio <= d.data <= fim]
+    por_unidade: dict[int, Decimal] = defaultdict(Decimal)
+    for s in cofre:
+        por_unidade[s.empresa_codigo] += s.valor
+    sem_destino = [s for s in periodo if _sem_destino(unidades[s.empresa_codigo], s)]
+    return ResultadoContaCompartilhada(
+        conta=conta,
+        inicio=inicio,
+        fim=fim,
+        dias=_dias(cofre, depositos, inicio, fim),
+        entradas_por_unidade=tuple(sorted(por_unidade.items())),
+        sangrias_sem_destino=tuple(sem_destino),
+        sangrias_alteradas=tuple(s for s in periodo if s.alterada),
+        proveniencia=_proveniencia(extratos),
     )
 
 
@@ -115,3 +160,11 @@ async def conciliar_unidade(empresa_codigo: int, inicio: date, fim: date, arquiv
     sangrias = await buscar_sangrias(unidade, inicio, fim)
     extratos = {Path(a).name: ler_arquivo(Path(a)) for a in arquivos_ofx}
     return conciliar(unidade, sangrias, extratos, inicio, fim)
+
+
+async def conciliar_conta_compartilhada(nome: str, inicio: date, fim: date, arquivos_ofx: Iterable[Path]) -> ResultadoContaCompartilhada:
+    conta = carregar_contas_compartilhadas()[nome]
+    unidades = carregar_unidades()
+    sangrias = [s for c in conta.membros for s in await buscar_sangrias(unidades[c], inicio, fim)]
+    extratos = {Path(a).name: ler_arquivo(Path(a)) for a in arquivos_ofx}
+    return conciliar_conta(conta, unidades, sangrias, extratos, inicio, fim)
