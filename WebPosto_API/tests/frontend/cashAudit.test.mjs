@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 globalThis.window = { location: { origin: "http://localhost" } };
-const { diasDoPeriodo, rankingFrentistas, renderRecebimentos, periodoPadrao } = await import("../../frontend/pages/cashAudit.js");
+const { diasDoPeriodo, rankingFrentistas, renderRecebimentos, periodoPadrao, consultarFechamento, carregarRecebimentos } = await import("../../frontend/pages/cashAudit.js");
+const { apiClient } = await import("../../frontend/services/apiClient.js");
 const { formatDate, formatTime, formatDateTime, recifeDateISO } = await import("../../frontend/services/format.js");
 
 const candidato = (frentista) => ({
@@ -25,6 +26,56 @@ const dia = {
   }],
 };
 
+test("fechamento aguarda o prazo do backend em vez do timeout padrao de 30s", async (t) => {
+  const get = t.mock.method(apiClient, "get", async () => ({ caixas: [] }));
+  assert.deepEqual(await consultarFechamento(321, "2026-01-01", "2026-01-02"), { caixas: [] });
+  assert.deepEqual(get.mock.calls[0].arguments, [
+    "/api/v1/cash-audit/fechamento",
+    { params: { unidade: 321, inicio: "2026-01-01", fim: "2026-01-02" }, timeout: 200000 },
+  ]);
+});
+
+function containerRecebimentos() {
+  const alvo = { innerHTML: "", querySelectorAll: () => [] };
+  return { alvo, querySelector: () => alvo };
+}
+
+test("recebimentos consultam apenas o dia escolhido e identificam o escopo", async (t) => {
+  const get = t.mock.method(apiClient, "get", async () => dia);
+  const container = containerRecebimentos();
+  await carregarRecebimentos(container, 321, ["2026-01-01", "2026-01-02"], "2026-01-02");
+  assert.equal(get.mock.callCount(), 1);
+  assert.deepEqual(get.mock.calls[0].arguments, [
+    "/api/v1/cash-audit/recebimentos",
+    { params: { unidade: 321, dia: "2026-01-02" }, timeout: 200000 },
+  ]);
+  assert.match(container.alvo.innerHTML, /Totais e ranking do dia 02\/01\/2026/);
+  assert.match(container.alvo.innerHTML, /Ranking do dia por frentista/);
+  assert.match(container.alvo.innerHTML, /data-ca-dia="2026-01-01" aria-pressed="false"/);
+});
+
+test("resposta antiga de recebimentos nao sobrescreve nova consulta", async (t) => {
+  let concluirAntiga;
+  t.mock.method(apiClient, "get", async (_url, { params }) => {
+    if (params.dia === "2026-01-01") return new Promise((resolve) => { concluirAntiga = resolve; });
+    return dia;
+  });
+  const container = containerRecebimentos();
+  const antiga = carregarRecebimentos(container, 321, ["2026-01-01"], "2026-01-01");
+  await carregarRecebimentos(container, 321, ["2026-01-02"], "2026-01-02");
+  const html = container.alvo.innerHTML;
+  concluirAntiga({ dia: "2026-01-01", adquirentes: [] });
+  await antiga;
+  assert.equal(container.alvo.innerHTML, html);
+});
+
+test("falha em recebimentos mostra indisponibilidade sem numeros ficticios", async (t) => {
+  t.mock.method(apiClient, "get", async () => { throw new Error("Fonte indisponível"); });
+  const container = containerRecebimentos();
+  await carregarRecebimentos(container, 321, ["2026-01-02"], "2026-01-02");
+  assert.match(container.alvo.innerHTML, /Fonte indisponível/);
+  assert.doesNotMatch(container.alvo.innerHTML, /class="ca-kpi/);
+});
 test("periodo inclusivo ate 31 dias e rejeicao de datas invalidas", () => {
   assert.equal(diasDoPeriodo("2026-01-01", "2026-01-31").length, 31);
   assert.deepEqual(diasDoPeriodo("2026-01-02", "2026-01-02"), ["2026-01-02"]);

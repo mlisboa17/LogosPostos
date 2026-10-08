@@ -82,6 +82,14 @@ O script avisa quando o fuso do Windows não é UTC−03:00 fixo.
 
 ## Datas e fuso
 
+Na consulta de fechamento, a API limita o total das consultas ao ERP a 180 segundos
+(inclusive em períodos com cache parcial). A tela aguarda até 200 segundos para
+receber esse resultado; em caso de limite excedido, a API retorna HTTP 504 com
+orientação para reduzir o período, sem apresentar resultados incompletos como sucesso.
+Os recebimentos são consultados após o fechamento, um dia por vez, com botões
+para os dias do período. Os KPIs e o ranking dessa seção são do dia selecionado,
+não do período inteiro; isso evita iniciar várias conciliações pesadas simultâneas.
+
 O fuso único do módulo é `America/Recife`, centralizado em `domain/tempo.py`.
 Horários sem fuso (incluindo JSONs antigos) são interpretados como horário local;
 horários UTC ou com outro offset são convertidos, nunca truncados. Campos

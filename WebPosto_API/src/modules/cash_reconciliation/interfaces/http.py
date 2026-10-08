@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import logging
 import uuid
 from datetime import date, timedelta
 
@@ -17,6 +19,17 @@ from ..domain.recebimentos import ResultadoRecebimentos
 from ..domain.tempo import agora
 
 router = APIRouter(prefix="/api/v1/cash-audit", tags=["cash-audit"])
+logger = logging.getLogger(__name__)
+TIMEOUT_FECHAMENTO = 180
+
+
+async def _auditar_com_limite(unidade: int, inicio: date, fim: date, prazo: float) -> ResultadoAuditoria:
+    try:
+        restante = max(0, prazo - asyncio.get_running_loop().time())
+        return await asyncio.wait_for(auditar_unidade(unidade, inicio, fim), timeout=restante)
+    except TimeoutError:
+        logger.warning("Tempo limite do fechamento unidade=%s", unidade)
+        raise HTTPException(status_code=504, detail="Tempo limite ao consultar fechamento. Reduza o período e tente novamente.") from None
 
 
 @router.get("/recebimentos", response_model=ResultadoRecebimentos)
@@ -52,16 +65,17 @@ async def obter_fechamento(
         raise HTTPException(status_code=404, detail="Unidade não encontrada.")
 
     try:
+        prazo = asyncio.get_running_loop().time() + TIMEOUT_FECHAMENTO
         dias = [inicio + timedelta(days=indice) for indice in range((fim - inicio).days + 1)]
         persistidos = {dia: carregar_dia(unidade, dia) for dia in dias}
         if not any(persistidos.values()):
-            resultado = await auditar_unidade(unidade, inicio, fim)
+            resultado = await _auditar_com_limite(unidade, inicio, fim, prazo)
             return serializar_fechamento(resultado)
         resultados = []
         for dia in dias:
             persistido = persistidos[dia]
             if persistido is None:
-                resultados.append(await auditar_unidade(unidade, dia, dia))
+                resultados.append(await _auditar_com_limite(unidade, dia, dia, prazo))
             elif persistido.fechamento is not None:
                 resultados.append(persistido.fechamento)
             else:

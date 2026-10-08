@@ -1073,6 +1073,9 @@ label.empresa-ms__row {
 
 .ca-chip--vermelho { color: #fecaca; background: rgba(239, 68, 68, 0.25); }
 .ca-chip--laranja { color: #fde68a; background: rgba(245, 158, 11, 0.22); }
+.ca-dias { margin: 0.25rem 0 0.75rem; }
+.ca-dias .ca-chip { border: 1px solid var(--ca-line); background: transparent; color: var(--ca-text); cursor: pointer; }
+.ca-dias .ca-chip--ativo { background: #5eead4; color: #0b1220; border-color: #5eead4; font-weight: 600; }
 .ca-chip--amarelo { color: #fef08a; background: rgba(234, 179, 8, 0.2); }
 .ca-row--amarelo { background: rgba(161, 132, 7, 0.15); box-shadow: inset 4px 0 #eab308; }
 .ca-receipts { display: grid; gap: 1rem; }

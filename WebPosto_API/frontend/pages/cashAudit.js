@@ -6,6 +6,11 @@ const FECHAMENTO_URL = "/api/v1/cash-audit/fechamento";
 const RECEBIMENTOS_URL = "/api/v1/cash-audit/recebimentos";
 let unidadesCarregadas = null;
 const consultas = new WeakMap();
+const consultasRecebimentos = new WeakMap();
+
+export function consultarFechamento(unidade, inicio, fim) {
+  return apiClient.get(FECHAMENTO_URL, { params: { unidade, inicio, fim }, timeout: 200000 });
+}
 
 // Centros de custo da rede (V1/CENTROS_CUSTO, 2026-10-06)
 const CENTROS_CUSTO = {
@@ -109,7 +114,7 @@ function renderDivergencia(dia, transacao, classificacao, tom, investigacao = nu
   </tr>`;
 }
 
-export function renderRecebimentos(dias, falhas = []) {
+export function renderRecebimentos(dias, falhas = [], diaSelecionado = null) {
   const grupos = new Map();
   dias.forEach((dia) => (dia.adquirentes || []).forEach((item) => {
     const grupo = grupos.get(item.adquirente) || [];
@@ -161,30 +166,37 @@ export function renderRecebimentos(dias, falhas = []) {
       <tbody>${ranking.map((linha) => `<tr><td>#${escapeHtml(linha.frentista)}</td><td>${linha.atribuidos}</td><td>${linha.sugestoes}</td></tr>`).join("")}</tbody></table></div>`
     : '<p class="ca-muted">Sem atribuições ou sugestões nos dias disponíveis.</p>';
   return `<h3>Recebimentos eletrônicos</h3>
+    ${diaSelecionado ? `<p class="ca-hint">Totais e ranking do dia ${escapeHtml(formatDate(diaSelecionado))}. O fechamento acima mantém o período selecionado.</p>` : ""}
     ${falhas.length ? `<p class="ca-error" role="alert">Dias indisponíveis: ${escapeHtml(falhas.join(" · "))}. Totais e ranking são parciais.</p>` : ""}
     ${adquirentes || '<p class="ca-muted">Sem adquirentes disponíveis.</p>'}
-    <section class="ca-panel"><h4>Ranking do período por frentista</h4>
+    <section class="ca-panel"><h4>Ranking ${diaSelecionado ? "do dia" : "do período"} por frentista</h4>
       <p class="ca-hint">Sugestões não são atribuições confirmadas. Um recebimento conta uma vez por candidato; pares estão incluídos.</p>${rankingHtml}
     </section>`;
 }
 
-async function carregarRecebimentos(container, unidade, dias) {
+export async function carregarRecebimentos(container, unidade, dias, dia) {
+  // Um dia por vez: a conciliacao baixa milhares de itens de venda por dia no webPosto.
+  const alvo = container.querySelector("#caRecebimentos");
+  const consulta = {};
+  consultasRecebimentos.set(container, consulta);
+  const seletor = dias.length > 1
+    ? `<div class="ca-chips ca-dias" role="group" aria-label="Dia dos recebimentos">${dias.map((d) =>
+        `<button type="button" class="ca-chip${d === dia ? " ca-chip--ativo" : ""}" data-ca-dia="${escapeHtml(d)}" aria-pressed="${d === dia}">${escapeHtml(formatDate(d))}</button>`).join("")}</div>`
+    : "";
+  alvo.innerHTML = `<h3>Recebimentos eletrônicos</h3>${seletor}<p class="ca-muted">Carregando recebimentos de ${escapeHtml(formatDate(dia))}…</p>`;
+  alvo.querySelectorAll("[data-ca-dia]").forEach((botao) => { botao.disabled = true; });
   const respostas = [];
   const falhas = [];
-  let proximo = 0;
-  const worker = async () => {
-    while (proximo < dias.length) {
-      const dia = dias[proximo++];
-      try {
-        respostas.push(await apiClient.get(RECEBIMENTOS_URL, { params: { unidade, dia }, timeout: 200000 }));
-      } catch (error) {
-        falhas.push(`${formatDate(dia)}: ${error.message || "falha na consulta"}`);
-      }
-    }
-  };
-  await Promise.all([worker(), worker()]);
-  respostas.sort((a, b) => a.dia.localeCompare(b.dia));
-  container.querySelector("#caRecebimentos").innerHTML = renderRecebimentos(respostas, falhas);
+  try {
+    respostas.push(await apiClient.get(RECEBIMENTOS_URL, { params: { unidade, dia }, timeout: 200000 }));
+  } catch (error) {
+    falhas.push(`${formatDate(dia)}: ${error.message || "falha na consulta"}`);
+  }
+  if (consultasRecebimentos.get(container) !== consulta) return;
+  alvo.innerHTML = renderRecebimentos(respostas, falhas, dia).replace("</h3>", `</h3>${seletor}`);
+  alvo.querySelectorAll("[data-ca-dia]").forEach((botao) => {
+    botao.addEventListener("click", () => void carregarRecebimentos(container, unidade, dias, botao.dataset.caDia));
+  });
 }
 
 function renderKpis(resultado) {
@@ -330,13 +342,13 @@ async function executarConsulta(container) {
     return;
   }
   container.querySelectorAll("#caFilters input, #caFilters select, #caFilters button").forEach((node) => { node.disabled = true; });
+  consultasRecebimentos.delete(container);
   mensagem.classList.add("hidden");
   conteudo.innerHTML = '<p class="ca-empty">Carregando auditoria…</p>';
-  container.querySelector("#caRecebimentos").innerHTML = '<h3>Recebimentos eletrônicos</h3><p class="ca-muted">Carregando recebimentos…</p>';
+  container.querySelector("#caRecebimentos").innerHTML = '<h3>Recebimentos eletrônicos</h3><p class="ca-muted">Aguardando o fechamento…</p>';
   container.querySelector("#caProveniencia").textContent = "";
-  const recebimentos = carregarRecebimentos(container, unidade, dias);
   try {
-    const resultado = await apiClient.get(FECHAMENTO_URL, { params: { unidade, inicio, fim } });
+    const resultado = await consultarFechamento(unidade, inicio, fim);
     conteudo.innerHTML = `${renderKpis(resultado)}<section class="ca-panel"><h3>Caixas auditados</h3>${renderTabela(resultado)}</section>`;
     const proveniencia = resultado.proveniencia || {};
     container.querySelector("#caProveniencia").textContent =
@@ -362,7 +374,7 @@ async function executarConsulta(container) {
     showError(container, error);
   } finally {
     try {
-      await recebimentos;
+      await carregarRecebimentos(container, unidade, dias, dias[dias.length - 1]);
     } finally {
       container.querySelectorAll("#caFilters input, #caFilters select, #caFilters button").forEach((node) => { node.disabled = false; });
     }

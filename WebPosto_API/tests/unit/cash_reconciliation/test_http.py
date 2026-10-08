@@ -1,5 +1,7 @@
+import asyncio
 from datetime import date, datetime
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI
@@ -152,3 +154,53 @@ def test_listagem_de_unidades_nao_expoe_chave_env(client):
     assert response.status_code == 200
     assert response.json() == [{"empresa_codigo": 321, "nome": "Unidade Sintética"}]
     assert "chave_env" not in response.text
+
+
+def test_fechamento_lento_retorna_504_e_cancela_consulta(client, monkeypatch):
+    cancelada = []
+
+    async def lenta(*args):
+        try:
+            await asyncio.sleep(1)
+        finally:
+            cancelada.append(True)
+
+    monkeypatch.setattr(http, "carregar_dia", lambda *args: None)
+    monkeypatch.setattr(http, "TIMEOUT_FECHAMENTO", 0.001)
+    monkeypatch.setattr(http, "auditar_unidade", lenta)
+    response = client.get(
+        "/api/v1/cash-audit/fechamento",
+        params={"unidade": 321, "inicio": "2026-10-01", "fim": "2026-10-01"},
+    )
+    assert response.status_code == 504
+    assert "Reduza o período" in response.json()["detail"]
+    assert cancelada == [True]
+
+
+def test_cache_parcial_compartilha_limite_entre_dias(client, monkeypatch):
+    chamadas = []
+    canceladas = []
+    resultado = resultado_sintetico()
+    monkeypatch.setattr(
+        http, "carregar_dia",
+        lambda unidade, dia: SimpleNamespace(fechamento=resultado) if dia.day == 1 else None,
+    )
+
+    async def lenta(unidade, inicio, fim):
+        chamadas.append(inicio.day)
+        try:
+            await asyncio.sleep(0.06)
+            return resultado
+        except asyncio.CancelledError:
+            canceladas.append(inicio.day)
+            raise
+
+    monkeypatch.setattr(http, "TIMEOUT_FECHAMENTO", 0.1)
+    monkeypatch.setattr(http, "auditar_unidade", lenta)
+    response = client.get(
+        "/api/v1/cash-audit/fechamento",
+        params={"unidade": 321, "inicio": "2026-10-01", "fim": "2026-10-03"},
+    )
+    assert response.status_code == 504
+    assert chamadas == [2, 3]
+    assert canceladas == [3]
