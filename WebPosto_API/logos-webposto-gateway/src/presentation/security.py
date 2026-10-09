@@ -1,20 +1,26 @@
+import hmac
 import os
 from typing import Annotated, Optional
 
 from fastapi import Header, HTTPException
 
 
+def _validar(recebido: Optional[str], variavel: str, erro: str) -> None:
+    # Sem valor padrao: token nao configurado recusa o acesso (antes aceitava "dev-*-token", publico no Git).
+    esperado = (os.getenv(variavel) or "").strip()
+    if not esperado:
+        raise HTTPException(status_code=503, detail=f"{variavel.lower()}_nao_configurado")
+    if not recebido or not hmac.compare_digest(recebido.encode(), esperado.encode()):
+        raise HTTPException(status_code=401, detail=erro)
+
+
 def require_consumer_token(
     x_consumer_token: Annotated[Optional[str], Header(alias="X-Consumer-Token")] = None,
 ) -> None:
-    consumer_token = os.getenv("CONSUMER_TOKEN", "dev-consumer-token")
-    if not x_consumer_token or x_consumer_token != consumer_token:
-        raise HTTPException(status_code=401, detail="consumer_unauthorized")
+    _validar(x_consumer_token, "CONSUMER_TOKEN", "consumer_unauthorized")
 
 
 def require_admin_token(
     x_admin_token: Annotated[Optional[str], Header(alias="X-Admin-Token")] = None,
 ) -> None:
-    admin_token = os.getenv("ADMIN_TOKEN", "dev-admin-token")
-    if not x_admin_token or x_admin_token != admin_token:
-        raise HTTPException(status_code=401, detail="admin_unauthorized")
+    _validar(x_admin_token, "ADMIN_TOKEN", "admin_unauthorized")

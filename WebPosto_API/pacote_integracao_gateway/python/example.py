@@ -11,7 +11,7 @@ def main() -> None:
 
     config = GatewayConfig(
         base_url=os.getenv("LOGOS_GATEWAY_BASE_URL", "http://127.0.0.1:8050"),
-        consumer_token=os.getenv("LOGOS_GATEWAY_CONSUMER_TOKEN", "dev-consumer-token"),
+        consumer_token=os.getenv("LOGOS_GATEWAY_CONSUMER_TOKEN", "<CONSUMER_TOKEN>"),
         posto_id=os.getenv("LOGOS_GATEWAY_POSTO_ID", "VIP"),
         timeout_seconds=int(os.getenv("LOGOS_GATEWAY_TIMEOUT_SECONDS", "15")),
     )

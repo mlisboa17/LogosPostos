@@ -6,7 +6,7 @@ from gateway_client import LogosGatewayClient
 if __name__ == "__main__":
     client = LogosGatewayClient(
         base_url="http://127.0.0.1:8050",
-        consumer_token="dev-consumer-token",
+        consumer_token="<CONSUMER_TOKEN>",
         timeout_seconds=10,
     )
 

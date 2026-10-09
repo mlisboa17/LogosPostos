@@ -7,8 +7,18 @@ except ImportError:  # pragma: no cover
     structlog = None  # type: ignore
 
 
+def silenciar_urls_http() -> None:
+    """Impede que httpx/httpcore registrem URLs (com CHAVE) em nivel INFO/DEBUG."""
+    for nome in ("httpx", "httpcore"):
+        logging.getLogger(nome).setLevel(logging.WARNING)
+
+
 def setup_logging(log_level: str = "INFO", log_format: str = "json") -> None:
     """Configura logging estruturado com structlog."""
+
+    # A API webPosto exige a CHAVE na query string e o httpx registra a URL completa em INFO:
+    # sem isso, toda chamada vaza a chave da unidade no log (ARCH01).
+    silenciar_urls_http()
 
     if structlog is None:
         logging.basicConfig(

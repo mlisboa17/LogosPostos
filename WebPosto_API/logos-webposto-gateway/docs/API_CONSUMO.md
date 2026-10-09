@@ -52,7 +52,7 @@ Exemplo de requisicao:
 
 ```http
 GET /v1/expenses?data_consulta=2026-05-17T00:00:00
-X-Consumer-Token: dev-consumer-token
+X-Consumer-Token: <CONSUMER_TOKEN>
 X-Posto-ID: 23
 ```
 
@@ -91,7 +91,7 @@ Exemplo de requisicao:
 
 ```http
 GET /v1/products?include_inactive=false&force_refresh=false
-X-Consumer-Token: dev-consumer-token
+X-Consumer-Token: <CONSUMER_TOKEN>
 X-Posto-ID: 23
 ```
 

@@ -8,19 +8,19 @@ Accept: application/json
 
 ### Expenses by posto and date
 GET http://127.0.0.1:8050/v1/expenses?data_consulta=2026-05-17T00:00:00
-X-Consumer-Token: dev-consumer-token
+X-Consumer-Token: <CONSUMER_TOKEN>
 X-Posto-ID: 23
 Accept: application/json
 
 ### List grupos (CRUD read)
 GET http://127.0.0.1:8050/v1/crud/grupos?offset=0&limit=20
-X-Consumer-Token: dev-consumer-token
+X-Consumer-Token: <CONSUMER_TOKEN>
 Accept: application/json
 
 ### Create grupo (CRUD write)
 POST http://127.0.0.1:8050/v1/crud/grupos
-X-Consumer-Token: dev-consumer-token
-X-Admin-Token: dev-admin-token
+X-Consumer-Token: <CONSUMER_TOKEN>
+X-Admin-Token: <ADMIN_TOKEN>
 Content-Type: application/json
 
 {

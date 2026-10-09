@@ -47,8 +47,8 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 15
     refresh_token_expire_days: int = 7
-    consumer_token: str = "dev-consumer-token"
-    admin_token: str = "dev-admin-token"
+    consumer_token: str = ""  # obrigatorio via .env; sem padrao (ARCH01)
+    admin_token: str = ""  # obrigatorio via .env; sem padrao (ARCH01)
     auth_user_email: str = "admin@company.com"
     auth_user_password: str = "password"
     auth_user_password_hash: str = ""

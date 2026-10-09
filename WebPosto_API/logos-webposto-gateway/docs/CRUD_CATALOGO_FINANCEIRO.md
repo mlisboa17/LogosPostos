@@ -16,13 +16,13 @@ Este documento descreve o CRUD implementado para os modulos solicitados.
 
 - Todas as operacoes CRUD exigem header `X-Consumer-Token`.
 - Operacoes `POST`, `PUT`, `DELETE` exigem header `X-Admin-Token`.
-- Valor esperado: variavel de ambiente `ADMIN_TOKEN` (padrao local: `dev-admin-token`).
+- Valor esperado: variavel de ambiente `ADMIN_TOKEN` (padrao local: `<ADMIN_TOKEN>`).
 
 Exemplo:
 
 ```http
-X-Consumer-Token: dev-consumer-token
-X-Admin-Token: dev-admin-token
+X-Consumer-Token: <CONSUMER_TOKEN>
+X-Admin-Token: <ADMIN_TOKEN>
 ```
 
 ## Paginacao e filtros

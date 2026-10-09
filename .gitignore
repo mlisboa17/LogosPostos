@@ -17,4 +17,6 @@ node_modules/
 playwright-report/
 test-results/
 WebPosto_API/data/
+# snapshots gerados pela app contem dados operacionais reais (os 28 ja versionados ficam ate decisao de limpeza)
+WebPosto_API/snapshots/
 .venv/
