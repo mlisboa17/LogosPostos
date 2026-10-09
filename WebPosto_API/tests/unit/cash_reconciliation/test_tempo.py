@@ -24,7 +24,7 @@ DIA = date(2026, 10, 5)
 
 def test_ontem_na_virada_utc(monkeypatch):
     instante_utc = datetime(2026, 10, 8, 1, tzinfo=timezone.utc)
-    monkeypatch.setattr(tempo, "time", lambda: instante_utc.timestamp())
+    monkeypatch.setattr("src.modules.webposto_integration.tempo.time", lambda: instante_utc.timestamp())
     assert tempo.agora() == datetime(2026, 10, 7, 22, tzinfo=FUSO)
     assert tempo.hoje() == date(2026, 10, 7)
     assert tempo.ontem() == date(2026, 10, 6)
@@ -137,7 +137,7 @@ def test_log_noturno_exibe_data_hora_brasil():
 
 
 def test_modulo_nao_permite_relogios_sem_helper_ou_descarte_de_fuso():
-    modulo = Path(tempo.__file__).resolve().parents[1]
+    modulo = Path(noturno.__file__).resolve().parents[1]
     proibido = re.compile(r"\bdatetime\.now\s*\(|\bdate\.today\s*\(|\butcnow\s*\(|\.replace\s*\(\s*tzinfo\s*=\s*None")
     encontrados = [
         str(caminho.relative_to(modulo))

@@ -1,0 +1,12 @@
+{
+  "mes": "2026-10",
+  "definido_por": "EXEMPLO SINTETICO - nao utilizado pela aplicacao",
+  "postos": {
+    "11495": {
+      "bronze": 183000,
+      "prata": 190000,
+      "ouro": 198000,
+      "frentistas": {"123": {"meta_ticket": 7.5}}
+    }
+  }
+}
