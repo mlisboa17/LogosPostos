@@ -5,6 +5,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from src.modules.commercial_performance.adapters.persistencia import PersistenciaErro
 from src.modules.commercial_performance.application import placar as aplicacao
 from src.modules.commercial_performance.config import MetasErro, POSTOS
 from src.modules.commercial_performance.domain.models import Placar, Proveniencia
@@ -134,12 +135,25 @@ def test_metas_indisponiveis_retorna_erro_generico(client, monkeypatch):
     assert "caminho privado" not in response.text
 
 
+def test_snapshot_indisponivel_retorna_erro_generico(client, monkeypatch):
+    async def indisponivel(*args):
+        raise PersistenciaErro("caminho privado")
+
+    monkeypatch.setattr(http, "obter_placar", indisponivel)
+    response = client.get(
+        "/api/v1/commercial/placar",
+        params={"posto": 11495, "mes": "2026-10"},
+    )
+
+    assert response.status_code == 500
+    assert "caminho privado" not in response.text
+
+
 def test_lista_apenas_os_tres_postos_sem_chave_env(client):
     response = client.get("/api/v1/commercial/postos")
 
     assert response.status_code == 200
     assert response.json() == [
-        {"empresa_codigo": posto.empresa_codigo, "nome": posto.nome}
-        for posto in POSTOS.values()
+        {"empresa_codigo": posto.empresa_codigo, "nome": posto.nome} for posto in POSTOS.values()
     ]
     assert "chave_env" not in response.text

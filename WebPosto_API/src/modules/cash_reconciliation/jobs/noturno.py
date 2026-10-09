@@ -11,6 +11,10 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from src.modules.commercial_performance.adapters.persistencia import salvar_placar
+from src.modules.commercial_performance.application.placar import obter_placar
+from src.modules.commercial_performance.config import POSTOS
+
 from ..adapters.persistencia import DIRETORIO, salvar_dia
 from ..application.auditar_fechamento import auditar_unidade
 from ..application.recebimentos import TIMEOUT_ETAPA, conciliar_adquirente
@@ -83,7 +87,8 @@ async def coletar_unidade(
 
 
 async def executar(
-    dia: date, *, diretorio: Path | None = None, timeout: float = TIMEOUT_ETAPA,
+    dia: date, *, diretorio: Path | None = None, diretorio_placar: Path | None = None,
+    timeout: float = TIMEOUT_ETAPA,
 ) -> int:
     if os.getenv("WEBPOSTO_WRITES") != "0":
         logger.error("Execucao bloqueada: WEBPOSTO_WRITES deve ser 0.")
@@ -101,6 +106,23 @@ async def executar(
             logger.error(
                 "Unidade nao concluida unidade=%s dia=%s tipo=%s",
                 unidade.empresa_codigo, formatar_data(dia), type(exc).__name__,
+            )
+            falhas += 1
+    for posto in POSTOS.values():
+        try:
+            placar = await asyncio.wait_for(
+                obter_placar(posto.empresa_codigo, dia.strftime("%Y-%m"), dia),
+                timeout=timeout,
+            )
+            salvar_placar(placar, diretorio=diretorio_placar)
+            logger.info(
+                "Placar posto=%s mes=%s dia=%s litros=%s",
+                posto.empresa_codigo, placar.mes, formatar_data(placar.dia), placar.acumulado,
+            )
+        except Exception as exc:
+            logger.error(
+                "Placar nao concluido posto=%s mes=%s tipo=%s",
+                posto.empresa_codigo, dia.strftime("%Y-%m"), type(exc).__name__,
             )
             falhas += 1
     logger.info("Execucao terminada dia=%s unidades_com_falha=%s execucao=%s", formatar_data(dia), falhas, execucao_id)

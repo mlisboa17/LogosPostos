@@ -168,6 +168,7 @@ async def test_adapter_filtra_afericao_tenant_data_e_mapeia_venda(monkeypatch):
 async def test_fonte_falha_nao_retorna_volume_ficticio(monkeypatch):
     monkeypatch.setattr(placar, "hoje", lambda: DIA)
     monkeypatch.setattr(placar, "ler_metas", lambda *args: None)
+    monkeypatch.setattr(placar, "carregar_placar", lambda *args, **kwargs: None)
 
     async def falhar(*args):
         raise WebPostoErro("segredo")
@@ -176,6 +177,56 @@ async def test_fonte_falha_nao_retorna_volume_ficticio(monkeypatch):
     with pytest.raises(placar.FonteIndisponivel, match="Fonte indisponivel") as erro:
         await placar.obter_placar(11495, "2026-10")
     assert "segredo" not in str(erro.value)
+
+
+async def test_snapshot_anterior_complementa_so_o_dia_corrente(monkeypatch):
+    ontem = date(2026, 10, 1)
+    anterior = calcular(
+        11495, "2026-10", ontem, DIA,
+        [abastecimento(1, 1, 10, venda=100)],
+        PRODUTOS, {7: "Nome sintetico"}, None, PROV,
+    )
+    linhas = [
+        abastecimento(1, 1, 10, venda=100),
+        abastecimento(2, 2, 10, venda=200, produto=2),
+        abastecimento(3, 2, 10, venda=200, produto=2),
+    ]
+    chamadas = []
+
+    async def buscar(posto, inicio, fim):
+        chamadas.append((posto.empresa_codigo, inicio, fim))
+        return linhas, PRODUTOS, {7: "Nome sintetico"}
+
+    monkeypatch.setattr(placar, "hoje", lambda: DIA)
+    monkeypatch.setattr(placar, "ler_metas", lambda *args: None)
+    monkeypatch.setattr(placar, "carregar_placar", lambda *args, **kwargs: anterior)
+    monkeypatch.setattr(placar, "buscar", buscar)
+
+    resultado = await placar.obter_placar(11495, "2026-10")
+
+    assert chamadas == [(11495, date(2026, 9, 26), DIA)]
+    assert resultado.acumulado == 30
+    assert resultado.realizado_dia == 20
+    assert resultado.atendimentos == 2
+    assert resultado.abastecimentos == 3
+    assert [item.litros for item in resultado.diario] == [10, 20]
+    assert resultado.frentistas[0].ticket == 15
+    assert resultado.percentual_aditivado == Decimal(200) / 3
+    assert [item.percentual for item in resultado.mix] == [Decimal(100) / 3, Decimal(200) / 3]
+
+
+async def test_dia_fechado_retorna_snapshot_sem_consultar_fonte(monkeypatch):
+    snapshot = calcular_teste([abastecimento(1, 1)], dia=date(2026, 10, 1), hoje=DIA)
+    monkeypatch.setattr(placar, "hoje", lambda: DIA)
+    monkeypatch.setattr(placar, "ler_metas", lambda *args: None)
+    monkeypatch.setattr(placar, "carregar_placar", lambda *args, **kwargs: snapshot)
+
+    async def proibido(*args):
+        pytest.fail("Dia persistido não deve consultar a fonte.")
+
+    monkeypatch.setattr(placar, "buscar", proibido)
+
+    assert await placar.obter_placar(11495, "2026-10", date(2026, 10, 1)) == snapshot
 
 
 def test_fronteira_comercial_sem_import_cash():

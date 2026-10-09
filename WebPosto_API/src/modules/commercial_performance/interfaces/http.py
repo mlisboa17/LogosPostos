@@ -5,6 +5,7 @@ from datetime import date
 
 from fastapi import APIRouter, HTTPException, Query
 
+from ..adapters.persistencia import PersistenciaErro
 from ..application.placar import FonteIndisponivel, obter_placar
 from ..config import MetasErro, POSTOS
 from ..domain.models import Placar
@@ -26,15 +27,19 @@ async def consultar_placar(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
     except FonteIndisponivel:
-        raise HTTPException(status_code=502, detail="Fonte indisponível. Tente novamente.") from None
+        raise HTTPException(
+            status_code=502, detail="Fonte indisponível. Tente novamente."
+        ) from None
     except MetasErro:
         logger.error("Metas comerciais indisponíveis posto=%s mes=%s", posto, mes)
         raise HTTPException(status_code=500, detail="Metas do posto indisponíveis.") from None
+    except PersistenciaErro:
+        logger.error("Snapshot comercial indisponível posto=%s mes=%s", posto, mes)
+        raise HTTPException(status_code=500, detail="Placar persistido indisponível.") from None
 
 
 @router.get("/postos")
 def listar_postos() -> list[dict[str, int | str]]:
     return [
-        {"empresa_codigo": posto.empresa_codigo, "nome": posto.nome}
-        for posto in POSTOS.values()
+        {"empresa_codigo": posto.empresa_codigo, "nome": posto.nome} for posto in POSTOS.values()
     ]

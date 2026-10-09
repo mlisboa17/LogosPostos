@@ -20,6 +20,11 @@ DIA = date(2026, 10, 1)
 EMPRESA = 321
 
 
+@pytest.fixture(autouse=True)
+def sem_postos_comerciais_reais(monkeypatch):
+    monkeypatch.setattr(noturno, "POSTOS", {})
+
+
 def unidade(empresa=EMPRESA):
     return Unidade(
         empresa_codigo=empresa, nome="Sintetica", chave_env="CHAVE_SINTETICA", destinos=(),
