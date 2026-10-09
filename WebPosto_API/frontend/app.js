@@ -37,6 +37,7 @@ import { renderFuelExecutiveDashboard } from "./pages/fuelExecutiveDashboard.js"
 import { renderFinanceCenter } from "./pages/financeCenter.js";
 import { renderCashFlow } from "./pages/cashFlow.js";
 import { renderCashAudit } from "./pages/cashAudit.js";
+import { renderCommercialScore } from "./pages/commercialScore.js?v=commercial-score-4";
 import { renderCompanySwitcher } from "./components/CompanySwitcher.js";
 import { createTableState } from "./services/tableState.js";
 import {
@@ -61,12 +62,15 @@ const VIEW_ALIASES = {
   cashflow: "cashFlow",
   "cash-audit": "cashAudit",
   cashaudit: "cashAudit",
+  placar: "commercialScore",
+  "commercial-score": "commercialScore",
 };
 
 const VIEW_URL_NAMES = {
   financeCenter: "finance-center",
   cashFlow: "cash-flow",
   cashAudit: "cash-audit",
+  commercialScore: "placar",
 };
 
 function normalizeViewId(view) {
@@ -200,6 +204,7 @@ function fromUrl() {
   const viewNormalized = viewRaw === "fuel" ? "fuels" : normalizeViewId(viewRaw);
   return {
     view: viewNormalized,
+    tv: query.get("tv") === "1",
     pageExpenses: Number(query.get("pageExpenses") || 1),
     pageAccounts: Number(query.get("pageAccounts") || 1),
     pageSales: Number(query.get("pageSales") || 1),
@@ -225,6 +230,7 @@ function writeUrl(state) {
   query.set("pageSales", String(state.pageSales));
   query.set("pageFuels", String(state.pageFuels));
   query.set("pageStock", String(state.pageStock));
+  if (state.view === "commercialScore" && state.tv) query.set("tv", "1");
 
   Object.entries(state.filters).forEach(([key, value]) => {
     const serialized = serializeUrlFilterValue(key, value);
@@ -319,6 +325,7 @@ const accountsNode = document.querySelector("#accountsView");
 const financeCenterNode = document.querySelector("#financeCenterView");
 const cashFlowNode = document.querySelector("#cashFlowView");
 const cashAuditNode = document.querySelector("#cashAuditView");
+const commercialScoreNode = document.querySelector("#commercialScoreView");
 const fuelsNode = document.querySelector("#fuelsView");
 const salesNode = document.querySelector("#salesView");
 const stockNode = document.querySelector("#stockView");
@@ -348,6 +355,7 @@ function setView(view) {
   financeCenterNode.classList.toggle("hidden", view !== "financeCenter");
   cashFlowNode.classList.toggle("hidden", view !== "cashFlow");
   cashAuditNode.classList.toggle("hidden", view !== "cashAudit");
+  commercialScoreNode.classList.toggle("hidden", view !== "commercialScore");
   fuelsNode.classList.toggle("hidden", view !== "fuels");
   salesNode.classList.toggle("hidden", view !== "sales");
   stockNode.classList.toggle("hidden", view !== "stock");
@@ -635,6 +643,9 @@ function renderAll() {
     },
   });
   if (state.view === "cashAudit") void renderCashAudit(cashAuditNode);
+  if (state.view === "commercialScore") {
+    void renderCommercialScore(commercialScoreNode, { tv: state.tv });
+  }
 
   renderStock(
     stockNode,
@@ -930,6 +941,11 @@ async function refreshAll(bypassCache = false) {
     });
   }
   try {
+    if (state.view === "commercialScore") {
+      await renderCommercialScore(commercialScoreNode, { load: true, tv: state.tv });
+      return;
+    }
+
     await refreshCompanies(bypassCache);
 
     ensureDataDefaults();

@@ -15,6 +15,7 @@ from src.interfaces.http.routes import metrics
 from src.interfaces.http.routes import analytics
 from src.interfaces.http.routes import finance_center
 from src.interfaces.http.routes import cash_flow
+from src.modules.commercial_performance.interfaces.http import router as commercial_router
 from src.interfaces.http.routes import financial_intelligence
 from src.modules.cash_reconciliation.interfaces.http import router as cash_audit_router
 from src.shared.logger import setup_logging
@@ -60,6 +61,7 @@ def create_app() -> FastAPI:
     app.include_router(cash_flow.router)
     app.include_router(financial_intelligence.router)
     app.include_router(cash_audit_router)
+    app.include_router(commercial_router)
 
     frontend_dir = root / "frontend"
     if frontend_dir.is_dir():
