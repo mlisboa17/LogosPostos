@@ -183,7 +183,7 @@ def test_cache_parcial_compartilha_limite_entre_dias(client, monkeypatch):
     resultado = resultado_sintetico()
     monkeypatch.setattr(
         http, "carregar_dia",
-        lambda unidade, dia: SimpleNamespace(fechamento=resultado) if dia.day == 1 else None,
+        lambda unidade, dia: SimpleNamespace(fechamento=resultado) if dia.day == 2 else None,
     )
 
     async def lenta(unidade, inicio, fim):
@@ -202,5 +202,26 @@ def test_cache_parcial_compartilha_limite_entre_dias(client, monkeypatch):
         params={"unidade": 321, "inicio": "2026-10-01", "fim": "2026-10-03"},
     )
     assert response.status_code == 504
-    assert chamadas == [2, 3]
+    assert chamadas == [1, 3]   # dia 2 gravado separa dois blocos; o prazo e compartilhado
     assert canceladas == [3]
+
+
+def test_dias_sem_gravacao_sao_consultados_em_bloco(client, monkeypatch):
+    chamadas = []
+    resultado = resultado_sintetico()
+    monkeypatch.setattr(
+        http, "carregar_dia",
+        lambda unidade, dia: SimpleNamespace(fechamento=resultado) if dia.day == 3 else None,
+    )
+
+    async def auditar(unidade, inicio, fim):
+        chamadas.append((inicio.day, fim.day))
+        return resultado
+
+    monkeypatch.setattr(http, "auditar_unidade", auditar)
+    response = client.get(
+        "/api/v1/cash-audit/fechamento",
+        params={"unidade": 321, "inicio": "2026-10-01", "fim": "2026-10-05"},
+    )
+    assert response.status_code == 200
+    assert chamadas == [(1, 2), (4, 5)]

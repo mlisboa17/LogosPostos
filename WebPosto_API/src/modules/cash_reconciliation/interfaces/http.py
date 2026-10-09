@@ -72,14 +72,23 @@ async def obter_fechamento(
             resultado = await _auditar_com_limite(unidade, inicio, fim, prazo)
             return serializar_fechamento(resultado)
         resultados = []
+        bloco: list[date] = []  # dias seguidos sem resultado gravado: 1 consulta ao ERP por bloco, nao por dia
+
+        async def consultar_bloco() -> None:
+            if bloco:
+                resultados.append(await _auditar_com_limite(unidade, bloco[0], bloco[-1], prazo))
+                bloco.clear()
+
         for dia in dias:
             persistido = persistidos[dia]
             if persistido is None:
-                resultados.append(await _auditar_com_limite(unidade, dia, dia, prazo))
-            elif persistido.fechamento is not None:
-                resultados.append(persistido.fechamento)
-            else:
+                bloco.append(dia)
+                continue
+            await consultar_bloco()
+            if persistido.fechamento is None:
                 raise HTTPException(status_code=502, detail="Fechamento persistido indisponível.")
+            resultados.append(persistido.fechamento)
+        await consultar_bloco()
         proveniencias = [resultado.proveniencia for resultado in resultados]
         regras = sorted({p.versao_regra for p in proveniencias})
         resultado = ResultadoAuditoria(
