@@ -364,6 +364,15 @@ def create_unified_app() -> FastAPI:
 
         logging.getLogger(__name__).warning("Rotas cash-audit não carregadas: %s", exc)
 
+    try:
+        from src.modules.commercial_performance.interfaces.http import router as commercial_router
+
+        app.include_router(commercial_router)
+    except Exception as exc:
+        import logging
+
+        logging.getLogger(__name__).warning("Rotas comerciais não carregadas: %s", exc)
+
     # Auditoria (Mongo) — opcional
     try:
         from src.interfaces.http.routes import auditoria
