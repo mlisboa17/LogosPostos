@@ -1,30 +1,34 @@
 # STATUS — LOGOS Auditoria (atualizado em 10/10/2026)
 
 Repositório canônico: C:\Projetos\LOGOS\LogosPostos · branch feature/cash-audit-fechamento
-Último commit de código: 4eab908 (Sprint 6 concluída) · branch enviado ao GitHub privado em 10/10/2026 (sem merge na main)
+Último commit de código: 16bea52 (Sprint 09 concluída) · branch sincronizado com o GitHub privado (sem merge na main)
 PR a abrir: https://github.com/mlisboa17/LogosPostos/pull/new/feature/cash-audit-fechamento
 
 ## Pronto
-- Auditoria de fechamento FECHAMENTO_V3: quebra, falta sem desconto, caixa parado, despesas do caixa, reincidência
-- Recebimentos PagBank CARTOES_V1 (Doze 74014 e Casa Caiada 5555) com atribuição ao frentista
-- Login por perfil (diretor/gerente/auditor), fila de pendências, Painel do Diretor, placar de metas (VIP com metas de out/2026)
-- Robô noturno agendado (03:00, tarefa "LOGOS - Auditoria de Caixa", modo -SemAdmin)
+- Auditoria de fechamento FECHAMENTO_V4: quebra, falta sem desconto, caixa parado, despesas do caixa, reincidência;
+  sangria sem conta da Conveniência 24h (repasse ao Casa Caiada) e do Casa Caiada (cofre) é informativa
+- Recebimentos PagBank CARTOES_V2 (Doze 74014 e Casa Caiada 5555) com atribuição ao frentista e grupos prováveis
+- Login por perfil (diretor/gerente/auditor), Painel do Diretor, placar de metas (VIP com metas de out/2026)
+- Fila de pendências: vermelho individual, laranja agrupado por caixa/dia, prazo (vermelho 2 dias, laranja 5) e VENCIDAS
+- Robô noturno agendado (03:00, tarefa "LOGOS - Auditoria de Caixa", modo -SemAdmin); credencial inválida = aviso, não falha
 - Datas no padrão Brasil (America/Recife)
 
 ## Aguardando o diretor
 1. Revisar e abrir o PR (descrição pronta em docs/status/PR_feature_cash_audit.md); merge na main só após revisão
-2. Regra de pendências: vermelho = pendência individual; laranja = 1 pendência por caixa/dia (hoje são 155 abertas em 8 dias)
-3. Metas de out/2026 do Doze e do Casa Caiada
-4. Fornecedores: credencial PagBank da Conveniência 24h, documentação da Mais Pagamentos, EDI da Rede, credencial Cielo
-5. Teste do Premmia (prompt: docs/prompts/PREMMIA_00_teste_controlado.md), com o diretor presente
+2. Fornecedores: credencial PagBank da Conveniência 24h, documentação da Mais Pagamentos, EDI da Rede, credencial Cielo
+3. Teste do Premmia (prompt: docs/prompts/PREMMIA_00_teste_controlado.md), com o diretor presente
+4. Canal do resumo diário (WhatsApp ou e-mail)
+5. Opcional: apagar a pendência sintética da unidade 321 do banco real
 
-## Próxima tarefa do agente
-CARTOES_V2: vários cartões "a maior" que somam um lançamento "a menor" no mesmo dia viram "grupo provável"
-(caso real: Casa Caiada 07/10, 4 cartões = R$ 179,45)
+## Backlog (sprints futuras)
+- METAS_02 — Metas de out/2026 do Doze e do Casa Caiada (adiado pelo diretor em 10/10/2026; aguarda os números Bronze/Prata/Ouro)
+- Resumo diário enviado ao diretor (depende do canal)
+- Integrações Mais Pagamentos, Rede, Cielo e PagBank Conv 24h (dependem dos fornecedores)
+- 28 snapshots antigos ainda versionados; arquivar a pasta antiga do OneDrive
 
 ## Decisões fixas
 Não trocar CONSUMER_TOKEN/ADMIN_TOKEN · conciliação de depósitos fora do escopo · somente leitura no ERP
-· .env só via load_dotenv · metas só para postos
+· .env só via load_dotenv · metas só para postos · testes nunca gravam no banco real
 
 ## Retomada
 cd C:\Projetos\LOGOS\LogosPostos\WebPosto_API; Get-Content data\cash_audit\noturno.log -Tail 2; python -m uvicorn src.main:app --port 8000
