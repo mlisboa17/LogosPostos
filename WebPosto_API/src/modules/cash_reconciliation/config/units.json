@@ -46,6 +46,7 @@
       "empresa_codigo": 118508,
       "nome": "CONVENIENCIA 24 HORAS",
       "chave_env": "WEBPOSTO_API_KEY_CONVENIENCIA_24_HORAS",
+      "repasse_sangria_para": 5555,
       "adquirentes": [
         {"nome": "PAGBANK", "situacao": "credencial inválida", "modalidades": ["pix"]},
         {"nome": "CIELO", "situacao": "pendente", "modalidades": ["cartoes"]},

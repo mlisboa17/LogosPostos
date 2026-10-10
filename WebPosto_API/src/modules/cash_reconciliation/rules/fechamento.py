@@ -1,4 +1,4 @@
-"""Regras de auditoria do fechamento — FECHAMENTO_V3.
+"""Regras de auditoria do fechamento — FECHAMENTO_V4.
 
   vermelho: quebra em qualquer modalidade acima do limite (padrao R$ 10)
             falta em dinheiro sem vale de desconto; caixa parado fora da tolerancia
@@ -9,6 +9,7 @@
             vale divergente; despesa sem plano de contas/descricao util
 V2: caixa aberto nao gera quebra (antes mostrava todo o apurado como "falta").
 V3: verifica vales, tempo sem consolidar e despesas pagas no caixa.
+V4: sangrias sem conta repassadas para outra unidade sao informativas, sem pendencia.
 Mudou alguma regra? Crie nova VERSAO.
 """
 from __future__ import annotations
@@ -30,7 +31,7 @@ from ..domain.fechamento import (
 from ..domain.models import Sangria
 from ..domain.tempo import agora
 
-VERSAO = "FECHAMENTO_V3"
+VERSAO = "FECHAMENTO_V4"
 LIMITE_QUEBRA = Decimal("10")
 ORIGEM_VALE_FALTA = "D"
 TIPO_MOVIMENTO_DESPESA = "D"
@@ -50,6 +51,8 @@ def auditar_caixa(
     despesas: Iterable[MovimentoDespesa] = (),
     dias_tolerancia_consolidacao: int = 2,
     hoje: date | None = None,
+    repasse_sangria_para: int | None = None,
+    nome_destino_repasse: str | None = None,
 ) -> AuditoriaCaixa:
     linhas = tuple(modalidades)
     do_caixa = tuple(s for s in sangrias if s.caixa_codigo == caixa.codigo)
@@ -64,6 +67,7 @@ def auditar_caixa(
         if movimento.caixa_codigo == caixa.codigo and movimento.tipo.upper() == TIPO_MOVIMENTO_DESPESA
     )
     alertas: list[Alerta] = []
+    informativos: list[str] = []
     desconto_falta = None
 
     for m in (linhas if caixa.fechado else ()):
@@ -127,8 +131,19 @@ def auditar_caixa(
 
     for s in do_caixa:
         if s.conta_codigo is None:
-            alertas.append(Alerta(codigo="SANGRIA_SEM_DESTINO", severidade=Severidade.VERMELHO, valor=s.valor,
-                                  referencia=s.codigo, mensagem=f"Sangria de {_brl(s.valor)} às {s.momento:%H:%M} sem conta de destino"))
+            if repasse_sangria_para is not None:
+                destino = nome_destino_repasse or f"unidade {repasse_sangria_para}"
+                informativos.append(
+                    f"Sangria de {_brl(s.valor)} às {s.momento:%H:%M} repassada ao {destino}"
+                )
+            else:
+                alertas.append(Alerta(
+                    codigo="SANGRIA_SEM_DESTINO",
+                    severidade=Severidade.VERMELHO,
+                    valor=s.valor,
+                    referencia=s.codigo,
+                    mensagem=f"Sangria de {_brl(s.valor)} às {s.momento:%H:%M} sem conta de destino",
+                ))
         if s.alterada:
             alertas.append(Alerta(codigo="SANGRIA_ALTERADA", severidade=Severidade.LARANJA, valor=s.valor,
                                   referencia=s.codigo, mensagem=f"Sangria de {_brl(s.valor)} às {s.momento:%H:%M} alterada após o lançamento"))
@@ -156,6 +171,7 @@ def auditar_caixa(
         modalidades=linhas,
         sangrias=do_caixa,
         alertas=tuple(alertas),
+        informativos=tuple(informativos),
         vales_falta=vales_do_caixa,
         desconto_falta=desconto_falta,
         despesas=despesas_do_caixa,

@@ -27,6 +27,8 @@ def auditar(
     despesas: Iterable[MovimentoDespesa] = (),
     tolerancia_consolidacao: int = 2,
     hoje: date | None = None,
+    repasse_sangria_para: int | None = None,
+    nome_destino_repasse: str | None = None,
 ) -> ResultadoAuditoria:
     sangrias = [s for s in sangrias if s.empresa_codigo == empresa_codigo]
     vales = [v for v in vales if v.empresa_codigo == empresa_codigo]
@@ -40,6 +42,8 @@ def auditar(
             despesas=despesas,
             dias_tolerancia_consolidacao=tolerancia_consolidacao,
             hoje=hoje,
+            repasse_sangria_para=repasse_sangria_para,
+            nome_destino_repasse=nome_destino_repasse,
         )
         for c in sorted(caixas, key=lambda c: (c.data, c.abertura))
         if c.empresa_codigo == empresa_codigo and inicio <= c.data <= fim
@@ -66,7 +70,13 @@ def auditar(
 
 
 async def auditar_unidade(empresa_codigo: int, inicio: date, fim: date) -> ResultadoAuditoria:
-    unidade = carregar_unidades()[empresa_codigo]
+    unidades = carregar_unidades()
+    unidade = unidades[empresa_codigo]
+    destino_repasse = (
+        unidades[unidade.repasse_sangria_para]
+        if unidade.repasse_sangria_para is not None
+        else None
+    )
     caixas = await buscar_caixas(unidade, inicio, fim)
     apresentados = await buscar_apresentados(unidade, inicio, fim, {c.codigo for c in caixas})
     sangrias = await buscar_sangrias(unidade, inicio, fim)
@@ -82,4 +92,6 @@ async def auditar_unidade(empresa_codigo: int, inicio: date, fim: date) -> Resul
         vales=vales,
         despesas=despesas,
         tolerancia_consolidacao=dias_tolerancia_consolidacao(),
+        repasse_sangria_para=unidade.repasse_sangria_para,
+        nome_destino_repasse=destino_repasse.nome if destino_repasse is not None else None,
     )

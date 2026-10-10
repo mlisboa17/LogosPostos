@@ -83,6 +83,7 @@ class Unidade(_Frozen):
     chave_env: str                         # NOME da variavel de ambiente com a CHAVE (nunca o valor)
     destinos: tuple[Destino, ...]
     destino_padrao: int | None = None      # conta assumida quando a sangria vem sem contaCodigo
+    repasse_sangria_para: int | None = None
     adquirentes: tuple[AdquirenteConfigurada, ...] = ()
 
     def destino(self, conta_codigo: int | None) -> Destino | None:

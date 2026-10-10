@@ -102,6 +102,7 @@ class AuditoriaCaixa(_Frozen):
     modalidades: tuple[LinhaModalidade, ...]
     sangrias: tuple[Sangria, ...]
     alertas: tuple[Alerta, ...]
+    informativos: tuple[str, ...] = ()
     vales_falta: tuple[ValeFuncionario, ...] = ()
     desconto_falta: DescontoFalta | None = None
     despesas: tuple[MovimentoDespesa, ...] = ()

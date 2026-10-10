@@ -135,6 +135,78 @@ def test_alertas_criam_pendencias_com_chave_idempotente_e_historico_append_only(
             conexao.execute("DELETE FROM historico_pendencias")
 
 
+def test_sangrias_repassadas_aprovam_abertas_e_preservam_justificadas_recusadas(
+    tmp_path, monkeypatch,
+):
+    banco = tmp_path / "pendencias.sqlite3"
+    monkeypatch.setattr(repositorio, "BANCO_PENDENCIAS", banco)
+    monkeypatch.setattr(
+        "src.modules.cash_reconciliation.application.gerar_pendencias.carregar_unidades",
+        lambda: {
+            118508: Unidade(
+                empresa_codigo=118508,
+                nome="CONVENIENCIA 24 HORAS",
+                chave_env="CHAVE_TESTE",
+                destinos=(),
+                repasse_sangria_para=5555,
+            ),
+        },
+    )
+    antigas = [
+        NovaPendencia(
+            unidade=118508,
+            dia=DIA,
+            tipo="fechamento_sangria_sem_destino",
+            severidade="vermelho",
+            valor=Decimal("25.00"),
+            referencia=f"caixa:1:sangria:{indice}",
+            mensagem="Sangria sem conta de destino",
+        )
+        for indice in range(1, 4)
+    ]
+    repositorio.registrar(antigas, banco=banco)
+    abertas, _ = repositorio.listar(unidade=118508, status="aberta", banco=banco)
+    repositorio.transicionar(
+        abertas[0].id,
+        status_esperado="aberta",
+        status_novo="justificada",
+        acao="justificada",
+        usuario="gerente",
+        justificativa="Conferida.",
+        banco=banco,
+    )
+    repositorio.transicionar(
+        abertas[1].id,
+        status_esperado="aberta",
+        status_novo="recusada",
+        acao="recusada",
+        usuario="diretor",
+        justificativa="Não procede.",
+        banco=banco,
+    )
+
+    resultado = criar_diario(DIA, unidade=118508)
+    assert all(
+        pendencia.tipo != "fechamento_sangria_sem_destino"
+        for pendencia in pendencias_do_dia(resultado)
+    )
+    itens, total = repositorio.listar(unidade=118508, tipo="fechamento_sangria_sem_destino", banco=banco)
+    assert total == 3
+    por_status = {item.status: item for item in itens}
+    aprovada = por_status["aprovada"]
+    assert aprovada.historico[-1].acao == "aprovada"
+    assert aprovada.historico[-1].usuario == "robo"
+    assert aprovada.historico[-1].justificativa == (
+        "Regra FECHAMENTO_V4: sangria da Conveniência 24h repassada ao Casa Caiada "
+        "(decisão do diretor em 10/10/2026)"
+    )
+    historico_final = len(aprovada.historico)
+
+    pendencias_do_dia(resultado)
+    novamente, _ = repositorio.listar(unidade=118508, tipo="fechamento_sangria_sem_destino", banco=banco)
+    assert len(next(item for item in novamente if item.status == "aprovada").historico) == historico_final
+    assert {item.status for item in novamente} == {"aprovada", "justificada", "recusada"}
+
 def diario_com_alertas(alertas):
     resultado = criar_diario(DIA)
     auditoria = resultado.fechamento.caixas[0].model_copy(update={"alertas": tuple(alertas)})

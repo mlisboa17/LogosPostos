@@ -9,7 +9,12 @@ from src.modules.cash_reconciliation.adapters.webposto_caixas import (
 )
 from src.modules.cash_reconciliation.application.auditar_fechamento import auditar
 from src.modules.cash_reconciliation.config import dias_tolerancia_consolidacao
-from src.modules.cash_reconciliation.domain.fechamento import MovimentoDespesa, Severidade, ValeFuncionario
+from src.modules.cash_reconciliation.domain.fechamento import (
+    AuditoriaCaixa,
+    MovimentoDespesa,
+    Severidade,
+    ValeFuncionario,
+)
 from src.modules.cash_reconciliation.domain.models import Sangria, Unidade
 from src.modules.cash_reconciliation.rules.fechamento import VERSAO, auditar_caixa
 
@@ -88,6 +93,23 @@ def test_sangrias_sem_destino_e_alterada_do_proprio_caixa():
     assert a.severidade is Severidade.VERMELHO and len(a.sangrias) == 2
 
 
+def test_sangria_repassada_e_informativa_com_destino_configurado():
+    a = auditar_caixa(
+        caixa(), (), [S(1, conta=None)],
+        repasse_sangria_para=5555,
+        nome_destino_repasse="AP CASA CAIADA",
+    )
+    assert not any(alerta.codigo == "SANGRIA_SEM_DESTINO" for alerta in a.alertas)
+    assert a.informativos == ("Sangria de R$ 300,00 às 14:30 repassada ao AP CASA CAIADA",)
+    assert a.severidade is None
+
+
+def test_resultado_v3_sem_campo_informativos_continua_valido():
+    legado = auditar_caixa(caixa(), (), [S(1)]).model_dump(mode="python")
+    legado.pop("informativos")
+    assert AuditoriaCaixa.model_validate(legado).informativos == ()
+
+
 def test_falta_em_dinheiro_sem_vale_gera_alerta_vermelho():
     linhas = para_modalidades({**APRESENTADO_API, "dinheiroDiferenca": -50})
     a = auditar_caixa(caixa(), linhas, [])
@@ -163,3 +185,52 @@ async def test_apresentados_filtrados_pelos_caixas_da_unidade(monkeypatch):
         r = await buscar_apresentados(Unidade(empresa_codigo=5555, nome="T", chave_env="TEST_CHAVE", destinos=()),
                                       date(2026, 10, 5), date(2026, 10, 5), {1}, client=c)
     assert list(r) == [1]
+
+
+@pytest.mark.asyncio
+async def test_auditar_unidade_carrega_nome_de_destino_da_configuracao(monkeypatch):
+    from src.modules.cash_reconciliation.application import auditar_fechamento as aplicacao
+
+    unidades = {
+        118508: Unidade(
+            empresa_codigo=118508,
+            nome="CONVENIENCIA 24 HORAS",
+            chave_env="CHAVE_ORIGEM",
+            destinos=(),
+            repasse_sangria_para=5555,
+        ),
+        5555: Unidade(
+            empresa_codigo=5555,
+            nome="Casa Caiada",
+            chave_env="CHAVE_DESTINO",
+            destinos=(),
+        ),
+    }
+    monkeypatch.setattr(aplicacao, "carregar_unidades", lambda: unidades)
+
+    async def buscar_caixas_fake(*args):
+        return [caixa(empresaCodigo=118508)]
+
+    async def buscar_apresentados_fake(*args):
+        return {}
+
+    async def buscar_sangrias_fake(*args):
+        return [S(1, conta=None).model_copy(update={"empresa_codigo": 118508})]
+
+    async def vazio(*args):
+        return []
+
+    monkeypatch.setattr(aplicacao, "buscar_caixas", buscar_caixas_fake)
+    monkeypatch.setattr(aplicacao, "buscar_apresentados", buscar_apresentados_fake)
+    monkeypatch.setattr(aplicacao, "buscar_sangrias", buscar_sangrias_fake)
+    monkeypatch.setattr(aplicacao, "buscar_vales", vazio)
+    monkeypatch.setattr(aplicacao, "buscar_despesas", vazio)
+
+    resultado = await aplicacao.auditar_unidade(
+        118508,
+        date(2026, 10, 5),
+        date(2026, 10, 5),
+    )
+    assert resultado.caixas[0].informativos == (
+        "Sangria de R$ 300,00 às 14:30 repassada ao Casa Caiada",
+    )

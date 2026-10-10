@@ -9,6 +9,8 @@ from datetime import date
 from decimal import Decimal
 from typing import Iterable
 
+from ..adapters import pendencias as repositorio_pendencias
+from ..config import carregar_unidades
 from ..domain.cartoes import Atribuicao
 from ..domain.execucao import ResultadoDiario
 from ..domain.pendencias import NovaPendencia
@@ -99,6 +101,39 @@ def pendencias_do_dia(resultado: ResultadoDiario) -> list[NovaPendencia]:
                     mensagem=json.dumps(detalhes, ensure_ascii=False, separators=(",", ":")),
                     identidade=f"{resultado.empresa_codigo}|{resultado.dia.isoformat()}|caixa:{caixa}|laranja",
                 ))
+    unidade = carregar_unidades().get(resultado.empresa_codigo)
+    if unidade is not None and unidade.repasse_sangria_para is not None:
+        abertas = repositorio_pendencias.contar_abertas_somente_leitura(
+            unidade=resultado.empresa_codigo,
+        )
+        if abertas:
+            antigas = []
+            deslocamento = 0
+            while True:
+                itens, total = repositorio_pendencias.listar(
+                    unidade=resultado.empresa_codigo,
+                    status="aberta",
+                    tipo="fechamento_sangria_sem_destino",
+                    limite=100,
+                    deslocamento=deslocamento,
+                )
+                antigas.extend(itens)
+                deslocamento += len(itens)
+                if not itens or deslocamento >= total:
+                    break
+            for pendencia in antigas:
+                if pendencia.dia <= resultado.dia:
+                    repositorio_pendencias.transicionar(
+                        pendencia.id,
+                        status_esperado="aberta",
+                        status_novo="aprovada",
+                        acao="aprovada",
+                        usuario="robo",
+                        justificativa=(
+                            "Regra FECHAMENTO_V4: sangria da Conveniência 24h "
+                            "repassada ao Casa Caiada (decisão do diretor em 10/10/2026)"
+                        ),
+                    )
     for adquirente in resultado.recebimentos.adquirentes:
         if adquirente.situacao != "ok":
             continue
