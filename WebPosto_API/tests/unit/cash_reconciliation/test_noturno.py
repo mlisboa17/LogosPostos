@@ -402,14 +402,31 @@ def test_envio_telegram_nao_duplica_data(monkeypatch, tmp_path):
     monkeypatch.setenv("TELEGRAM_ENVIO", "1")
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "token-sintetico")
     monkeypatch.setenv("TELEGRAM_CHAT_IDS", "123")
-    monkeypatch.setattr(composicao_noturna, "_mensagens_telegram", lambda dia: ["resumo sintético"])
+    monkeypatch.setattr(composicao_noturna, "_coletar_dados_telegram", lambda dia: {})
+    monkeypatch.setattr(
+        composicao_noturna,
+        "_mensagens_telegram",
+        lambda dia, dados=None: ["resumo sintético"],
+    )
+    monkeypatch.setattr(
+        composicao_noturna,
+        "_criar_planilha_telegram",
+        lambda dia, dados: tmp_path / "resumo.xlsx",
+    )
     chamadas = []
 
-    def enviar(texto, *, token, chat_ids):
-        chamadas.append((texto, token, chat_ids))
+    def enviar(texto, *, token, chat_ids, parse_mode):
+        chamadas.append((texto, token, chat_ids, parse_mode))
         return [ResultadoDestinatario(chat_id="123", sucesso=True, status_http=200)]
 
     monkeypatch.setattr(composicao_noturna, "enviar_mensagem", enviar)
+    monkeypatch.setattr(
+        composicao_noturna,
+        "enviar_documento",
+        lambda *args, **kwargs: [
+            ResultadoDestinatario(chat_id="123", sucesso=True, status_http=200)
+        ],
+    )
     registro = tmp_path / "envios_telegram.json"
     for _ in range(2):
         composicao_noturna._tentar_envio_telegram(
@@ -445,7 +462,17 @@ def test_envio_telegram_401_nao_registra_token_no_log(monkeypatch, tmp_path, cap
     monkeypatch.setenv("TELEGRAM_ENVIO", "1")
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "token-sintetico-secreto")
     monkeypatch.setenv("TELEGRAM_CHAT_IDS", "123")
-    monkeypatch.setattr(composicao_noturna, "_mensagens_telegram", lambda dia: ["resumo sintético"])
+    monkeypatch.setattr(composicao_noturna, "_coletar_dados_telegram", lambda dia: {})
+    monkeypatch.setattr(
+        composicao_noturna,
+        "_mensagens_telegram",
+        lambda dia, dados=None: ["resumo sintético"],
+    )
+    monkeypatch.setattr(
+        composicao_noturna,
+        "_criar_planilha_telegram",
+        lambda dia, dados: tmp_path / "resumo.xlsx",
+    )
     with httpx.Client(
         transport=httpx.MockTransport(
             lambda request: httpx.Response(401, json={"ok": False, "description": "unauthorized"})
@@ -454,12 +481,25 @@ def test_envio_telegram_401_nao_registra_token_no_log(monkeypatch, tmp_path, cap
         monkeypatch.setattr(
             composicao_noturna,
             "enviar_mensagem",
-            lambda texto, *, token, chat_ids: telegram_enviar_mensagem(
+            lambda texto, *, token, chat_ids, parse_mode: telegram_enviar_mensagem(
                 texto,
                 token=token,
                 chat_ids=chat_ids,
                 cliente=cliente,
+                parse_mode=parse_mode,
             ),
+        )
+        monkeypatch.setattr(
+            composicao_noturna,
+            "enviar_documento",
+            lambda *args, **kwargs: [
+                ResultadoDestinatario(
+                    chat_id="123",
+                    sucesso=False,
+                    status_http=401,
+                    tipo_erro="HTTPStatusError",
+                )
+            ],
         )
 
         composicao_noturna._tentar_envio_telegram(
@@ -472,6 +512,54 @@ def test_envio_telegram_401_nao_registra_token_no_log(monkeypatch, tmp_path, cap
 
     assert "HTTP 401" in caplog.text
     assert "token-sintetico-secreto" not in caplog.text
+
+
+def test_falha_na_planilha_nao_invalida_envio_das_mensagens(monkeypatch, tmp_path, caplog):
+    monkeypatch.setenv("TELEGRAM_ENVIO", "1")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "token-sintetico")
+    monkeypatch.setenv("TELEGRAM_CHAT_IDS", "123")
+    monkeypatch.setattr(composicao_noturna, "_coletar_dados_telegram", lambda dia: {})
+    monkeypatch.setattr(
+        composicao_noturna,
+        "_mensagens_telegram",
+        lambda dia, dados=None: ["resumo sintético"],
+    )
+    monkeypatch.setattr(
+        composicao_noturna,
+        "_criar_planilha_telegram",
+        lambda dia, dados: tmp_path / "resumo.xlsx",
+    )
+    monkeypatch.setattr(
+        composicao_noturna,
+        "enviar_mensagem",
+        lambda *args, **kwargs: [
+            ResultadoDestinatario(chat_id="123", sucesso=True, status_http=200)
+        ],
+    )
+    monkeypatch.setattr(
+        composicao_noturna,
+        "enviar_documento",
+        lambda *args, **kwargs: [
+            ResultadoDestinatario(
+                chat_id="123",
+                sucesso=False,
+                status_http=500,
+                tipo_erro="HTTPStatusError",
+            )
+        ],
+    )
+    registro = tmp_path / "envios.json"
+
+    composicao_noturna._tentar_envio_telegram(
+        DIA,
+        dia_manual=True,
+        enviar_manual=True,
+        reenviar=False,
+        caminho_registro=registro,
+    )
+
+    assert '"situacao": "ok"' in registro.read_text(encoding="utf-8")
+    assert "Telegram planilha envio=falhou" in caplog.text
 
 
 def test_reprocessamento_manual_nao_envia_sem_opcao(monkeypatch, tmp_path):

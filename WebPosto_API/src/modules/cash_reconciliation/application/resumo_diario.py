@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from html import escape
 from datetime import date
 from decimal import Decimal
 
@@ -92,6 +93,11 @@ def _total_mapeado(valores: dict[int, int | None], unidades: list[int]) -> int |
 def _quebrar_linha(texto: str, limite: int) -> list[str]:
     if len(texto) <= limite:
         return [texto]
+    if texto.startswith("<b>"):
+        fechamento = texto.find("</b>")
+        if fechamento >= 0 and fechamento < limite:
+            inicio = texto[: fechamento + 4]
+            return [inicio, *_quebrar_linha(texto[fechamento + 4 :].lstrip(), limite)]
     partes: list[str] = []
     restante = texto
     while len(restante) > limite:
@@ -135,23 +141,20 @@ def gerar_mensagem_curta(
     unidades_com_falha: set[int],
     pendencias_abertas: dict[int, int | None],
     pendencias_vencidas: dict[int, int | None] | None = None,
+    nomes_funcionarios: dict[int, dict[int, str]] | None = None,
 ) -> list[str]:
-    """Gera mensagens simples para Telegram, dividindo em blocos de até 4.000 caracteres."""
+    """Gera resumo HTML por filial para Telegram, sem persistir nomes consultados."""
     vencidas = pendencias_vencidas or {}
+    nomes = nomes_funcionarios or {}
     unidades_config = carregar_unidades()
     por_unidade = {resultado.empresa_codigo: resultado for resultado in resultados}
-    situacao_robo = "robô com falha" if unidades_com_falha else "robô ok"
     total_abertas = _total_mapeado(pendencias_abertas, unidades_processadas)
     total_vencidas = _total_mapeado(vencidas, unidades_processadas)
     prefixo = [
-        f"LOGOS — Caixas de {formatar_data(dia)} ({situacao_robo})",
-        (
-            "Pendências: "
-            f"{total_abertas if total_abertas is not None else 'indisponível'} "
-            "abertas · "
-            f"{total_vencidas if total_vencidas is not None else 'indisponível'} "
-            "vencidas"
-        ),
+        f"<b>LOGOS — Caixas de {formatar_data(dia)}</b>",
+        f"{'Robô com falha' if unidades_com_falha else 'Robô ok'} · Pendências: "
+        f"{total_abertas if total_abertas is not None else 'indisponível'} abertas · "
+        f"{total_vencidas if total_vencidas is not None else 'indisponível'} vencidas",
     ]
     avisos: list[str] = []
     for unidade in unidades_processadas:
@@ -159,110 +162,143 @@ def gerar_mensagem_curta(
         configurada = unidades_config.get(unidade)
         apelido = (configurada.apelido or configurada.nome) if configurada else str(unidade)
         if unidade in unidades_com_falha:
-            avisos.append(f"Falha em {apelido}")
+            avisos.append(f"Falha em {escape(apelido)}")
         if registro is None:
             continue
         avisos.extend(
-            f"{item.adquirente} da {apelido} com credencial inválida"
+            f"{escape(item.adquirente)} da {escape(apelido)} com credencial inválida"
             for item in registro.recebimentos.adquirentes
             if item.situacao == "credencial inválida"
         )
     if avisos:
         prefixo.append("Aviso: " + " · ".join(avisos))
 
-    blocos: list[list[str]] = []
+    blocos: list[tuple[bool, list[str]]] = []
     for unidade in unidades_processadas:
         registro = por_unidade.get(unidade)
         configurada = unidades_config.get(unidade)
         apelido = (configurada.apelido or configurada.nome) if configurada else str(unidade)
+        apelido_html = escape(apelido.upper())
         if registro is None or registro.fechamento is None:
-            linhas_unidade = [f"⚠ {apelido}: fechamento indisponível"]
-        else:
-            caixas = registro.fechamento.caixas
-            alertas = [alerta for caixa in caixas for alerta in caixa.alertas]
-            faltas = [alerta for alerta in alertas if alerta.codigo == "FALTA_SEM_DESCONTO"]
-            quebras = [
-                alerta
-                for alerta in alertas
-                if alerta.codigo == "QUEBRA" and abs(alerta.valor or Decimal(0)) > Decimal("100")
-            ]
-            referencia_nao_consolidado = {
-                alerta.referencia for alerta in alertas if alerta.codigo == "NAO_CONSOLIDADO"
-            }
-            tem_caixa_nao_consolidado = any(
-                alerta.referencia in referencia_nao_consolidado for alerta in faltas
+            linhas_unidade = [f"<b>⚠ {apelido_html}</b>", "Fechamento indisponível"]
+            blocos.append((True, linhas_unidade))
+            continue
+
+        caixas = registro.fechamento.caixas
+        alertas = [alerta for caixa in caixas for alerta in caixa.alertas]
+        faltas = [alerta for alerta in alertas if alerta.codigo == "FALTA_SEM_DESCONTO"]
+        quebras = [
+            alerta
+            for alerta in alertas
+            if alerta.codigo == "QUEBRA" and abs(alerta.valor or Decimal(0)) > Decimal("100")
+        ]
+        caixas_por_codigo = {auditoria.caixa.codigo: auditoria for auditoria in caixas}
+        nao_consolidados = {
+            alerta.referencia for alerta in alertas if alerta.codigo == "NAO_CONSOLIDADO"
+        }
+        problemas = bool(faltas or quebras or unidade in unidades_com_falha)
+        linhas_unidade = [f"<b>{'⚠' if problemas else '✓'} {apelido_html}</b>"]
+        if faltas:
+            for falta in faltas:
+                caixa = caixas_por_codigo.get(falta.referencia)
+                codigo_funcionario = caixa.caixa.funcionario_codigo if caixa else None
+                nome = (
+                    nomes.get(unidade, {}).get(codigo_funcionario) if codigo_funcionario else None
+                )
+                operador = escape(nome) if nome else f"func. {codigo_funcionario or 'indisponível'}"
+                detalhe = (
+                    f"Falta sem desconto: {moeda_br(abs(falta.valor or Decimal(0)))} — {operador}"
+                )
+                if falta.referencia in nao_consolidados:
+                    detalhe += " (caixa ainda não consolidado)"
+                linhas_unidade.append(detalhe)
+        elif quebras:
+            total_quebras = sum(
+                (abs(alerta.valor or Decimal(0)) for alerta in quebras),
+                Decimal(0),
             )
-            partes: list[str] = []
-            if faltas:
-                total_faltas = sum((alerta.valor or Decimal(0) for alerta in faltas), Decimal(0))
-                falta_rotulo = "falta" if len(faltas) == 1 else "faltas"
-                partes.append(
-                    f"{len(faltas)} {falta_rotulo}, {moeda_br(total_faltas)} sem desconto"
-                )
-            if quebras and not faltas:
-                total_quebras = sum(
-                    (abs(alerta.valor or Decimal(0)) for alerta in quebras),
-                    Decimal(0),
-                )
-                partes.append(f"quebra {moeda_br(total_quebras)}")
-            if tem_caixa_nao_consolidado:
-                partes.append("(caixa ainda não consolidado)")
-            linhas_unidade = [
-                f"{'⚠' if partes else '✓'} {apelido}: {'; '.join(partes) if partes else 'sem falta'}"
-            ]
+            linhas_unidade.append(f"Quebra acima de R$ 100: {moeda_br(total_quebras)}")
+        else:
+            linhas_unidade.append("Sem falta")
 
-            despesas = [despesa for caixa in caixas for despesa in caixa.despesas]
-            if despesas:
-                ordenadas = sorted(despesas, key=lambda item: (-item.valor, item.codigo))
-                mostradas = ordenadas[:8]
-                total_despesas = sum((item.valor for item in despesas), Decimal(0))
+        despesas = [despesa for caixa in caixas for despesa in caixa.despesas]
+        if despesas:
+            ordenadas = sorted(despesas, key=lambda item: (-item.valor, item.codigo))
+            linhas_unidade.append(
+                f"Despesas: {len(despesas)} · {moeda_br(sum((item.valor for item in despesas), Decimal(0)))}"
+            )
+            for despesa in ordenadas[:8]:
+                descricao = _descricao_despesa_segura(despesa.descricao or "sem descrição")
+                if len(descricao) > 40:
+                    descricao = descricao[:37] + "..."
+                plano = (
+                    "SEM PLANO ⚠"
+                    if not despesa.plano_conta_codigo
+                    else despesa.plano_conta_nome or despesa.plano_conta_codigo
+                )
+                plano_html = escape(plano)
+                if despesa.plano_conta_codigo and despesa.plano_conta_nome:
+                    plano_html = escape(f"{despesa.plano_conta_codigo} {despesa.plano_conta_nome}")
                 linhas_unidade.append(
-                    f"Despesas {apelido} ({len(despesas)} · {moeda_br(total_despesas)}):"
+                    f"• {moeda_br(despesa.valor)} — {escape(descricao)} — {plano_html}"
                 )
-                for despesa in mostradas:
-                    descricao = _descricao_despesa_segura(despesa.descricao or "sem descrição")
-                    if len(descricao) > 40:
-                        descricao = descricao[:37] + "..."
-                    plano = (
-                        "SEM PLANO ⚠"
-                        if not despesa.plano_conta_codigo
-                        else despesa.plano_conta_nome or despesa.plano_conta_codigo
-                    )
-                    linhas_unidade.append(f"- {moeda_br(despesa.valor)} · {descricao} · {plano}")
-                if len(ordenadas) > 8:
-                    outras = ordenadas[8:]
-                    total_outras = sum((item.valor for item in outras), Decimal(0))
-                    linhas_unidade.append(f"+{len(outras)} outras ({moeda_br(total_outras)})")
+            if len(ordenadas) > 8:
+                outras = ordenadas[8:]
+                linhas_unidade.append(
+                    f"+{len(outras)} outras ({moeda_br(sum((item.valor for item in outras), Decimal(0)))})"
+                )
 
-            vales = [vale for caixa in caixas for vale in caixa.vales]
-            if vales:
-                total_vales = sum((vale.valor for vale in vales), Decimal(0))
-                origem_nome = {"C": "sobra de caixa", "D": "falta de caixa", "V": "vale"}
-                linhas_unidade.append(f"Vales {apelido} ({len(vales)} · {moeda_br(total_vales)}):")
-                itens_vales = []
-                for vale in vales:
-                    origem = origem_nome.get(
-                        vale.origem.upper(), vale.origem or "origem não informada"
-                    )
-                    funcionario = (
-                        str(vale.funcionario_codigo)
-                        if vale.funcionario_codigo is not None
-                        else "código indisponível"
-                    )
-                    itens_vales.append(f"func. {funcionario} {moeda_br(vale.valor)} ({origem})")
-                linhas_unidade.append(" · ".join(itens_vales))
-        blocos.append(linhas_unidade)
+        vales = sorted(
+            (vale for caixa in caixas for vale in caixa.vales),
+            key=lambda item: (-item.valor, item.codigo),
+        )
+        if vales:
+            linhas_unidade.append(
+                f"Vales: {len(vales)} · {moeda_br(sum((vale.valor for vale in vales), Decimal(0)))}"
+            )
+            rotulos_origem = {"C": "sobra de caixa", "D": "falta de caixa"}
+            itens_vales = []
+            for vale in vales[:6]:
+                codigo = vale.funcionario_codigo
+                nome = nomes.get(unidade, {}).get(codigo) if codigo is not None else None
+                funcionario = escape(nome) if nome else f"func. {codigo or 'indisponível'}"
+                item = f"{funcionario} {moeda_br(vale.valor)}"
+                origem = rotulos_origem.get(vale.origem.upper())
+                if origem:
+                    item += f" ({origem})"
+                itens_vales.append(item)
+            if len(vales) > 6:
+                outros = vales[6:]
+                itens_vales.append(
+                    f"+{len(outros)} outros ({moeda_br(sum((vale.valor for vale in outros), Decimal(0)))})"
+                )
+            linhas_unidade.append("• " + " · ".join(itens_vales))
+        blocos.append((problemas, linhas_unidade))
 
-    limite_corpo = 4000 - len("\n".join(prefixo)) - 1
+    blocos.sort(key=lambda bloco: not bloco[0])
+    separador = "━━━━━━━━━━━━━━━━"
+    cabecalho = "\n".join(prefixo)
+    mensagem_completa = (
+        cabecalho + "\n" + "\n".join(f"{separador}\n" + "\n".join(linhas) for _, linhas in blocos)
+    )
+    if len(mensagem_completa) <= 4000:
+        return [mensagem_completa]
+
     mensagens: list[str] = []
-    atual = prefixo.copy()
-    for bloco in blocos:
-        for linha in bloco:
-            for parte in _quebrar_linha(linha, limite_corpo):
-                candidata = "\n".join((*atual, parte))
-                if len(candidata) > 4000:
-                    mensagens.append("\n".join(atual))
-                    atual = prefixo.copy()
-                atual.append(parte)
-    mensagens.append("\n".join(atual))
+    primeiro_bloco = True
+    for _, linhas in blocos:
+        bloco = f"{separador}\n" + "\n".join(linhas)
+        if primeiro_bloco and len(cabecalho) + 1 + len(bloco) <= 4000:
+            mensagens.append(cabecalho + "\n" + bloco)
+            primeiro_bloco = False
+            continue
+        if primeiro_bloco:
+            mensagens.append(cabecalho)
+            primeiro_bloco = False
+        if len(bloco) <= 4000:
+            mensagens.append(bloco)
+            continue
+        mensagens.extend(_quebrar_linha(bloco, 4000))
+    if not mensagens:
+        mensagens.append(cabecalho)
     return mensagens
