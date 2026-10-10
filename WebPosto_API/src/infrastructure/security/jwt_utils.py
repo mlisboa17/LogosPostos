@@ -6,9 +6,14 @@ import jwt
 from src.infrastructure.config.settings import settings
 
 
-def create_access_token(subject: str, extra: Dict[str, Any] | None = None) -> str:
+def create_access_token(
+    subject: str,
+    extra: Dict[str, Any] | None = None,
+    *,
+    expires_delta: timedelta | None = None,
+) -> str:
     now = datetime.utcnow()
-    exp = now + timedelta(minutes=settings.access_token_expire_minutes)
+    exp = now + (expires_delta or timedelta(minutes=settings.access_token_expire_minutes))
     payload = {
         "sub": subject,
         "exp": exp,
@@ -23,7 +28,7 @@ def create_access_token(subject: str, extra: Dict[str, Any] | None = None) -> st
 def create_refresh_token(subject: str) -> str:
     now = datetime.utcnow()
     exp = now + timedelta(days=settings.refresh_token_expire_days)
-    payload = {"sub": subject, "exp": exp, "iat": now}
+    payload = {"sub": subject, "exp": exp, "iat": now, "token_type": "refresh"}
     token = jwt.encode(payload, settings.secret_key, algorithm=settings.jwt_algorithm)
     return token
 

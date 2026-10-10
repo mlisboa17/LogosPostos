@@ -62,6 +62,42 @@ p {
   font-weight: 600;
 }
 
+.session-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.auth-view {
+  width: min(100% - 2rem, 440px);
+  margin: 12vh auto;
+  padding: 1.5rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow-card);
+}
+
+.auth-view h1 {
+  font-size: 1.45rem;
+}
+
+.auth-view > p {
+  margin-top: 0.5rem;
+  color: var(--muted);
+}
+
+.auth-view form,
+.auth-view label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.auth-view form {
+  margin-top: 1.2rem;
+}
+
 .filters {
   margin-top: 1rem;
   background: var(--card);

@@ -23,9 +23,11 @@ def test_login_com_credenciais_validas():
     assert response.status_code == 200
     payload = response.json()
     assert payload["user"]["email"] == settings.auth_user_email
-    assert payload["user"]["role"] == settings.auth_user_role
+    assert payload["user"]["role"] == "diretor"
     assert "access_token" in response.cookies
     assert "refresh_token" in response.cookies
+    assert "access_token" not in payload
+    assert "refresh_token" not in payload
 
 
 def test_login_rejeita_credenciais_invalidas():

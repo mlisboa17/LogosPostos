@@ -7,6 +7,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from src.infrastructure.security.jwt_utils import create_access_token
 from src.modules.cash_reconciliation.adapters.webposto_http import WebPostoErro
 from src.modules.cash_reconciliation.domain.fechamento import (
     Alerta,
@@ -31,7 +32,12 @@ def client(monkeypatch):
     monkeypatch.setattr(http, "carregar_unidades", lambda: {321: unit})
     app = FastAPI()
     app.include_router(http.router)
-    return TestClient(app)
+    client = TestClient(app)
+    client.cookies.set(
+        "access_token",
+        create_access_token("director@example.invalid", extra={"role": "diretor", "token_type": "access"}),
+    )
+    return client
 
 
 def resultado_sintetico():

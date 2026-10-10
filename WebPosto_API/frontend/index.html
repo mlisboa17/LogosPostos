@@ -10,11 +10,22 @@
 
     <title>WebPosto Integracao</title>
 
-    <link rel="stylesheet" href="/frontend/styles.css?v=commercial-score-4" />
+    <link rel="stylesheet" href="/frontend/styles.css?v=auth-sprint-52" />
 
   </head>
 
   <body>
+
+    <section id="authView" class="auth-view hidden" aria-labelledby="authTitle">
+      <h1 id="authTitle">Entrar no Painel Financeiro</h1>
+      <p id="authMessage">Informe suas credenciais para acessar os dados financeiros.</p>
+      <form id="authForm">
+        <label>Email<input id="authEmail" name="email" type="email" autocomplete="username" required /></label>
+        <label>Senha<input id="authPassword" name="password" type="password" autocomplete="current-password" required /></label>
+        <button class="btn-primary" type="submit">Entrar</button>
+        <p id="authError" class="state error hidden" role="alert"></p>
+      </form>
+    </section>
 
     <header class="topbar">
 
@@ -26,7 +37,11 @@
 
       </div>
 
-      <button id="refreshBtn" class="btn-primary" type="button">Atualizar</button>
+      <div class="session-controls">
+        <span id="sessionUser" class="hidden"></span>
+        <button id="logoutBtn" class="btn-primary hidden" type="button">Sair</button>
+        <button id="refreshBtn" class="btn-primary" type="button">Atualizar</button>
+      </div>
 
     </header>
 
@@ -126,7 +141,7 @@
 
 
 
-    <script type="module" src="/frontend/app.js?v=commercial-score-4"></script>
+    <script type="module" src="/frontend/app.js?v=auth-sprint-52"></script>
 
   </body>
 

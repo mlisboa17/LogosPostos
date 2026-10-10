@@ -5,6 +5,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from src.infrastructure.security.jwt_utils import create_access_token
 from src.modules.commercial_performance.adapters.persistencia import PersistenciaErro
 from src.modules.commercial_performance.application import placar as aplicacao
 from src.modules.commercial_performance.config import MetasErro, POSTOS
@@ -16,7 +17,12 @@ from src.modules.commercial_performance.interfaces import http
 def client():
     app = FastAPI()
     app.include_router(http.router)
-    return TestClient(app)
+    client = TestClient(app)
+    client.cookies.set(
+        "access_token",
+        create_access_token("director@example.invalid", extra={"role": "diretor", "token_type": "access"}),
+    )
+    return client
 
 
 def placar_sintetico() -> Placar:

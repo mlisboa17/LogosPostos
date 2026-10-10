@@ -6,6 +6,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from src.infrastructure.security.jwt_utils import create_access_token
 from src.modules.cash_reconciliation.adapters import pagbank_edi, webposto_cartoes
 from src.modules.cash_reconciliation.adapters.webposto_http import WebPostoErro
 from src.modules.cash_reconciliation.application import recebimentos
@@ -60,6 +61,10 @@ def client(monkeypatch):
     app = FastAPI()
     app.include_router(http.router)
     with TestClient(app) as client:
+        client.cookies.set(
+            "access_token",
+            create_access_token("director@example.invalid", extra={"role": "diretor", "token_type": "access"}),
+        )
         yield client
 
 

@@ -3,6 +3,8 @@ import { formatDate, formatDateTime, formatNumber, recifeDateISO } from "../serv
 
 const POSTOS_URL = "/api/v1/commercial/postos";
 const PLACAR_URL = "/api/v1/commercial/placar";
+const TV_TOKEN_URL = "/auth/tv-token";
+const DISPLAY_HEADERS = { "X-Display-Mode": "true" };
 const TIMEOUT = 200000;
 const TIMER_TV = 10 * 60 * 1000;
 const consultas = new WeakMap();
@@ -61,10 +63,11 @@ export function opcoesMeses(instante = new Date()) {
   }).join("");
 }
 
-export function consultarPlacar(posto, mes) {
+export function consultarPlacar(posto, mes, { tv = false } = {}) {
   return apiClient.get(PLACAR_URL, {
     params: { posto, mes },
     timeout: TIMEOUT,
+    ...(tv ? { headers: DISPLAY_HEADERS } : {}),
   });
 }
 
@@ -158,28 +161,70 @@ export function renderPlacarResultado(placar) {
   <footer class="cs-provenance">Regra ${escapeHtml(placar.proveniencia?.versao_regra || "—")} · Consultado em ${escapeHtml(formatDateTime(placar.proveniencia?.executado_em))} (Recife)</footer>`;
 }
 
-async function carregarPostos(container) {
-  let pendente = postosCarregados.get(container);
-  if (!pendente) {
-    pendente = apiClient.get(POSTOS_URL, { timeout: 30000 });
-    postosCarregados.set(container, pendente);
-  }
-  try {
-    const postos = await pendente;
-    const select = container.querySelector("#csPosto");
-    select.innerHTML = postos.map((posto) =>
-      `<option value="${escapeHtml(posto.empresa_codigo)}">${escapeHtml(posto.nome)}</option>`
-    ).join("");
-    select.value = String(postos.some((posto) => posto.empresa_codigo === 11495)
-      ? 11495
-      : postos[0]?.empresa_codigo || "");
-  } catch (error) {
-    postosCarregados.delete(container);
+function selecionarPostoTv(postos, solicitado) {
+  const codigo = solicitado ? Number(solicitado) : 11495;
+  const posto = postos.find((item) => item.empresa_codigo === codigo) || (!solicitado ? postos[0] : null);
+  if (!posto) {
+    const error = new Error("O posto solicitado não está autorizado para este modo TV.");
+    error.status = 403;
     throw error;
   }
+  return posto.empresa_codigo;
 }
 
-async function carregarResultado(container) {
+async function carregarPostos(container, { tv = false, tvUnit = "" } = {}) {
+  let postos;
+  if (tv) {
+    try {
+      postos = await apiClient.get(POSTOS_URL, {
+        headers: DISPLAY_HEADERS,
+        timeout: 30000,
+        suppressAuthRedirect: true,
+      });
+    } catch (error) {
+      if (error.status !== 401) throw error;
+    }
+  }
+  if (!postos) {
+    let pendente = postosCarregados.get(container);
+    if (!pendente) {
+      pendente = apiClient.get(POSTOS_URL, { timeout: 30000 });
+      postosCarregados.set(container, pendente);
+    }
+    try {
+      postos = await pendente;
+    } catch (error) {
+      postosCarregados.delete(container);
+      throw error;
+    }
+    if (tv) {
+      const unidade = selecionarPostoTv(postos, tvUnit);
+      await apiClient.post(TV_TOKEN_URL, { unidade });
+      window.dispatchEvent(new CustomEvent("auth:display-only"));
+      postos = await apiClient.get(POSTOS_URL, {
+        headers: DISPLAY_HEADERS,
+        timeout: 30000,
+        suppressAuthRedirect: true,
+      });
+    }
+  }
+  const select = container.querySelector("#csPosto");
+  if (!Array.isArray(postos) || postos.length === 0) {
+    throw new Error("Nenhum posto autorizado para o placar.");
+  }
+  if (tv && tvUnit && !postos.some((posto) => posto.empresa_codigo === Number(tvUnit))) {
+    throw new Error("O posto solicitado não está autorizado para este modo TV.");
+  }
+  select.innerHTML = postos.map((posto) =>
+    `<option value="${escapeHtml(posto.empresa_codigo)}">${escapeHtml(posto.nome)}</option>`
+  ).join("");
+  select.value = String(tv ? (tvUnit || postos[0].empresa_codigo) : (
+    postos.some((posto) => posto.empresa_codigo === 11495) ? 11495 : postos[0].empresa_codigo
+  ));
+  select.disabled = tv;
+}
+
+async function carregarResultado(container, tv = false) {
   const seq = (consultas.get(container) || 0) + 1;
   consultas.set(container, seq);
   const erro = container.querySelector("#csError");
@@ -190,7 +235,7 @@ async function carregarResultado(container) {
   erro.textContent = "";
   resultado.innerHTML = '<p class="cs-muted" role="status">Consultando dados do webPosto…</p>';
   try {
-    const placar = await consultarPlacar(Number(posto), mes);
+    const placar = await consultarPlacar(Number(posto), mes, { tv });
     if (consultas.get(container) === seq) resultado.innerHTML = renderPlacarResultado(placar);
   } catch (error) {
     if (consultas.get(container) !== seq) return;
@@ -200,7 +245,7 @@ async function carregarResultado(container) {
   }
 }
 
-export async function renderCommercialScore(container, { load = false, tv = false } = {}) {
+export async function renderCommercialScore(container, { load = false, tv = false, tvUnit = "" } = {}) {
   if (!container.querySelector(".commercial-score")) {
     container.innerHTML = `
       <div class="commercial-score">
@@ -218,16 +263,16 @@ export async function renderCommercialScore(container, { load = false, tv = fals
     container.querySelector("#csMes").value = periodoPadraoPlacar();
     container.querySelector("#csFilters").addEventListener("submit", (event) => {
       event.preventDefault();
-      void carregarResultado(container);
+      void carregarResultado(container, tv);
     });
-    container.querySelector("#csRefresh").addEventListener("click", () => void carregarResultado(container));
+    container.querySelector("#csRefresh").addEventListener("click", () => void carregarResultado(container, tv));
   }
   const root = container.querySelector(".commercial-score");
   root.classList.toggle("commercial-score--tv", tv);
   const posto = container.querySelector("#csPosto");
   if (!posto.options.length) {
     try {
-      await carregarPostos(container);
+      await carregarPostos(container, { tv, tvUnit });
     } catch (error) {
       const aviso = container.querySelector("#csError");
       aviso.textContent = error.message || "Não foi possível carregar os postos.";
@@ -237,11 +282,11 @@ export async function renderCommercialScore(container, { load = false, tv = fals
   }
   if (tv && !timers.has(container)) {
     timers.set(container, setInterval(() => {
-      if (!container.closest(".view")?.classList.contains("hidden")) void carregarResultado(container);
+      if (!container.closest(".view")?.classList.contains("hidden")) void carregarResultado(container, tv);
     }, TIMER_TV));
   } else if (!tv && timers.has(container)) {
     clearInterval(timers.get(container));
     timers.delete(container);
   }
-  if (load && posto.value) await carregarResultado(container);
+  if (load && posto.value) await carregarResultado(container, tv);
 }

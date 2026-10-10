@@ -1,3 +1,4 @@
+from pydantic import Field
 from pydantic_settings import BaseSettings
 
 
@@ -54,6 +55,9 @@ class Settings(BaseSettings):
     auth_user_password_hash: str = ""
     auth_user_role: str = "director"
     auth_user_company_id: str = "default-company"
+    auth_users_json: str = ""
+    auth_cookie_secure: bool = True
+    auth_tv_token_expire_hours: int = Field(default=12, ge=1, le=24)
 
     # Circuit Breaker
     circuit_breaker_threshold: int = 5

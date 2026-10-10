@@ -91,6 +91,22 @@ Copie `.env.example` → `.env`:
 
 **Nunca commite `.env`.** Ver [SECURITY_AUDIT_REPORT.md](./SECURITY_AUDIT_REPORT.md).
 
+### Acesso às rotas financeiras
+
+As rotas `/api/v1/cash-audit/*` e `/api/v1/commercial/*` exigem a sessão HttpOnly
+criada por `/auth/login`. Configure `AUTH_USERS_JSON` no `.env` com um array de
+usuários contendo `email`, `password_hash` (PBKDF2-SHA256), `role` (`diretor`,
+`gerente` ou `auditor`) e `company_id` inteiro para gerente. Quando preenchido,
+esse cadastro substitui o usuário único legado `AUTH_USER_*`. Não inclua hashes
+ou senhas no Git.
+
+Diretores e auditores podem ler todas as unidades; gerentes só leem a própria.
+O modo TV do placar usa cookie `display_token` HttpOnly, válido somente para
+leitura do placar de uma unidade por até `AUTH_TV_TOKEN_EXPIRE_HOURS` (padrão
+12, máximo 24). `AUTH_COOKIE_SECURE` controla a flag Secure dos cookies (padrão
+`true`; use `false` somente em desenvolvimento HTTP local). A interface envia
+cookies same-origin automaticamente; não guarda JWT em localStorage.
+
 ---
 
 ## Deploy

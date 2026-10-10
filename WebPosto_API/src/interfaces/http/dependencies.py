@@ -14,6 +14,19 @@ from src.application.usecases.extract_expenses import ExtractExpensesFromCashMov
 from fastapi import Depends, HTTPException, Request
 from typing import Dict
 from src.infrastructure.security.jwt_utils import decode_token
+from jwt import PyJWTError
+
+
+def _role(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    return {
+        "director": "diretor",
+        "diretor": "diretor",
+        "manager": "gerente",
+        "gerente": "gerente",
+        "auditor": "auditor",
+    }.get(value.strip().casefold())
 
 
 async def get_current_user(request: Request) -> Dict:
@@ -23,9 +36,56 @@ async def get_current_user(request: Request) -> Dict:
         raise HTTPException(status_code=401, detail="Not authenticated")
     try:
         payload = decode_token(token)
-        return payload
-    except Exception:
+    except PyJWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
+    if payload.get("token_type") not in (None, "access") or not payload.get("sub"):
+        raise HTTPException(status_code=401, detail="Invalid token")
+    role = _role(payload.get("role"))
+    if role is None:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    company_id = payload.get("company_id")
+    if role == "gerente" and (
+        isinstance(company_id, bool) or not isinstance(company_id, int) or company_id <= 0
+    ):
+        raise HTTPException(status_code=401, detail="Invalid token")
+    return {**payload, "role": role, "company_id": company_id}
+
+
+async def get_tv_user(request: Request) -> Dict:
+    token = request.cookies.get("display_token")
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    try:
+        payload = decode_token(token)
+    except PyJWTError:
+        raise HTTPException(status_code=401, detail="Invalid display token") from None
+    company_id = payload.get("company_id")
+    if (
+        payload.get("token_type") != "display"
+        or payload.get("role") != "tv"
+        or not payload.get("sub")
+        or payload.get("scope") != "commercial:read"
+        or isinstance(company_id, bool)
+        or not isinstance(company_id, int)
+        or company_id <= 0
+    ):
+        raise HTTPException(status_code=401, detail="Invalid display token")
+    return {**payload, "role": "tv", "company_id": company_id}
+
+
+async def get_commercial_user(request: Request) -> Dict:
+    if request.headers.get("X-Display-Mode", "").casefold() == "true":
+        return await get_tv_user(request)
+    return await get_current_user(request)
+
+
+def require_unit_access(user: Dict, unit: int) -> None:
+    role = user.get("role")
+    if role in {"diretor", "auditor"}:
+        return
+    if role in {"gerente", "tv"} and user.get("company_id") == unit:
+        return
+    raise HTTPException(status_code=403, detail="Acesso negado para esta unidade.")
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:

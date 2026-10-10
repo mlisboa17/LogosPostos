@@ -1,4 +1,23 @@
 const API_BASE = window.location.origin || "";
+let pendingRefresh;
+
+function notifyAuthRequired(message) {
+  if (typeof window.dispatchEvent === "function" && typeof CustomEvent === "function") {
+    window.dispatchEvent(new CustomEvent("auth:required", { detail: { message } }));
+  }
+}
+
+async function refreshAccessCookie(timeout) {
+  if (!pendingRefresh) {
+    pendingRefresh = fetchWithTimeout("/auth/refresh", {
+      method: "POST",
+      credentials: "same-origin",
+    }, timeout).finally(() => {
+      pendingRefresh = null;
+    });
+  }
+  return pendingRefresh;
+}
 
 /**
  * Faz a requisição HTTP com timeout.
@@ -38,11 +57,12 @@ export function buildQueryString(params = {}) {
  */
 export const apiClient = {
   async request(method, path, options = {}) {
-    const { params, body, headers, timeout = 30000 } = options;
+    const { params, body, headers, timeout = 30000, suppressAuthRedirect = false } = options;
     const url = `${API_BASE}${path}${buildQueryString(params)}`;
 
     const fetchOptions = {
       method: method.toUpperCase(),
+      credentials: "same-origin",
       headers: {
         "Content-Type": "application/json",
         ...headers,
@@ -62,6 +82,33 @@ export const apiClient = {
       }
       throw error;
     }
+    const isProtected = path.startsWith("/api/v1/cash-audit/") || path.startsWith("/api/v1/commercial/");
+    const isDisplayMode = headers?.["X-Display-Mode"] === "true";
+    if (response.status === 401 && isProtected && !suppressAuthRedirect && !isDisplayMode) {
+      let refreshResponse;
+      try {
+        refreshResponse = await refreshAccessCookie(timeout);
+      } catch (error) {
+        notifyAuthRequired("Sua sessão expirou. Entre novamente.");
+        throw error;
+      }
+      if (refreshResponse.ok) {
+        try {
+          response = await fetchWithTimeout(url, fetchOptions, timeout);
+        } catch (error) {
+          if (error?.name === "AbortError") {
+            throw new Error(`Timeout na requisicao ${method.toUpperCase()} ${path}`);
+          }
+          throw error;
+        }
+      } else if (refreshResponse.status === 401) {
+        notifyAuthRequired("Sua sessão expirou. Entre novamente.");
+      } else {
+        const error = new Error("Falha ao renovar a sessão.");
+        error.status = refreshResponse.status;
+        throw error;
+      }
+    }
 
     let data;
     try {
@@ -74,7 +121,12 @@ export const apiClient = {
 
     if (!response.ok || (data && data.success === false)) {
       const msg = data?.error?.message || data?.detail || `Falha na requisicao ${method} ${path}`;
-      throw new Error(msg);
+      const error = new Error(msg);
+      error.status = response.status;
+      if (response.status === 401 && isProtected && !suppressAuthRedirect) {
+        notifyAuthRequired(msg);
+      }
+      throw error;
     }
 
     return data;

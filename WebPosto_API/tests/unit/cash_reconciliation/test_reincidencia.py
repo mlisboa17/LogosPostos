@@ -4,6 +4,7 @@ from decimal import Decimal
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from src.infrastructure.security.jwt_utils import create_access_token
 from src.modules.cash_reconciliation.application.reincidencia import agregar_reincidencia
 from src.modules.cash_reconciliation.adapters.persistencia import PersistenciaErro
 from src.modules.cash_reconciliation.domain.cartoes import (
@@ -36,7 +37,12 @@ def make_client(monkeypatch):
     monkeypatch.setattr(http, "carregar_unidades", lambda: {321: unit})
     app = FastAPI()
     app.include_router(http.router)
-    return TestClient(app)
+    client = TestClient(app)
+    client.cookies.set(
+        "access_token",
+        create_access_token("director@example.invalid", extra={"role": "diretor", "token_type": "access"}),
+    )
+    return client
 
 
 def test_reincidencia_explicita_cobertura_e_formata_datas_brasileiras(monkeypatch):

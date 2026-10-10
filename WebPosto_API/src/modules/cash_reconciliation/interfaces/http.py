@@ -6,7 +6,7 @@ import logging
 import uuid
 from datetime import date, timedelta
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..adapters.webposto_http import WebPostoErro
 from ..adapters.persistencia import PersistenciaErro, carregar_dia
@@ -20,6 +20,7 @@ from ..domain.models import Proveniencia
 from ..domain.recebimentos import ResultadoRecebimentos
 from ..domain.tempo import agora
 from ...webposto_integration.funcionarios import buscar_nomes_funcionarios
+from src.interfaces.http.dependencies import get_current_user, require_unit_access
 
 router = APIRouter(prefix="/api/v1/cash-audit", tags=["cash-audit"])
 logger = logging.getLogger(__name__)
@@ -39,9 +40,11 @@ async def _auditar_com_limite(unidade: int, inicio: date, fim: date, prazo: floa
 async def obter_recebimentos(
     unidade: int = Query(...),
     dia: date = Query(...),
+    current_user: dict = Depends(get_current_user),
 ) -> ResultadoRecebimentos:
     if unidade not in carregar_unidades():
         raise HTTPException(status_code=404, detail="Unidade não encontrada.")
+    require_unit_access(current_user, unidade)
     try:
         persistido = carregar_dia(unidade, dia)
     except PersistenciaErro:
@@ -56,6 +59,7 @@ async def obter_fechamento(
     unidade: int = Query(...),
     inicio: date = Query(...),
     fim: date = Query(...),
+    current_user: dict = Depends(get_current_user),
 ) -> dict:
     if fim < inicio or (fim - inicio).days > 30:
         raise HTTPException(
@@ -66,6 +70,7 @@ async def obter_fechamento(
     unidades = carregar_unidades()
     if unidade not in unidades:
         raise HTTPException(status_code=404, detail="Unidade não encontrada.")
+    require_unit_access(current_user, unidade)
 
     try:
         prazo = asyncio.get_running_loop().time() + TIMEOUT_FECHAMENTO
@@ -123,6 +128,7 @@ async def obter_fechamento(
 async def obter_reincidencia(
     unidade: int = Query(...),
     mes: str = Query(...),
+    current_user: dict = Depends(get_current_user),
 ) -> dict:
     try:
         inicio = date.fromisoformat(f"{mes}-01")
@@ -134,6 +140,7 @@ async def obter_reincidencia(
     unidades = carregar_unidades()
     if unidade not in unidades:
         raise HTTPException(status_code=404, detail="Unidade não encontrada.")
+    require_unit_access(current_user, unidade)
 
     quantidade_dias = calendar.monthrange(inicio.year, inicio.month)[1]
     fim_mes = inicio + timedelta(days=quantidade_dias - 1)
@@ -193,8 +200,10 @@ async def obter_reincidencia(
 
 
 @router.get("/unidades")
-def listar_unidades() -> list[dict[str, int | str]]:
+def listar_unidades(current_user: dict = Depends(get_current_user)) -> list[dict[str, int | str]]:
     return [
         {"empresa_codigo": unidade.empresa_codigo, "nome": unidade.nome}
         for unidade in carregar_unidades().values()
+        if current_user["role"] in {"diretor", "auditor"}
+        or current_user.get("company_id") == unidade.empresa_codigo
     ]

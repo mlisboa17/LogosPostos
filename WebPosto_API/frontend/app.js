@@ -37,7 +37,8 @@ import { renderFuelExecutiveDashboard } from "./pages/fuelExecutiveDashboard.js"
 import { renderFinanceCenter } from "./pages/financeCenter.js";
 import { renderCashFlow } from "./pages/cashFlow.js";
 import { renderCashAudit } from "./pages/cashAudit.js";
-import { renderCommercialScore } from "./pages/commercialScore.js?v=commercial-score-4";
+import { renderCommercialScore } from "./pages/commercialScore.js?v=commercial-score-5";
+import { currentSession, login, logout } from "./services/auth.js";
 import { renderCompanySwitcher } from "./components/CompanySwitcher.js";
 import { createTableState } from "./services/tableState.js";
 import {
@@ -205,6 +206,7 @@ function fromUrl() {
   return {
     view: viewNormalized,
     tv: query.get("tv") === "1",
+    tvUnit: query.get("posto") || "",
     pageExpenses: Number(query.get("pageExpenses") || 1),
     pageAccounts: Number(query.get("pageAccounts") || 1),
     pageSales: Number(query.get("pageSales") || 1),
@@ -230,7 +232,10 @@ function writeUrl(state) {
   query.set("pageSales", String(state.pageSales));
   query.set("pageFuels", String(state.pageFuels));
   query.set("pageStock", String(state.pageStock));
-  if (state.view === "commercialScore" && state.tv) query.set("tv", "1");
+  if (state.view === "commercialScore" && state.tv) {
+    query.set("tv", "1");
+    if (state.tvUnit) query.set("posto", String(state.tvUnit));
+  }
 
   Object.entries(state.filters).forEach(([key, value]) => {
     const serialized = serializeUrlFilterValue(key, value);
@@ -330,6 +335,68 @@ const fuelsNode = document.querySelector("#fuelsView");
 const salesNode = document.querySelector("#salesView");
 const stockNode = document.querySelector("#stockView");
 const filtersNode = document.querySelector("#filtersContainer");
+const authView = document.querySelector("#authView");
+const authForm = document.querySelector("#authForm");
+const authError = document.querySelector("#authError");
+const authMessage = document.querySelector("#authMessage");
+const authPassword = document.querySelector("#authPassword");
+const logoutButton = document.querySelector("#logoutBtn");
+const sessionUser = document.querySelector("#sessionUser");
+
+function showAuthView(message = "Informe suas credenciais para acessar os dados financeiros.") {
+  authMessage.textContent = message;
+  authView.classList.remove("hidden");
+  filtersNode.classList.add("hidden");
+  document.querySelector("#tabs").classList.add("hidden");
+  document.querySelector("main").classList.add("hidden");
+  document.querySelector(".topbar").classList.add("hidden");
+  document.querySelector("#authEmail").focus();
+}
+
+window.addEventListener("auth:required", (event) => {
+  showAuthView(event.detail?.message || "Sua sessão expirou. Entre novamente.");
+});
+
+window.addEventListener("auth:display-only", () => {
+  sessionUser.classList.add("hidden");
+  logoutButton.classList.add("hidden");
+});
+
+authForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  authError.classList.add("hidden");
+  const submit = authForm.querySelector("button[type=submit]");
+  submit.disabled = true;
+  try {
+    await login(document.querySelector("#authEmail").value, authPassword.value);
+    window.location.reload();
+  } catch (error) {
+    authError.textContent = error.message || "Não foi possível entrar.";
+    authError.classList.remove("hidden");
+  } finally {
+    submit.disabled = false;
+    authPassword.value = "";
+  }
+});
+
+logoutButton.addEventListener("click", async () => {
+  logoutButton.disabled = true;
+  try {
+    await logout();
+    window.location.reload();
+  } catch (error) {
+    setError(error.message || "Não foi possível encerrar a sessão.");
+  } finally {
+    logoutButton.disabled = false;
+  }
+});
+
+void currentSession().then((user) => {
+  if (!user) return;
+  sessionUser.textContent = `${user.email} · ${user.role}`;
+  sessionUser.classList.remove("hidden");
+  logoutButton.classList.remove("hidden");
+}).catch((error) => setError(error.message || "Não foi possível validar a sessão."));
 
 function setLoading(flag) {
   loadingNode.classList.toggle("hidden", !flag);
@@ -644,7 +711,7 @@ function renderAll() {
   });
   if (state.view === "cashAudit") void renderCashAudit(cashAuditNode);
   if (state.view === "commercialScore") {
-    void renderCommercialScore(commercialScoreNode, { tv: state.tv });
+    void renderCommercialScore(commercialScoreNode, { tv: state.tv, tvUnit: state.tvUnit });
   }
 
   renderStock(
@@ -942,7 +1009,11 @@ async function refreshAll(bypassCache = false) {
   }
   try {
     if (state.view === "commercialScore") {
-      await renderCommercialScore(commercialScoreNode, { load: true, tv: state.tv });
+      await renderCommercialScore(commercialScoreNode, {
+        load: true,
+        tv: state.tv,
+        tvUnit: state.tvUnit,
+      });
       return;
     }
 

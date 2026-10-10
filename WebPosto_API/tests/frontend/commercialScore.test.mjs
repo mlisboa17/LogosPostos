@@ -51,6 +51,13 @@ test("consulta placar usa posto e mês e prazo compatível com o backend", async
   ]);
 });
 
+test("modo TV envia somente o marcador de sessão de exibição", async (t) => {
+  const get = t.mock.method(apiClient, "get", async () => placar);
+  await consultarPlacar(11495, "2026-10", { tv: true });
+
+  assert.deepEqual(get.mock.calls[0].arguments[1].headers, { "X-Display-Mode": "true" });
+});
+
 test("mês padrão é calculado no fuso de Recife", () => {
   assert.equal(periodoPadraoPlacar(new Date("2026-10-01T01:00:00Z")), "2026-09");
   assert.equal(periodoPadraoPlacar(new Date("2026-10-09T12:00:00Z")), "2026-10");

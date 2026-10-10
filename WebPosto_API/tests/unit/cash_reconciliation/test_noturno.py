@@ -13,6 +13,7 @@ from src.modules.cash_reconciliation.domain.models import AdquirenteConfigurada,
 from src.modules.cash_reconciliation.domain.recebimentos import RecebimentoAdquirente, ResultadoRecebimentos, ResumoCasados
 from src.modules.cash_reconciliation.interfaces import http
 from src.modules.cash_reconciliation.jobs import noturno
+from src.infrastructure.security.jwt_utils import create_access_token
 
 from .test_http import resultado_sintetico
 
@@ -70,6 +71,10 @@ def client(monkeypatch, tmp_path):
     app = FastAPI()
     app.include_router(http.router)
     with TestClient(app) as client:
+        client.cookies.set(
+            "access_token",
+            create_access_token("director@example.invalid", extra={"role": "diretor", "token_type": "access"}),
+        )
         yield client
 
 
