@@ -205,6 +205,35 @@ async def test_job_isola_fechamento_e_persiste_demais_etapas(monkeypatch, tmp_pa
     assert "segredo" not in registro.model_dump_json() + caplog.text
 
 
+async def test_job_registra_alertas_sem_duplicar_pendencias(monkeypatch, tmp_path):
+    monkeypatch.setenv("WEBPOSTO_WRITES", "0")
+    monkeypatch.setattr(noturno, "carregar_unidades", lambda: {EMPRESA: unidade()})
+
+    async def coletar(*args, **kwargs):
+        return diario()
+
+    monkeypatch.setattr(noturno, "coletar_unidade", coletar)
+    banco = tmp_path / "pendencias.sqlite3"
+
+    assert await noturno.executar(
+        DIA,
+        diretorio=tmp_path / "snapshots",
+        diretorio_pendencias=banco,
+    ) == 0
+    assert await noturno.executar(
+        DIA,
+        diretorio=tmp_path / "snapshots",
+        diretorio_pendencias=banco,
+    ) == 0
+
+    from src.modules.cash_reconciliation.adapters import pendencias as repositorio_pendencias
+
+    itens, total = repositorio_pendencias.listar(unidade=EMPRESA, banco=banco)
+    assert total == 1
+    assert itens[0].tipo == "fechamento_quebra"
+    assert [evento.acao for evento in itens[0].historico] == ["criada"]
+
+
 async def test_job_timeout_nao_impede_recebimentos(monkeypatch, tmp_path):
     monkeypatch.setenv("WEBPOSTO_WRITES", "0")
     monkeypatch.setattr(noturno, "carregar_unidades", lambda: {EMPRESA: unidade()})

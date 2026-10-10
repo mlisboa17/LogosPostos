@@ -18,6 +18,26 @@ O ERP é consultado somente por leitura; correções são humanas.
   A resposta explicita os dias cobertos e ausentes; nomes vêm de `FUNCIONARIOS`
   em tempo de consulta e não são persistidos.
 
+## Pendências
+
+- O robô noturno transforma alertas vermelhos/laranjas de fechamento e
+  recebimentos em pendências; pares prováveis e adquirentes sem conciliação não
+  geram pendência.
+- `PENDENCIAS_V1` considera reincidência a partir de duas ocorrências no mesmo
+  mês para quebras, sangrias alteradas e recebimentos a maior atribuídos. A
+  pendência usa código do funcionário, sem persistir nome.
+- O banco SQLite fica em `data/pendencias/pendencias.sqlite3` (fora do Git).
+  Uma chave de identidade estável impede duplicação ao reexecutar o robô.
+- A fila `GET /api/v1/cash-audit/pendencias` permite filtrar por unidade,
+  status e tipo; `GET /api/v1/cash-audit/pendencias/contagem-abertas` alimenta
+  o contador do menu. Gerentes veem e justificam somente a própria unidade;
+  diretores aprovam ou recusam justificativas; auditores têm somente leitura.
+- O histórico registra cada transição com usuário, data/hora local e
+  justificativa/observação. Eventos são append-only; correções não sobrescrevem
+  histórico nem alteram alertas na origem. O ERP continua somente leitura.
+- Estados válidos: `aberta → justificada → aprovada | recusada`. A decisão do
+  diretor só ocorre depois da justificativa do gerente.
+
 ## Recebimentos
 
 - `GET /api/v1/cash-audit/recebimentos?unidade=<empresaCodigo>&dia=AAAA-MM-DD`

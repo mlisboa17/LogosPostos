@@ -15,8 +15,13 @@ from src.modules.commercial_performance.adapters.persistencia import salvar_plac
 from src.modules.commercial_performance.application.placar import obter_placar
 from src.modules.commercial_performance.config import POSTOS
 
-from ..adapters.persistencia import DIRETORIO, salvar_dia
+from ..adapters.persistencia import DIRETORIO, carregar_dia, salvar_dia
+from ..adapters import pendencias as repositorio_pendencias
 from ..application.auditar_fechamento import auditar_unidade
+from ..application.gerar_pendencias import (
+    executar_reincidencia_mes,
+    pendencias_do_dia,
+)
 from ..application.recebimentos import TIMEOUT_ETAPA, conciliar_adquirente
 from ..config import carregar_unidades
 from ..domain.execucao import ResultadoDiario
@@ -88,7 +93,7 @@ async def coletar_unidade(
 
 async def executar(
     dia: date, *, diretorio: Path | None = None, diretorio_placar: Path | None = None,
-    timeout: float = TIMEOUT_ETAPA,
+    diretorio_pendencias: Path | None = None, timeout: float = TIMEOUT_ETAPA,
 ) -> int:
     if os.getenv("WEBPOSTO_WRITES") != "0":
         logger.error("Execucao bloqueada: WEBPOSTO_WRITES deve ser 0.")
@@ -99,6 +104,14 @@ async def executar(
         try:
             resultado = await coletar_unidade(unidade, dia, execucao_id, timeout=timeout)
             salvar_dia(resultado, diretorio=diretorio)
+            novas = pendencias_do_dia(resultado)
+            novas.extend(executar_reincidencia_mes(
+                unidade.empresa_codigo,
+                dia,
+                carregar=lambda empresa, data: carregar_dia(empresa, data, diretorio=diretorio),
+            ))
+            if novas:
+                repositorio_pendencias.registrar(novas, banco=diretorio_pendencias)
             if resultado.erro_fechamento or any(item.situacao == "erro" for item in resultado.recebimentos.adquirentes):
                 falhas += 1
             logger.info("Persistido unidade=%s dia=%s execucao=%s", unidade.empresa_codigo, formatar_data(dia), execucao_id)

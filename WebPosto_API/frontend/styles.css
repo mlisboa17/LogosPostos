@@ -180,6 +180,203 @@ select {
   color: var(--primary);
 }
 
+.pending-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.35rem;
+  height: 1.35rem;
+  margin-left: 0.25rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 0.75rem;
+}
+
+.pendencias {
+  display: grid;
+  gap: 1rem;
+}
+
+.pe-header,
+.pe-header > div,
+.pe-card header,
+.pe-card header > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.pe-header p {
+  margin-top: 0.35rem;
+  color: var(--muted);
+}
+
+.pe-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+  align-items: end;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card);
+}
+
+.pe-filters label,
+.pe-action label {
+  display: grid;
+  gap: 0.35rem;
+  color: var(--muted);
+}
+
+.pe-card {
+  display: grid;
+  gap: 0.9rem;
+  margin-top: 0.75rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card);
+}
+
+.pe-card dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 0.65rem;
+  margin: 0;
+}
+
+.pe-card dt {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.pe-card dd {
+  margin: 0.15rem 0 0;
+  overflow-wrap: anywhere;
+}
+
+.pe-status,
+.pe-severity {
+  display: inline-flex;
+  border-radius: 999px;
+  padding: 0.18rem 0.55rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.pe-status--aberta,
+.pe-severity--vermelho {
+  background: #fae8e8;
+  color: #8f1d1d;
+}
+
+.pe-status--justificada,
+.pe-severity--laranja {
+  background: #fff0d6;
+  color: #805000;
+}
+
+.pe-status--aprovada {
+  background: var(--primary-soft);
+  color: var(--primary-strong);
+}
+
+.pe-status--recusada {
+  background: #ece8e2;
+  color: #51483f;
+}
+
+.pe-action {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto auto;
+  gap: 0.6rem;
+  align-items: end;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--line);
+}
+
+.pe-action textarea {
+  min-height: 3rem;
+  resize: vertical;
+}
+
+.pe-action button,
+.pe-header button,
+.pe-filters button {
+  border: 0;
+  border-radius: 7px;
+  padding: 0.6rem 0.85rem;
+  background: var(--primary);
+  color: #fff;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.pe-action button[data-acao="recusar"] {
+  background: var(--danger);
+}
+
+.pe-card details {
+  border-top: 1px solid var(--line);
+  padding-top: 0.65rem;
+}
+
+.pe-card details li {
+  margin-top: 0.55rem;
+}
+
+.pe-card details li p {
+  margin-top: 0.25rem;
+}
+
+.pe-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.pe-pagination button {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 0.45rem 0.7rem;
+  background: var(--card);
+  cursor: pointer;
+}
+
+.pe-pagination button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.pe-empty,
+.pe-error {
+  padding: 1rem;
+  color: var(--muted);
+}
+
+.pe-error {
+  color: var(--danger);
+}
+
+@media (max-width: 640px) {
+  .pe-header,
+  .pe-action {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .pe-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
 .view {
   margin-top: 1rem;
 }

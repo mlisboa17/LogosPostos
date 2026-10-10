@@ -37,6 +37,7 @@ import { renderFuelExecutiveDashboard } from "./pages/fuelExecutiveDashboard.js"
 import { renderFinanceCenter } from "./pages/financeCenter.js";
 import { renderCashFlow } from "./pages/cashFlow.js";
 import { renderCashAudit } from "./pages/cashAudit.js";
+import { contarPendenciasAbertas, renderPendencias } from "./pages/pendencias.js";
 import { renderCommercialScore } from "./pages/commercialScore.js?v=commercial-score-5";
 import { currentSession, login, logout } from "./services/auth.js";
 import { renderCompanySwitcher } from "./components/CompanySwitcher.js";
@@ -330,6 +331,7 @@ const accountsNode = document.querySelector("#accountsView");
 const financeCenterNode = document.querySelector("#financeCenterView");
 const cashFlowNode = document.querySelector("#cashFlowView");
 const cashAuditNode = document.querySelector("#cashAuditView");
+const pendenciasNode = document.querySelector("#pendenciasView");
 const commercialScoreNode = document.querySelector("#commercialScoreView");
 const fuelsNode = document.querySelector("#fuelsView");
 const salesNode = document.querySelector("#salesView");
@@ -342,6 +344,19 @@ const authMessage = document.querySelector("#authMessage");
 const authPassword = document.querySelector("#authPassword");
 const logoutButton = document.querySelector("#logoutBtn");
 const sessionUser = document.querySelector("#sessionUser");
+const pendenciasCount = document.querySelector("#pendenciasCount");
+let authenticatedUser = null;
+
+async function atualizarContadorPendencias() {
+  if (!authenticatedUser) return;
+  try {
+    const resposta = await contarPendenciasAbertas();
+    pendenciasCount.textContent = String(resposta.abertas);
+    pendenciasCount.classList.toggle("hidden", resposta.abertas <= 0);
+  } catch (error) {
+    setError(error.message || "Falha ao consultar pendências abertas.");
+  }
+}
 
 function showAuthView(message = "Informe suas credenciais para acessar os dados financeiros.") {
   authMessage.textContent = message;
@@ -393,9 +408,11 @@ logoutButton.addEventListener("click", async () => {
 
 void currentSession().then((user) => {
   if (!user) return;
+  authenticatedUser = user;
   sessionUser.textContent = `${user.email} · ${user.role}`;
   sessionUser.classList.remove("hidden");
   logoutButton.classList.remove("hidden");
+  void atualizarContadorPendencias();
 }).catch((error) => setError(error.message || "Não foi possível validar a sessão."));
 
 function setLoading(flag) {
@@ -422,6 +439,7 @@ function setView(view) {
   financeCenterNode.classList.toggle("hidden", view !== "financeCenter");
   cashFlowNode.classList.toggle("hidden", view !== "cashFlow");
   cashAuditNode.classList.toggle("hidden", view !== "cashAudit");
+  pendenciasNode.classList.toggle("hidden", view !== "pendencias");
   commercialScoreNode.classList.toggle("hidden", view !== "commercialScore");
   fuelsNode.classList.toggle("hidden", view !== "fuels");
   salesNode.classList.toggle("hidden", view !== "sales");
@@ -1017,6 +1035,14 @@ async function refreshAll(bypassCache = false) {
       return;
     }
 
+    if (state.view === "pendencias") {
+      await renderPendencias(pendenciasNode, {
+        papel: authenticatedUser?.role || "",
+        onChange: atualizarContadorPendencias,
+      });
+      return;
+    }
+
     await refreshCompanies(bypassCache);
 
     ensureDataDefaults();
@@ -1185,6 +1211,7 @@ mountFilters();
 document.querySelector("#refreshBtn")?.addEventListener("click", async () => {
   state.cache.clear();
   await refreshAll(true);
+  await atualizarContadorPendencias();
 });
 
 document.querySelectorAll(".tab").forEach((tab) => {
