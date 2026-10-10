@@ -14,6 +14,7 @@ const ROTULOS_STATUS = {
   justificada: "Justificada",
   aprovada: "Aprovada",
   recusada: "Recusada",
+  substituida: "Substituída",
 };
 
 const ROTULOS_TIPO = {
@@ -26,6 +27,7 @@ const ROTULOS_TIPO = {
   fechamento_sangria_alterada: "Sangria alterada",
   fechamento_despesa_sem_plano: "Despesa sem plano",
   fechamento_despesa_sem_descricao: "Despesa sem descrição",
+  caixa_alertas_laranja: "Alertas laranja do caixa",
   recebimento_a_maior: "Recebimento a maior",
   recebimento_a_menor: "Recebimento a menor",
   reincidencia_quebra: "Reincidência de quebra",
@@ -77,6 +79,14 @@ export function renderListaPendencias(itens, papel) {
     const ultimaJustificativa = [...(item.historico || [])].reverse()
       .find((evento) => ["justificada", "justificativa_corrigida"].includes(evento.acao)
         && evento.justificativa)?.justificativa || "";
+    const detalheGrupo = item.tipo === "caixa_alertas_laranja"
+      ? JSON.parse(item.mensagem).alertas.map((alerta) =>
+        `<li><strong>${escapeHtml(alerta.codigo)}</strong>: ${escapeHtml(alerta.mensagem)}${alerta.valor === null ? "" : ` · ${moeda(alerta.valor)}`}</li>`
+      ).join("")
+      : "";
+    const mensagem = item.tipo === "caixa_alertas_laranja"
+      ? "Alertas laranja agrupados para este caixa."
+      : item.mensagem;
     const justificar = papel === "gerente" && ["aberta", "justificada"].includes(item.status)
       ? `<form class="pe-action" data-pendencia="${escapeHtml(item.id)}">
           <label>${item.status === "aberta" ? "Justificativa" : "Corrigir justificativa"}
@@ -101,7 +111,8 @@ export function renderListaPendencias(itens, papel) {
         <div><dt>Valor</dt><dd>${moeda(item.valor)}</dd></div>
         <div><dt>Referência</dt><dd>${escapeHtml(item.referencia)}</dd></div>
         <div><dt>Responsável</dt><dd>${escapeHtml(item.responsavel || "—")}</dd></div></dl>
-      <p>${escapeHtml(item.mensagem)}</p>
+      <p>${escapeHtml(mensagem)}</p>
+      ${detalheGrupo ? `<ul class="pe-alert-details">${detalheGrupo}</ul>` : ""}
       ${justificar}${decidir}
       <details><summary>Histórico (${(item.historico || []).length})</summary>
         <ol>${historico}</ol></details>

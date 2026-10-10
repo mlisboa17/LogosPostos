@@ -55,7 +55,7 @@ def _conectar(banco: Path | None = None) -> Iterator[sqlite3.Connection]:
                 valor TEXT,
                 referencia TEXT NOT NULL,
                 mensagem TEXT NOT NULL,
-                status TEXT NOT NULL CHECK (status IN ('aberta', 'justificada', 'aprovada', 'recusada')),
+                status TEXT NOT NULL CHECK (status IN ('aberta', 'justificada', 'aprovada', 'recusada', 'substituida')),
                 responsavel TEXT,
                 criada_em TEXT NOT NULL
             );
@@ -81,6 +81,55 @@ def _conectar(banco: Path | None = None) -> Iterator[sqlite3.Connection]:
                 BEGIN SELECT RAISE(ABORT, 'historico imutavel'); END;
             """
         )
+        schema = conexao.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'pendencias'"
+        ).fetchone()
+        if schema is not None and "'substituida'" not in schema["sql"]:
+            conexao.execute("PRAGMA foreign_keys = OFF")
+            try:
+                conexao.execute("BEGIN IMMEDIATE")
+                conexao.execute(
+                    """
+                    CREATE TABLE pendencias_nova (
+                        id TEXT PRIMARY KEY,
+                        identidade TEXT NOT NULL UNIQUE,
+                        unidade INTEGER NOT NULL,
+                        dia TEXT NOT NULL,
+                        tipo TEXT NOT NULL,
+                        severidade TEXT NOT NULL CHECK (severidade IN ('vermelho', 'laranja')),
+                        valor TEXT,
+                        referencia TEXT NOT NULL,
+                        mensagem TEXT NOT NULL,
+                        status TEXT NOT NULL CHECK (
+                            status IN ('aberta', 'justificada', 'aprovada', 'recusada', 'substituida')
+                        ),
+                        responsavel TEXT,
+                        criada_em TEXT NOT NULL
+                    )
+                    """
+                )
+                conexao.execute(
+                    """
+                    INSERT INTO pendencias_nova
+                    SELECT id, identidade, unidade, dia, tipo, severidade, valor, referencia,
+                           mensagem, status, responsavel, criada_em
+                    FROM pendencias
+                    """
+                )
+                conexao.execute("DROP TABLE pendencias")
+                conexao.execute("ALTER TABLE pendencias_nova RENAME TO pendencias")
+                conexao.execute(
+                    """
+                    CREATE INDEX idx_pendencias_unidade_status_dia
+                    ON pendencias (unidade, status, dia DESC)
+                    """
+                )
+                conexao.commit()
+            except sqlite3.Error:
+                conexao.rollback()
+                raise
+            finally:
+                conexao.execute("PRAGMA foreign_keys = ON")
     except sqlite3.Error as exc:
         conexao.close()
         logger.error("Falha ao preparar banco de pendências tipo=%s", type(exc).__name__)
@@ -131,10 +180,10 @@ def registrar(
     try:
         with _conectar(banco) as conexao:
             for nova in novas:
-                identidade = nova.identidade or (
+                identidade_original = nova.identidade or (
                     f"{nova.unidade}|{nova.dia.isoformat()}|{nova.tipo}|{nova.referencia}"
                 )
-                identidade = hashlib.sha256(identidade.encode("utf-8")).hexdigest()
+                identidade = hashlib.sha256(identidade_original.encode("utf-8")).hexdigest()
                 pendencia_id = uuid.uuid4().hex
                 criada_em = agora().isoformat()
                 cursor = conexao.execute(
@@ -150,17 +199,100 @@ def registrar(
                         nova.referencia, nova.mensagem, criada_em,
                     ),
                 )
-                if cursor.rowcount != 1:
+                if cursor.rowcount == 1:
+                    conexao.execute(
+                        """
+                        INSERT INTO historico_pendencias
+                            (pendencia_id, acao, status_anterior, status_novo, usuario, registrado_em)
+                        VALUES (?, 'criada', NULL, 'aberta', ?, ?)
+                        """,
+                        (pendencia_id, usuario, criada_em),
+                    )
+                    inseridas += 1
+                elif nova.tipo != "caixa_alertas_laranja":
                     continue
-                conexao.execute(
-                    """
-                    INSERT INTO historico_pendencias
-                        (pendencia_id, acao, status_anterior, status_novo, usuario, registrado_em)
-                    VALUES (?, 'criada', NULL, 'aberta', ?, ?)
-                    """,
-                    (pendencia_id, usuario, criada_em),
-                )
-                inseridas += 1
+
+                if nova.tipo == "caixa_alertas_laranja":
+                    if cursor.rowcount != 1:
+                        existente = conexao.execute(
+                            "SELECT * FROM pendencias WHERE identidade = ?",
+                            (identidade,),
+                        ).fetchone()
+                        if existente is None:
+                            raise sqlite3.DatabaseError("Pendência agrupada ausente após conflito.")
+                        pendencia_id = existente["id"]
+                        if existente["status"] == "aberta" and (
+                            existente["mensagem"] != nova.mensagem
+                            or existente["valor"] != (str(nova.valor) if nova.valor is not None else None)
+                        ):
+                            registrado_em = agora().isoformat()
+                            conexao.execute(
+                                """
+                                UPDATE pendencias SET valor = ?, mensagem = ?, referencia = ?
+                                WHERE id = ? AND status = 'aberta'
+                                """,
+                                (
+                                    str(nova.valor) if nova.valor is not None else None,
+                                    nova.mensagem,
+                                    nova.referencia,
+                                    pendencia_id,
+                                ),
+                            )
+                            conexao.execute(
+                                """
+                                INSERT INTO historico_pendencias
+                                    (pendencia_id, acao, status_anterior, status_novo, usuario,
+                                     justificativa, registrado_em)
+                                VALUES (?, 'detalhe_atualizado', 'aberta', 'aberta', ?, ?, ?)
+                                """,
+                                (
+                                    pendencia_id,
+                                    usuario,
+                                    "Detalhe da pendência agrupada atualizado no reprocessamento.",
+                                    registrado_em,
+                                ),
+                            )
+
+                    caixa = nova.referencia.partition(":")[2].partition(":")[0]
+                    pendencias_antigas = conexao.execute(
+                        """
+                        SELECT id FROM pendencias
+                        WHERE unidade = ? AND dia = ? AND severidade = 'laranja'
+                          AND status = 'aberta' AND tipo LIKE 'fechamento_%'
+                          AND tipo != 'caixa_alertas_laranja'
+                          AND (referencia = ? OR referencia LIKE ?)
+                        """,
+                        (
+                            nova.unidade,
+                            nova.dia.isoformat(),
+                            f"caixa:{caixa}",
+                            f"caixa:{caixa}:%",
+                        ),
+                    ).fetchall()
+                    for antiga in pendencias_antigas:
+                        registrado_em = agora().isoformat()
+                        cursor_antiga = conexao.execute(
+                            """
+                            UPDATE pendencias SET status = 'substituida', referencia = ?
+                            WHERE id = ? AND status = 'aberta'
+                            """,
+                            (nova.referencia, antiga["id"]),
+                        )
+                        if cursor_antiga.rowcount == 1:
+                            conexao.execute(
+                                """
+                                INSERT INTO historico_pendencias
+                                    (pendencia_id, acao, status_anterior, status_novo, usuario,
+                                     justificativa, registrado_em)
+                                VALUES (?, 'substituida', 'aberta', 'substituida', ?, ?, ?)
+                                """,
+                                (
+                                    antiga["id"],
+                                    usuario,
+                                    f"Substituída pela pendência agrupada {pendencia_id}.",
+                                    registrado_em,
+                                ),
+                            )
     except sqlite3.Error as exc:
         logger.error("Falha ao registrar pendências tipo=%s", type(exc).__name__)
         raise ErroPersistenciaPendencias("Falha ao registrar pendências.") from None

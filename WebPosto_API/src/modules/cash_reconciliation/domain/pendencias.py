@@ -8,7 +8,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict
 
 
-StatusPendencia = Literal["aberta", "justificada", "aprovada", "recusada"]
+StatusPendencia = Literal["aberta", "justificada", "aprovada", "recusada", "substituida"]
 SeveridadePendencia = Literal["vermelho", "laranja"]
 
 

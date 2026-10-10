@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import calendar
+import json
 import re
 from collections import defaultdict
 from datetime import date
@@ -49,9 +50,13 @@ def pendencias_do_dia(resultado: ResultadoDiario) -> list[NovaPendencia]:
     novas: list[NovaPendencia] = []
     if resultado.fechamento is not None:
         for auditoria in resultado.fechamento.caixas:
+            alertas_laranja = []
             for alerta in auditoria.alertas:
                 severidade = alerta.severidade.value
                 if severidade not in {"vermelho", "laranja"}:
+                    continue
+                if severidade == "laranja":
+                    alertas_laranja.append(alerta)
                     continue
                 caixa = auditoria.caixa.codigo
                 referencia = f"caixa:{caixa}"
@@ -70,6 +75,29 @@ def pendencias_do_dia(resultado: ResultadoDiario) -> list[NovaPendencia]:
                     valor=alerta.valor,
                     referencia=referencia,
                     mensagem=alerta.mensagem,
+                ))
+            if alertas_laranja:
+                caixa = auditoria.caixa.codigo
+                detalhes = {
+                    "alertas": [
+                        {
+                            "codigo": alerta.codigo,
+                            "mensagem": alerta.mensagem,
+                            "valor": str(alerta.valor) if alerta.valor is not None else None,
+                        }
+                        for alerta in alertas_laranja
+                    ],
+                }
+                valores = [alerta.valor for alerta in alertas_laranja if alerta.valor is not None]
+                novas.append(_entrada(
+                    unidade=resultado.empresa_codigo,
+                    dia=resultado.dia,
+                    tipo="caixa_alertas_laranja",
+                    severidade="laranja",
+                    valor=sum(valores, Decimal(0)) if valores else None,
+                    referencia=f"caixa:{caixa}:laranja",
+                    mensagem=json.dumps(detalhes, ensure_ascii=False, separators=(",", ":")),
+                    identidade=f"{resultado.empresa_codigo}|{resultado.dia.isoformat()}|caixa:{caixa}|laranja",
                 ))
     for adquirente in resultado.recebimentos.adquirentes:
         if adquirente.situacao != "ok":

@@ -68,3 +68,23 @@ test("contador consulta somente a contagem de pendências abertas", async (t) =>
   assert.deepEqual(await contarPendenciasAbertas(), { abertas: 4 });
   assert.deepEqual(get.mock.calls[0].arguments, ["/api/v1/cash-audit/pendencias/contagem-abertas"]);
 });
+
+test("detalhe da pendência agrupada mostra alertas com conteúdo escapado", () => {
+  const html = renderListaPendencias([pendencia({
+    tipo: "caixa_alertas_laranja",
+    severidade: "laranja",
+    valor: "25.00",
+    referencia: "caixa:106:laranja",
+    mensagem: JSON.stringify({
+      alertas: [
+        { codigo: "SANGRIA_ALTERADA", mensagem: "Sangria <alterada>", valor: "10.00" },
+        { codigo: "DESPESA_SEM_PLANO", mensagem: "Sem plano", valor: "15.00" },
+      ],
+    }),
+  })], "auditor");
+  assert.match(html, /Alertas laranja do caixa/);
+  assert.match(html, /SANGRIA_ALTERADA/);
+  assert.match(html, /Sangria &lt;alterada&gt;/);
+  assert.match(html, /DESPESA_SEM_PLANO/);
+  assert.doesNotMatch(html, /Sangria <alterada>/);
+});

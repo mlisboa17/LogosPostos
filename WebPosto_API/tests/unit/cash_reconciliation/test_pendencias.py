@@ -1,3 +1,5 @@
+import hashlib
+import json
 import sqlite3
 from datetime import date, datetime
 from decimal import Decimal
@@ -21,6 +23,7 @@ from src.modules.cash_reconciliation.domain.fechamento import (
     Severidade,
 )
 from src.modules.cash_reconciliation.domain.models import Proveniencia, Unidade
+from src.modules.cash_reconciliation.domain.pendencias import NovaPendencia
 from src.modules.cash_reconciliation.domain.recebimentos import ResultadoRecebimentos
 from src.modules.cash_reconciliation.interfaces import http
 
@@ -130,6 +133,163 @@ def test_alertas_criam_pendencias_com_chave_idempotente_e_historico_append_only(
             conexao.execute("UPDATE historico_pendencias SET usuario = 'alterado'")
         with pytest.raises(sqlite3.IntegrityError, match="imutavel"):
             conexao.execute("DELETE FROM historico_pendencias")
+
+
+def diario_com_alertas(alertas):
+    resultado = criar_diario(DIA)
+    auditoria = resultado.fechamento.caixas[0].model_copy(update={"alertas": tuple(alertas)})
+    fechamento = resultado.fechamento.model_copy(update={"caixas": (auditoria,)})
+    return resultado.model_copy(update={"fechamento": fechamento})
+
+
+def alertas_laranja(sufixo=""):
+    return (
+        Alerta(
+            codigo="SANGRIA_ALTERADA",
+            severidade=Severidade.LARANJA,
+            mensagem=f"Sangria alterada A{sufixo}",
+            valor=Decimal("10.00"),
+            referencia=1,
+        ),
+        Alerta(
+            codigo="DESPESA_SEM_PLANO",
+            severidade=Severidade.LARANJA,
+            mensagem=f"Despesa sem plano B{sufixo}",
+            valor=Decimal("12.50"),
+            referencia=2,
+        ),
+        Alerta(
+            codigo="VALE_DIVERGENTE",
+            severidade=Severidade.LARANJA,
+            mensagem=f"Vale divergente C{sufixo}",
+            valor=Decimal("2.50"),
+            referencia=3,
+        ),
+    )
+
+
+def test_alertas_laranja_do_caixa_agrupados_e_vermelho_individual():
+    resultado = diario_com_alertas((
+        Alerta(
+            codigo="QUEBRA",
+            severidade=Severidade.VERMELHO,
+            mensagem="Dinheiro: quebra",
+            valor=Decimal("-25.00"),
+            referencia=106,
+        ),
+        *alertas_laranja(),
+    ))
+
+    novas = pendencias_do_dia(resultado)
+    assert [pendencia.tipo for pendencia in novas] == [
+        "fechamento_quebra",
+        "caixa_alertas_laranja",
+    ]
+    grupo = novas[1]
+    assert grupo.valor == Decimal("25.00")
+    assert grupo.referencia == "caixa:106:laranja"
+    assert len(json.loads(grupo.mensagem)["alertas"]) == 3
+
+
+def test_reprocessar_atualiza_detalhe_aberto_sem_duplicar(tmp_path):
+    banco = tmp_path / "pendencias.sqlite3"
+    primeira = pendencias_do_dia(diario_com_alertas(alertas_laranja()))
+    segunda = pendencias_do_dia(diario_com_alertas(alertas_laranja("-atualizado")))
+
+    assert repositorio.registrar(primeira, banco=banco) == 1
+    assert repositorio.registrar(segunda, banco=banco) == 0
+    itens, total = repositorio.listar(unidade=EMPRESA, banco=banco)
+    agrupada = next(item for item in itens if item.tipo == "caixa_alertas_laranja")
+    assert total == 1
+    assert agrupada.valor == Decimal("25.00")
+    assert "atualizado" in agrupada.mensagem
+    assert [evento.acao for evento in agrupada.historico] == ["criada", "detalhe_atualizado"]
+
+
+def test_laranjas_individuais_abertas_sao_substituidas_com_historico(tmp_path):
+    banco = tmp_path / "pendencias.sqlite3"
+    resultado = diario_com_alertas(alertas_laranja())
+    caixa = resultado.fechamento.caixas[0].caixa.codigo
+    with sqlite3.connect(banco) as conexao:
+        conexao.executescript(
+            """
+            CREATE TABLE pendencias (
+                id TEXT PRIMARY KEY,
+                identidade TEXT NOT NULL UNIQUE,
+                unidade INTEGER NOT NULL,
+                dia TEXT NOT NULL,
+                tipo TEXT NOT NULL,
+                severidade TEXT NOT NULL CHECK (severidade IN ('vermelho', 'laranja')),
+                valor TEXT,
+                referencia TEXT NOT NULL,
+                mensagem TEXT NOT NULL,
+                status TEXT NOT NULL CHECK (status IN ('aberta', 'justificada', 'aprovada', 'recusada')),
+                responsavel TEXT,
+                criada_em TEXT NOT NULL
+            );
+            CREATE TABLE historico_pendencias (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                pendencia_id TEXT NOT NULL REFERENCES pendencias(id),
+                acao TEXT NOT NULL,
+                status_anterior TEXT,
+                status_novo TEXT NOT NULL,
+                usuario TEXT NOT NULL,
+                justificativa TEXT,
+                registrado_em TEXT NOT NULL
+            );
+            """
+        )
+    antigas = [
+        NovaPendencia(
+            unidade=EMPRESA,
+            dia=DIA,
+            tipo="fechamento_sangria_alterada",
+            severidade="laranja",
+            valor=Decimal("10.00"),
+            referencia=f"caixa:{caixa}:sangria:{indice}",
+            mensagem=f"Alerta individual {indice}",
+        )
+        for indice in range(1, 4)
+    ]
+    with sqlite3.connect(banco) as conexao:
+        for indice, antiga in enumerate(antigas, start=1):
+            identidade = hashlib.sha256(
+                f"{antiga.unidade}|{antiga.dia.isoformat()}|{antiga.tipo}|{antiga.referencia}".encode()
+            ).hexdigest()
+            conexao.execute(
+                """
+                INSERT INTO pendencias
+                    (id, identidade, unidade, dia, tipo, severidade, valor, referencia,
+                     mensagem, status, responsavel, criada_em)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'aberta', NULL, ?)
+                """,
+                (
+                    f"legada-{indice}", identidade, antiga.unidade, antiga.dia.isoformat(),
+                    antiga.tipo, antiga.severidade, str(antiga.valor), antiga.referencia,
+                    antiga.mensagem, datetime(2026, 10, 7).isoformat(),
+                ),
+            )
+            conexao.execute(
+                """
+                INSERT INTO historico_pendencias
+                    (pendencia_id, acao, status_anterior, status_novo, usuario, registrado_em)
+                VALUES (?, 'criada', NULL, 'aberta', 'robô-noturno', ?)
+                """,
+                (f"legada-{indice}", datetime(2026, 10, 7).isoformat()),
+            )
+
+    agrupadas = pendencias_do_dia(resultado)
+    assert repositorio.registrar(agrupadas, banco=banco) == 1
+    itens, _ = repositorio.listar(unidade=EMPRESA, banco=banco)
+    antiga_substituida = [item for item in itens if item.tipo == "fechamento_sangria_alterada"]
+    agrupada = next(item for item in itens if item.tipo == "caixa_alertas_laranja")
+    assert len(antiga_substituida) == 3
+    assert all(item.status == "substituida" for item in antiga_substituida)
+    assert all(item.referencia == agrupada.referencia for item in antiga_substituida)
+    assert all(item.historico[-1].acao == "substituida" for item in antiga_substituida)
+    assert all(agrupada.id in item.historico[-1].justificativa for item in antiga_substituida)
+    with sqlite3.connect(banco) as conexao:
+        assert conexao.execute("PRAGMA foreign_key_check").fetchall() == []
 
 
 def test_reincidencia_gera_um_alerta_so_apos_duas_ocorrencias():
