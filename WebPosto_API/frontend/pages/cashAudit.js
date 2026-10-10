@@ -264,6 +264,10 @@ export function renderDetalhes(auditoria) {
         <td>${escapeHtml(despesa.plano_conta_codigo || "Sem plano de contas")}</td>
         <td class="ca-num">${safeCurrency(despesa.valor)}</td></tr>`).join("")}</tbody></table></div>`
     : '<p class="ca-muted">Nenhuma despesa em dinheiro registrada para este caixa.</p>';
+  const informativos = Array.isArray(auditoria.informativos) && auditoria.informativos.length
+    ? `<div class="ca-muted"><h4>Informações</h4><ul>${auditoria.informativos
+      .map((informativo) => `<li>${escapeHtml(informativo)}</li>`).join("")}</ul></div>`
+    : "";
   return `
     <div class="ca-detail-grid">
       <div><h4>Modalidades</h4>
@@ -271,7 +275,7 @@ export function renderDetalhes(auditoria) {
         <tbody>${modalidades}</tbody></table>
         ${descontoHtml}
       </div>
-      <div><h4>Alertas</h4>${alertas}<h4>Despesas do caixa</h4>${despesas}</div>
+      <div><h4>Alertas</h4>${alertas}<h4>Despesas do caixa</h4>${despesas}${informativos}</div>
     </div>`;
 }
 

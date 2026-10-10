@@ -79,6 +79,18 @@ test("auditoria mostra os chips novos e os detalhes de desconto e despesas", () 
   assert.doesNotMatch(detalhes, /<script>/);
 });
 
+test("detalhe do caixa mostra informativos neutros e aceita resultados legados", () => {
+  const detalheComInformativos = renderDetalhes({
+    informativos: ["Sangria repassada ao Casa Caiada", "<script>inseguro</script>"],
+  });
+  const detalheLegado = renderDetalhes({});
+  assert.match(detalheComInformativos, /<h4>Informações<\/h4>/);
+  assert.match(detalheComInformativos, /Sangria repassada ao Casa Caiada/);
+  assert.match(detalheComInformativos, /&lt;script&gt;/);
+  assert.doesNotMatch(detalheComInformativos, /ca-warning|ca-neg|ca-chip/);
+  assert.doesNotMatch(detalheLegado, /Informações/);
+});
+
 test("reincidencia consulta mes/unidade e mostra cobertura sem criar numeros", async (t) => {
   const resultado = {
     empresa_codigo: 321,
