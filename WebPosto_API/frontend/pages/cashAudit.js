@@ -77,6 +77,7 @@ export function rankingFrentistas(dias) {
       const investigacoes = [
         ...item.a_maior,
         ...item.pares_provaveis.map((par) => par.investigacao),
+        ...(item.grupos_provaveis || []).flatMap((grupo) => grupo.investigacoes),
       ];
       investigacoes.forEach((inv) => {
         const atribuido = inv.atribuicao === "atribuido" && inv.frentista != null;
@@ -146,12 +147,15 @@ export function renderRecebimentos(dias, falhas = [], diaSelecionado = null) {
       total: ok.reduce((sum, item) => sum + Number(item.casados.total), 0),
       maior: ok.reduce((sum, item) => sum + item.a_maior.length, 0),
       menor: ok.reduce((sum, item) => sum + item.a_menor.length, 0),
-      pares: ok.reduce((sum, item) => sum + item.pares_provaveis.length, 0),
+      pares: ok.reduce((sum, item) => sum + item.pares_provaveis.length + (item.grupos_provaveis || []).length, 0),
     };
     const linhas = ok.map((item) => [
       ...item.a_menor.map((cartao) => renderDivergencia(item.dia, cartao, "A menor", "vermelho")),
       ...item.a_maior.map((inv) => renderDivergencia(item.dia, inv.transacao, "A maior", "laranja", inv)),
       ...item.pares_provaveis.map((par) => renderDivergencia(item.dia, par.investigacao.transacao, "Par provável", "amarelo", par.investigacao, par.cartao)),
+      ...(item.grupos_provaveis || []).flatMap((grupo) => grupo.investigacoes.map((inv) =>
+        renderDivergencia(item.dia, inv.transacao, `Grupo provável (${grupo.investigacoes.length} recebimentos)`, "amarelo", inv, grupo.cartao)
+      )),
     ].join("")).join("");
     const fontes = ok.map((item) =>
       `${formatDate(item.dia)}: ${item.proveniencia?.versao_regra || "—"} · ${formatDateTime(item.proveniencia?.executado_em)}`

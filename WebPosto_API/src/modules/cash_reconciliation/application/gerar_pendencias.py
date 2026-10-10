@@ -124,6 +124,7 @@ def _ocorrencias_reincidentes(
             investigacoes = (
                 *adquirente.a_maior,
                 *(par.investigacao for par in adquirente.pares_provaveis),
+                *(inv for grupo in getattr(adquirente, "grupos_provaveis", ()) for inv in grupo.investigacoes),
             )
             for investigacao in investigacoes:
                 if investigacao.atribuicao == Atribuicao.ATRIBUIDO and investigacao.frentista is not None:

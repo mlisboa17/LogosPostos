@@ -7,7 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from .cartoes import CartaoErp, Investigacao, ParProvavel, ResultadoCartoes
+from .cartoes import CartaoErp, GrupoProvavel, Investigacao, ParProvavel, ResultadoCartoes
 from .models import Proveniencia
 
 
@@ -28,6 +28,7 @@ class RecebimentoAdquirente(_Frozen):
     a_maior: tuple[Investigacao, ...] = ()
     a_menor: tuple[CartaoErp, ...] = ()
     pares_provaveis: tuple[ParProvavel, ...] = ()
+    grupos_provaveis: tuple[GrupoProvavel, ...] = ()
     proveniencia: Proveniencia | None = None
 
     @classmethod
@@ -42,6 +43,7 @@ class RecebimentoAdquirente(_Frozen):
             a_maior=resultado.a_maior,
             a_menor=resultado.a_menor,
             pares_provaveis=resultado.pares_provaveis,
+            grupos_provaveis=resultado.grupos_provaveis,
             proveniencia=resultado.proveniencia,
         )
 

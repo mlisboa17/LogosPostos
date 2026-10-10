@@ -9,7 +9,7 @@ from src.modules.cash_reconciliation.adapters.webposto_cartoes import para_abast
 from src.modules.cash_reconciliation.application.conciliar_cartoes import conciliar
 from src.modules.cash_reconciliation.domain.cartoes import Abastecimento, Atribuicao, CartaoErp, TransacaoAdquirente
 from src.modules.cash_reconciliation.domain.tempo import FUSO
-from src.modules.cash_reconciliation.rules.cartoes import VERSAO, casar, investigar
+from src.modules.cash_reconciliation.rules.cartoes import VERSAO, agrupar_sobras, casar, investigar
 
 DIA = date(2026, 10, 5)
 
@@ -60,6 +60,48 @@ def test_sobras_dos_dois_lados():
     assert not casados and len(st) == 1 and [c.codigo for c in sc] == [1]
 
 
+def test_agrupar_quatro_recebimentos_que_somam_lancamento_a_menor():
+    investigacoes = [
+        investigar(T("40.00", "10:00"), [], set()),
+        investigar(T("45.00", "10:01"), [], set()),
+        investigar(T("50.00", "10:02"), [], set()),
+        investigar(T("44.45", "10:03"), [], set()),
+    ]
+    maior, menor, grupos = agrupar_sobras(investigacoes, [C(1, "179.45", "10:05")])
+    assert not maior and not menor
+    assert len(grupos) == 1
+    assert grupos[0].investigacoes == tuple(investigacoes)
+
+
+def test_agrupar_sobras_sem_combinacao_valida_nao_altera_itens():
+    investigacoes = [investigar(T("40.00", "10:00"), [], set()), investigar(T("45.00", "10:01"), [], set())]
+    cartao = C(1, "86.00", "10:05")
+    maior, menor, grupos = agrupar_sobras(investigacoes, [cartao])
+    assert maior == investigacoes and menor == [cartao] and not grupos
+
+
+def test_agrupar_sobras_com_duas_combinacoes_validas_e_ambiguo():
+    investigacoes = [
+        investigar(T("10.00", "10:00"), [], set()),
+        investigar(T("20.00", "10:01"), [], set()),
+        investigar(T("30.00", "10:02"), [], set()),
+        investigar(T("40.00", "10:03"), [], set()),
+    ]
+    cartao = C(1, "50.00", "10:05")
+    maior, menor, grupos = agrupar_sobras(investigacoes, [cartao])
+    assert maior == investigacoes and menor == [cartao] and not grupos
+
+
+def test_agrupar_sobras_nao_combina_dias_diferentes():
+    investigacoes = [
+        investigar(T("40.00", "23:58", dia="2026-10-05"), [], set()),
+        investigar(T("45.00", "00:01", dia="2026-10-06"), [], set()),
+    ]
+    cartao = C(1, "85.00", "00:02", dia="2026-10-06")
+    maior, menor, grupos = agrupar_sobras(investigacoes, [cartao])
+    assert maior == investigacoes and menor == [cartao] and not grupos
+
+
 # ---------- investigacao ----------
 
 def test_valor_quebrado_perto_e_em_dinheiro_atribui_sozinho():
@@ -99,6 +141,19 @@ def test_conciliar_filtra_adquirente_e_dia():
     assert [i.frentista for i in r.a_maior] == [5]
     assert [c.codigo for c in r.a_menor] == [2]          # Premmia nao e PagBank; o de 06/10 nao entra
     assert r.proveniencia.versao_regra == VERSAO
+
+
+def test_conciliar_retorna_grupo_provavel_e_versao_cartoes_v2():
+    transacoes = [
+        T("40.00", "10:00", ident="g1"),
+        T("45.00", "10:01", ident="g2"),
+        T("50.00", "10:02", ident="g3"),
+        T("44.45", "10:03", ident="g4"),
+    ]
+    resultado = conciliar(74014, "PAGBANK", DIA, transacoes, [C(1, "179.45", "10:05")], [], set())
+    assert len(resultado.grupos_provaveis) == 1
+    assert not resultado.a_maior and not resultado.a_menor
+    assert resultado.proveniencia.versao_regra == "CARTOES_V2"
 
 
 # ---------- adapters ----------

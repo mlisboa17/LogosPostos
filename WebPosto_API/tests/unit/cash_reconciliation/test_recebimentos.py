@@ -85,7 +85,7 @@ def test_rota_resumo_casados_e_detalhes_com_proveniencia(client, monkeypatch):
     assert item["a_maior"][0]["frentista"] == 7
     assert item["a_maior"][0]["candidatos"][0]["pontos"] >= 80
     assert item["a_maior"][0]["candidatos"][0]["motivos"]
-    assert item["proveniencia"]["versao_regra"] == "CARTOES_V1"
+    assert item["proveniencia"]["versao_regra"] == "CARTOES_V2"
     assert "t1" not in response.text
 
 

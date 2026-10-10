@@ -11,7 +11,7 @@ from ..config import carregar_unidades
 from ..domain.cartoes import Abastecimento, CartaoErp, ResultadoCartoes, TransacaoAdquirente
 from ..domain.models import Proveniencia
 from ..domain.tempo import agora
-from ..rules.cartoes import VERSAO, casar, investigar, parear_sobras
+from ..rules.cartoes import VERSAO, agrupar_sobras, casar, investigar, parear_sobras
 
 # administradoras do webPosto liquidadas por cada adquirente (V1/ADMINISTRADORAS)
 ADMINISTRADORAS = {"PAGBANK": ("PAGSEGURO", "PIX PAGBANK")}
@@ -40,6 +40,7 @@ def conciliar(
         (investigar(t, abastecimentos, itens_em_dinheiro) for t in sobra_t if t.momento.date() == dia),
         (c for c in sobra_c if c.momento.date() == dia and da_adquirente(c, adquirente)),
     )
+    a_maior, a_menor, grupos = agrupar_sobras(a_maior, a_menor)
     return ResultadoCartoes(
         empresa_codigo=empresa_codigo,
         adquirente=adquirente,
@@ -48,6 +49,7 @@ def conciliar(
         a_maior=tuple(a_maior),
         a_menor=tuple(a_menor),
         pares_provaveis=tuple(pares),
+        grupos_provaveis=tuple(grupos),
         proveniencia=Proveniencia(
             execucao_id=uuid.uuid4().hex,
             executado_em=agora(),

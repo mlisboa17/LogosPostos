@@ -87,6 +87,11 @@ class ParProvavel(_Frozen):
     cartao: CartaoErp
 
 
+class GrupoProvavel(_Frozen):
+    investigacoes: tuple[Investigacao, ...]
+    cartao: CartaoErp
+
+
 class ResultadoCartoes(_Frozen):
     empresa_codigo: int
     adquirente: str
@@ -95,4 +100,5 @@ class ResultadoCartoes(_Frozen):
     a_maior: tuple[Investigacao, ...]  # recebido na adquirente, ausente no webPosto
     a_menor: tuple[CartaoErp, ...]     # lancado no webPosto, nao recebido na adquirente
     pares_provaveis: tuple[ParProvavel, ...] = ()
+    grupos_provaveis: tuple[GrupoProvavel, ...] = ()
     proveniencia: Proveniencia
