@@ -22,7 +22,9 @@ PR a abrir: https://github.com/mlisboa17/LogosPostos/pull/new/feature/cash-audit
 
 ## Backlog (sprints futuras)
 - METAS_02 — Metas de out/2026 do Doze e do Casa Caiada (adiado pelo diretor em 10/10/2026; aguarda os números Bronze/Prata/Ouro)
-- Resumo diário enviado ao diretor (depende do canal)
+- Resumo diário no Telegram FUNCIONANDO (10/10/2026). Melhorias adiadas: substituir a planilha (pequena no celular)
+  por algo mais legível; tirar código interno do plano de contas; faltas confirmadas x provisórias; DESPESAS_V1
+- CARTOES_V3: NSU casado com valor diferente hoje passa como "casado" (lacuna); cancelamentos/estornos do EDI
 - Integrações Mais Pagamentos, Rede, Cielo e PagBank Conv 24h (dependem dos fornecedores)
 - 28 snapshots antigos ainda versionados; arquivar a pasta antiga do OneDrive
 
