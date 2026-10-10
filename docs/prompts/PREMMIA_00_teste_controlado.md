@@ -19,6 +19,16 @@ O login passou sem CAPTCHA. Os campos de data do portal são lentos e o robô n�
 3. Paginação: incremente `page` até não haver linhas novas; ou use **Exportar** se ele exportar o período inteiro.
 4. A tela mostra CPF parcial e nome do cliente: **não** registrar no log nem no chat; no `.json` normalizado guarde só data/hora, valor, código, serviço e meio de pagamento.
 
+## Exportação XLSX (informação do diretor, 10/10/2026)
+
+O botão **Exportar** gera um arquivo **.xlsx**. No navegador comum ele pede para clicar e salvar; no Playwright isso não é problema: use `browser.new_context(accept_downloads=True)` e `page.expect_download(timeout=180_000)`, depois `download.save_as(...)` na pasta `data/premmia/...`.
+A tentativa 3 parou porque o script **exigia ver a tabela** antes de exportar. Mude a ordem:
+1. Depois de navegar para a URL filtrada, espere `page.wait_for_load_state("networkidle", timeout=180_000)` e o botão **Exportar** visível e habilitado. **Não exija a tabela.**
+2. Clique em Exportar com `expect_download`. Se o arquivo vier, a tabela não importa.
+3. Em paralelo, registre (`page.on("response")`) as respostas JSON do próprio portal que contenham a lista de pagamentos e salve-as na mesma pasta como reserva (sem logar conteúdo; só URL relativa sem parâmetros, status e tamanho).
+4. Se o intervalo de 9 dias falhar por tempo, tente **só 01/10/2026** (um dia) na mesma sessão, uma vez.
+5. Com o .xlsx salvo: reportar só estrutura e agregados (colunas, linhas, meios de pagamento, total por meio e por dia) e a comparação por dia com o webPosto.
+
 ## Referência (não portar ainda)
 
 Leia com `git show resgate/conciliacao-4-vias:<caminho>` — sem checkout:
