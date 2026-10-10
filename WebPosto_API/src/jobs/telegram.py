@@ -54,11 +54,15 @@ def main() -> int:
         if payload.get("ok") is not True:
             print("Falha ao consultar Telegram (resposta inválida).")
             return 1
+        encontrados = 0
         for atualizacao in payload.get("resultados", payload.get("result", [])):
             mensagem = atualizacao.get("message") or atualizacao.get("edited_message") or {}
             remetente = mensagem.get("from") or {}
             if remetente.get("id") is not None:
+                encontrados += 1
                 print(f"{remetente['id']} {remetente.get('first_name', '')}".rstrip())
+        if not encontrados:
+            print("Token ok, mas o bot ainda não recebeu mensagem. Mande /start e um 'oi' ao bot e rode de novo.")
         return 0
 
     try:
