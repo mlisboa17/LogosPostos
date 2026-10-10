@@ -1,11 +1,12 @@
 # Prompt — PREMMIA-00: teste único e controlado do robô do portal Premmia (Vibra)
 
 > Workspace: `C:\Projetos\LOGOS\LogosPostos`, branch `feature/cash-audit-fechamento`. Sem push, merge ou troca de branch.
-> Objetivo: descobrir **se** o robô consegue entrar no portal e exportar o relatório de **1 posto, 1 dia**, antes de qualquer porte para o sistema.
+> Objetivo: descobrir **se** o robô consegue entrar no portal e exportar o relatório de **1 posto**, do **início do mês até ontem**, antes de qualquer porte para o sistema.
 
 ## Escopo fixo
 
-- Posto: **VIP (11495)** · Dia: **07/10/2026** · Navegador **visível** (o sócio-diretor vai acompanhar).
+- Posto: **VIP (11495)** — uma única empresa · Navegador **visível** (o sócio-diretor vai acompanhar).
+- Período (decisão do diretor em 10/10/2026): **do dia 01 do mês corrente até ontem**, buscando **só os dias que ainda não têm dados salvos** em `WebPosto_API/data/premmia/<aaaa-mm-dd>/11495/`. Nada salvo (primeira vez) → 01/10/2026 até ontem. Se o filtro do portal aceitar intervalo, exporte o intervalo **uma vez** e separe por dia ao salvar; se só aceitar um dia, repita o filtro dia a dia **na mesma sessão** (um único login), no máximo 31 dias.
 - Portal: `https://cn.vibraenergia.com.br/premmia/revendedor/login` → **Conferência → Pagamentos**.
 - Credenciais: variáveis `PREMMIA_usuario_POSTO_VIP` e `PREMMIA_SENHA_POSTO_VIP` em `WebPosto_API/.env`, carregadas com `load_dotenv`. **Nunca** imprimir, logar, salvar em arquivo ou colar no chat; o script só preenche os campos de login.
 
@@ -20,16 +21,16 @@ Lembrete: o código resgatado tem bugs silenciosos em outras integrações; trat
 
 ## Tarefa
 
-1. Crie `WebPosto_API/scripts/probe_premmia_portal.py` (script de sondagem, autocontido, Playwright **síncrono**, `headless=False`, `slow_mo` ~300 ms, timeout 60 s por etapa). Parâmetros: `--posto 11495 --dia 07/10/2026`.
+1. Crie `WebPosto_API/scripts/probe_premmia_portal.py` (script de sondagem, autocontido, Playwright **síncrono**, `headless=False`, `slow_mo` ~300 ms, timeout 60 s por etapa). Parâmetros: `--posto 11495` (período automático: dias faltantes de 01 do mês até ontem) e opcional `--inicio dd/mm/aaaa --fim dd/mm/aaaa`.
 2. Fluxo, com **parada imediata** em qualquer ponto não previsto:
    1. Abrir a página de login e preencher usuário/senha.
    2. **Se aparecer CAPTCHA, reCAPTCHA, "não sou um robô", código por SMS/e-mail, 2FA ou qualquer verificação humana: PARE.** Não tente resolver, contornar, esperar o usuário resolver por você, nem usar serviço de terceiros. Tire 1 captura da tela (sem dados pessoais visíveis, se possível), feche o navegador e reporte.
    3. Se aparecer aviso de **aceite de termos, troca de senha, alteração de cadastro ou qualquer confirmação que mude a conta: PARE** e reporte (não clique).
-   4. Login ok → ir a Conferência → Pagamentos, filtrar **07/10/2026**, exportar o relatório.
+   4. Login ok → ir a Conferência → Pagamentos, filtrar o período (dias faltantes), exportar o relatório.
    5. Só **navegar, filtrar e exportar**. Não clicar em nada que grave, envie, cancele ou altere.
-3. Salve o arquivo exportado em `WebPosto_API/data/premmia/2026-10-07/11495/` (pasta fora do Git). Capturas de tela, se houver, na mesma pasta.
+3. Salve os dados de cada dia em `WebPosto_API/data/premmia/<aaaa-mm-dd>/11495/` (arquivo original exportado + um `.json` normalizado por dia) (pasta fora do Git). Capturas de tela, se houver, na mesma pasta.
 4. Leia o arquivo e reporte **somente estrutura e agregados**: nome/tipo do arquivo, colunas, quantidade de linhas, formas de pagamento distintas (crédito/PIX/vale/desconto…), status distintos, faixa de horários, total de valores por forma. **Não** mostre CPF, nomes de clientes nem linhas individuais.
-5. Comparação rápida com o webPosto (somente leitura): no mesmo dia e posto, conte e some os recebimentos Premmia do ERP (`V1/CARTOES` com administradora contendo "PREMMIA", e formas de pagamento Premmia em `V1/VENDAS_FORMA_PAGAMENTO`). Mostre lado a lado: quantidade e total do portal × do webPosto, por forma de pagamento.
+5. Comparação com o webPosto (somente leitura): para cada dia do período, no mesmo posto, conte e some os recebimentos Premmia do ERP (`V1/CARTOES` com administradora contendo "PREMMIA", e formas de pagamento Premmia em `V1/VENDAS_FORMA_PAGAMENTO`). Mostre uma tabela por dia: quantidade e total do portal × do webPosto, por forma de pagamento, e a diferença.
 
 ## Restrições
 
