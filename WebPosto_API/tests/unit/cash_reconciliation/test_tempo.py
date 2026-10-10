@@ -17,6 +17,7 @@ from src.modules.cash_reconciliation.adapters.webposto_cartoes import buscar_con
 from src.modules.cash_reconciliation.domain import tempo
 from src.modules.cash_reconciliation.domain.models import DepositoBancario, Proveniencia, Sangria, Unidade
 from src.modules.cash_reconciliation.jobs import noturno
+from src.modules.commercial_performance import config as config_placar
 
 FUSO = tempo.FUSO
 DIA = date(2026, 10, 5)
@@ -151,6 +152,7 @@ def test_cli_como_main_grava_resumo_brasileiro_sem_rede(monkeypatch, tmp_path):
     monkeypatch.setenv("WEBPOSTO_WRITES", "0")
     monkeypatch.setattr("dotenv.load_dotenv", lambda *args: None)
     monkeypatch.setattr(config, "carregar_unidades", lambda: {})
+    monkeypatch.setattr(config_placar, "POSTOS", {})
     monkeypatch.setattr(persistencia, "DIRETORIO", tmp_path)
     monkeypatch.setattr(sys, "argv", ["noturno", "--dia", "06/10/2026"])
     modulo_logger = logging.getLogger("src.modules.cash_reconciliation")

@@ -1,4 +1,5 @@
 import asyncio
+import ast
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -24,7 +25,6 @@ EMPRESA = 321
 
 @pytest.fixture(autouse=True)
 def sem_postos_comerciais_reais(monkeypatch, tmp_path):
-    monkeypatch.setattr(noturno, "POSTOS", {})
     monkeypatch.setattr(saude_robo, "DIRETORIO_RESUMOS", tmp_path / "resumos")
     monkeypatch.setattr(saude_robo, "CAMINHO_ESTADO", tmp_path / "resumos" / "estado_robo.json")
 
@@ -338,3 +338,25 @@ def test_dia_cli_formato_estrito():
     for valor in ("invalido", "20261001", "2026-02-30"):
         with pytest.raises(argparse.ArgumentTypeError):
             noturno._dia(valor)
+
+
+def test_modulos_nao_importam_uns_aos_outros():
+    raiz = Path(__file__).resolve().parents[3] / "src" / "modules"
+    dependencias_proibidas = (
+        ("cash_reconciliation", "commercial_performance"),
+        ("commercial_performance", "cash_reconciliation"),
+    )
+    violacoes = []
+    for origem, destino in dependencias_proibidas:
+        for caminho in (raiz / origem).rglob("*.py"):
+            arvore = ast.parse(caminho.read_text(encoding="utf-8"))
+            for no in ast.walk(arvore):
+                if isinstance(no, ast.Import):
+                    nomes = [alias.name for alias in no.names]
+                elif isinstance(no, ast.ImportFrom):
+                    nomes = [no.module or ""]
+                else:
+                    continue
+                if any(nome == f"src.modules.{destino}" or nome.startswith(f"src.modules.{destino}.") for nome in nomes):
+                    violacoes.append(f"{caminho}:{no.lineno}")
+    assert violacoes == []

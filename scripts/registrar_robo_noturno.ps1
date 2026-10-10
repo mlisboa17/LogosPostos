@@ -23,7 +23,7 @@ if (-not $PythonExe) {
     $PythonExe = (Get-Command python -ErrorAction Stop).Source
 }
 $PythonExe = (Resolve-Path -LiteralPath $PythonExe -ErrorAction Stop).Path
-if (-not (Test-Path -LiteralPath (Join-Path $DiretorioApi "src\modules\cash_reconciliation\jobs\noturno.py"))) {
+if (-not (Test-Path -LiteralPath (Join-Path $DiretorioApi "src\jobs\noturno.py"))) {
     throw "Modulo do robo noturno nao encontrado."
 }
 
@@ -37,7 +37,7 @@ if ($SemAdmin) {
 }
 
 $Acao = New-ScheduledTaskAction -Execute $Executavel `
-    -Argument "-B -m src.modules.cash_reconciliation.jobs.noturno" `
+    -Argument "-B -m src.jobs.noturno" `
     -WorkingDirectory $DiretorioApi
 $Gatilho = New-ScheduledTaskTrigger -Daily -At "03:00"
 $Configuracao = New-ScheduledTaskSettingsSet -StartWhenAvailable `

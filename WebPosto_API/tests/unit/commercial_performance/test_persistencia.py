@@ -6,7 +6,7 @@ import pytest
 from src.modules.commercial_performance.adapters import persistencia
 from src.modules.commercial_performance.config import POSTOS
 from src.modules.commercial_performance.domain.models import Placar, Proveniencia
-from src.modules.cash_reconciliation.jobs import noturno
+from src.jobs import noturno as composicao_noturno
 
 
 def placar_sintetico():
@@ -84,25 +84,24 @@ def test_falha_atomica_preserva_snapshot_anterior(monkeypatch, tmp_path):
     assert len(list((tmp_path / "2026-10").iterdir())) == 1
 
 
-async def test_job_noturno_persiste_placar_sem_interromper_job(monkeypatch, tmp_path):
-    monkeypatch.setenv("WEBPOSTO_WRITES", "0")
-    monkeypatch.setattr(noturno, "carregar_unidades", lambda: {})
-    monkeypatch.setattr(noturno, "POSTOS", POSTOS)
+async def test_composicao_noturna_persiste_placar(monkeypatch, tmp_path):
+    monkeypatch.setattr(composicao_noturno, "POSTOS", POSTOS)
     chamadas = []
 
     async def obter(posto, mes, dia):
         chamadas.append((posto, mes, dia))
         return placar_sintetico().model_copy(update={"posto": posto})
 
-    monkeypatch.setattr(noturno, "obter_placar", obter)
+    monkeypatch.setattr(composicao_noturno, "obter_placar", obter)
 
-    codigo = await noturno.executar(
+    falhas, unidades_com_falha = await composicao_noturno._executar_placar(
         date(2026, 10, 2),
-        diretorio=tmp_path / "caixa",
-        diretorio_placar=tmp_path / "placar",
+        timeout=60,
+        diretorio=tmp_path / "placar",
     )
 
-    assert codigo == 0
+    assert falhas == 0
+    assert unidades_com_falha == set()
     assert chamadas == [(posto, "2026-10", date(2026, 10, 2)) for posto in (11495, 74014, 5555)]
     for posto in (11495, 74014, 5555):
         assert persistencia.carregar_placar(
