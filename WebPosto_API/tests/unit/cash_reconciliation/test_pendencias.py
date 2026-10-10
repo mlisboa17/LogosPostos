@@ -469,3 +469,92 @@ def test_auditor_le_mas_nao_altera_e_anonimo_nao_lista(client):
     assert client.get("/api/v1/cash-audit/pendencias").status_code == 401
     autenticar(client, "auditor")
     assert client.get("/api/v1/cash-audit/pendencias").status_code == 200
+
+
+def test_prazo_vencida_por_severidade_justificada_e_filtro(client, monkeypatch, tmp_path):
+    agora_local = datetime.fromisoformat("2026-10-10T12:00:00-03:00")
+    criada = datetime.fromisoformat("2026-10-07T12:00:00-03:00")
+    monkeypatch.setattr(repositorio, "agora", lambda: criada)
+    monkeypatch.setattr(http, "agora", lambda: agora_local)
+    configuracao = tmp_path / "units.json"
+    configuracao.write_text(
+        json.dumps({"prazo_pendencia_dias": {"vermelho": 2, "laranja": 5}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(http, "ARQUIVO_CONFIG_UNIDADES", configuracao)
+
+    candidatas = [
+        NovaPendencia(
+            unidade=EMPRESA,
+            dia=DIA,
+            tipo="prazo_teste",
+            severidade=severidade,
+            referencia=referencia,
+            mensagem="Pendência de teste temporária",
+        )
+        for severidade, referencia in (
+            ("vermelho", "vermelha-vencida"),
+            ("laranja", "laranja-no-prazo"),
+            ("vermelho", "justificada-antiga"),
+        )
+    ]
+    repositorio.registrar(candidatas)
+    itens, _ = repositorio.listar(unidade=EMPRESA, tipo="prazo_teste")
+    antiga_justificada = next(item for item in itens if item.referencia == "justificada-antiga")
+    repositorio.transicionar(
+        antiga_justificada.id,
+        status_esperado="aberta",
+        status_novo="justificada",
+        acao="justificada",
+        usuario="gerente",
+        justificativa="Conferida com os comprovantes disponíveis.",
+    )
+
+    autenticar(client, "diretor")
+    resposta = client.get(
+        "/api/v1/cash-audit/pendencias",
+        params={"unidade": EMPRESA, "tipo": "prazo_teste", "status": "todas", "limite": 200},
+    )
+    assert resposta.status_code == 200
+    por_referencia = {item["referencia"]: item for item in resposta.json()["items"]}
+    assert por_referencia["vermelha-vencida"]["aberta_ha_dias"] == 3
+    assert por_referencia["vermelha-vencida"]["vencida"] is True
+    assert por_referencia["laranja-no-prazo"]["vencida"] is False
+    assert por_referencia["justificada-antiga"]["status"] == "justificada"
+    assert por_referencia["justificada-antiga"]["vencida"] is False
+    assert resposta.json()["items"][0]["referencia"] == "vermelha-vencida"
+
+    vencidas = client.get(
+        "/api/v1/cash-audit/pendencias",
+        params={"unidade": EMPRESA, "tipo": "prazo_teste", "vencidas": "true"},
+    )
+    assert vencidas.status_code == 200
+    assert vencidas.json()["total"] == 1
+    assert [item["referencia"] for item in vencidas.json()["items"]] == ["vermelha-vencida"]
+
+
+def test_idade_da_pendencia_considera_virada_de_dia_em_recife(client, monkeypatch):
+    criada = datetime.fromisoformat("2026-10-01T23:30:00-03:00")
+    agora_local = datetime.fromisoformat("2026-10-02T00:15:00-03:00")
+    monkeypatch.setattr(repositorio, "agora", lambda: criada)
+    monkeypatch.setattr(http, "agora", lambda: agora_local)
+    repositorio.registrar([
+        NovaPendencia(
+            unidade=EMPRESA,
+            dia=DIA,
+            tipo="virada_dia",
+            severidade="vermelho",
+            referencia="virada",
+            mensagem="Pendência de teste temporária",
+        )
+    ])
+
+    autenticar(client, "diretor")
+    resposta = client.get(
+        "/api/v1/cash-audit/pendencias",
+        params={"unidade": EMPRESA, "tipo": "virada_dia"},
+    )
+    assert resposta.status_code == 200
+    pendencia = resposta.json()["items"][0]
+    assert pendencia["aberta_ha_dias"] == 1
+    assert pendencia["vencida"] is False

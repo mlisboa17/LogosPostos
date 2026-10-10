@@ -70,7 +70,7 @@ function rotuloTipo(tipo) {
 
 export function renderListaPendencias(itens, papel) {
   if (!itens?.length) return '<p class="pe-empty">Nenhuma pendência encontrada para os filtros.</p>';
-  return itens.map((item) => {
+  return [...itens].sort((a, b) => Number(b.vencida === true) - Number(a.vencida === true)).map((item) => {
     const historico = (item.historico || []).map((evento) => `
       <li><strong>${escapeHtml(evento.acao)}</strong> · ${escapeHtml(evento.usuario)} ·
         ${dataHora(evento.registrado_em)} · ${escapeHtml(ROTULOS_STATUS[evento.status_novo] || evento.status_novo)}
@@ -105,9 +105,13 @@ export function renderListaPendencias(itens, papel) {
     return `<article class="pe-card">
       <header><div><strong>${escapeHtml(rotuloTipo(item.tipo))}</strong>
         <span class="pe-status pe-status--${escapeHtml(item.status)}">${escapeHtml(ROTULOS_STATUS[item.status] || item.status)}</span></div>
-        <span class="pe-severity pe-severity--${escapeHtml(item.severidade)}">${escapeHtml(item.severidade)}</span></header>
+        <div><span class="pe-severity pe-severity--${escapeHtml(item.severidade)}">${escapeHtml(item.severidade)}</span>
+          ${item.vencida === true ? '<span class="pe-status pe-status--aberta">VENCIDA</span>' : ""}</div></header>
       <dl><div><dt>Unidade</dt><dd>${escapeHtml(item.unidade)}</dd></div>
         <div><dt>Dia</dt><dd>${escapeHtml(formatDate(item.dia))}</dd></div>
+        ${item.status === "aberta" && Number.isInteger(item.aberta_ha_dias)
+    ? `<div><dt>Aberta há</dt><dd>${escapeHtml(item.aberta_ha_dias)} dias</dd></div>`
+    : ""}
         <div><dt>Valor</dt><dd>${moeda(item.valor)}</dd></div>
         <div><dt>Referência</dt><dd>${escapeHtml(item.referencia)}</dd></div>
         <div><dt>Responsável</dt><dd>${escapeHtml(item.responsavel || "—")}</dd></div></dl>
@@ -155,10 +159,12 @@ async function carregarLista(container, papel, onChange) {
   const unidade = container.querySelector("#peUnidade").value;
   const status = container.querySelector("#peStatus").value;
   const tipo = container.querySelector("#peTipo").value.trim();
+  const vencidas = container.querySelector("#peVencidas").checked;
   const deslocamento = deslocamentos.get(container) || 0;
   const params = { status, limite: LIMITE, deslocamento };
   if (unidade) params.unidade = Number(unidade);
   if (tipo) params.tipo = tipo;
+  if (vencidas) params.vencidas = true;
   try {
     const resposta = await apiClient.get(PENDENCIAS_URL, { params });
     if (consultas.get(container) !== sequencia) return;
@@ -190,11 +196,14 @@ export async function renderPendencias(container, { papel = "", unidadeInicial =
             <option value="aprovada">Aprovadas</option><option value="recusada">Recusadas</option>
             <option value="todas">Todos</option></select></label>
           <label>Tipo<input id="peTipo" maxlength="64" placeholder="Filtrar por tipo"></label>
+          <label><input id="peVencidas" type="checkbox"> Só vencidas</label>
           <button type="submit">Filtrar</button>
         </form>
         <p id="peErro" class="pe-error hidden" role="alert"></p>
         <div id="peLista" aria-live="polite"><p class="pe-empty">Selecione os filtros.</p></div>
       </section>`;
+    container.querySelector("#peVencidas").checked =
+      new URLSearchParams(window.location.search).get("vencidas") === "true";
     container.querySelector("#peFiltros").addEventListener("submit", (event) => {
       event.preventDefault();
       deslocamentos.set(container, 0);

@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from src.infrastructure.security.jwt_utils import create_access_token
 from src.modules.cash_reconciliation.adapters import pendencias, persistencia, saude_robo
+from src.modules.cash_reconciliation.domain.pendencias import NovaPendencia
 from src.modules.cash_reconciliation.interfaces import http
 from src.modules.webposto_integration.tempo import FUSO
 
@@ -70,6 +71,7 @@ def test_painel_usa_snapshots_sem_chamar_o_erp_e_filtra_escopo_do_gerente(client
     assert posto["fechamento"]["quebra_total"] == "2.50"
     assert posto["recebimentos_a_maior_total"] == "0"
     assert posto["pendencias_abertas"] is None
+    assert posto["pendencias_vencidas"] == 0
     assert {item["situacao"] for item in posto["adquirentes"]} == {"ativo", "pendente"}
 
     set_role(client, "gerente", EMPRESA)
@@ -77,8 +79,39 @@ def test_painel_usa_snapshots_sem_chamar_o_erp_e_filtra_escopo_do_gerente(client
     assert response.status_code == 200
     payload = response.json()
     assert [item["empresa_codigo"] for item in payload["unidades"]] == [EMPRESA]
+    assert payload["unidades"][0]["pendencias_vencidas"] == 0
     assert payload["saude_robo"]["unidades_processadas"] == [EMPRESA]
     assert payload["saude_robo"]["unidades_com_falha"] == []
+
+
+def test_painel_conta_vencidas_por_unidade_e_respeita_escopo_do_gerente(client, monkeypatch):
+    monkeypatch.setattr(
+        pendencias,
+        "agora",
+        lambda: datetime(2026, 10, 5, 12, tzinfo=FUSO),
+    )
+    pendencias.registrar([
+        NovaPendencia(
+            unidade=EMPRESA,
+            dia=DIA,
+            tipo="prazo_teste",
+            severidade="vermelho",
+            referencia="vencida",
+            mensagem="Pendência de teste temporária",
+        )
+    ])
+
+    response = client.get("/api/v1/cash-audit/painel-diretor")
+    assert response.status_code == 200
+    por_unidade = {item["empresa_codigo"]: item for item in response.json()["unidades"]}
+    assert por_unidade[EMPRESA]["pendencias_vencidas"] == 1
+    assert por_unidade[322]["pendencias_vencidas"] == 0
+
+    set_role(client, "gerente", EMPRESA)
+    response = client.get("/api/v1/cash-audit/painel-diretor")
+    assert response.status_code == 200
+    assert [item["empresa_codigo"] for item in response.json()["unidades"]] == [EMPRESA]
+    assert response.json()["unidades"][0]["pendencias_vencidas"] == 1
 
 
 @pytest.mark.parametrize(

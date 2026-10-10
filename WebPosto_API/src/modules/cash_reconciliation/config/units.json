@@ -1,5 +1,9 @@
 {
   "_fonte": "Matriz de destino informada pelo negocio em 2026-10-06 + V1/CONTAS. Sem numeros de conta nem chaves (apenas NOME da variavel de ambiente).",
+  "prazo_pendencia_dias": {
+    "vermelho": 2,
+    "laranja": 5
+  },
   "unidades": [
     {
       "empresa_codigo": 74014,

@@ -31,6 +31,7 @@ const dados = {
     recebimentos_a_maior_total: "20.00",
     recebimentos_a_menor_total: "5.50",
     pendencias_abertas: 4,
+    pendencias_vencidas: 2,
     adquirentes: [
       { nome: "PAGBANK", situacao: "ativo" },
       { nome: "PREMMIA", situacao: "pendente" },
@@ -79,6 +80,8 @@ test("painel mostra projeção, status do robô, pendências filtradas e escapa 
   assert.match(html, /Ouro · 12\.345,67 L/);
   assert.match(html, /08\/10\/2026/);
   assert.match(html, /view=pendencias&amp;unidade=5555/);
+  assert.match(html, /Vencidas: 2/);
+  assert.match(html, /view=pendencias&amp;unidade=5555&amp;vencidas=true&amp;status=aberta/);
   assert.match(html, /credencial inválida/);
   assert.match(html, /&lt;script&gt;/);
   assert.doesNotMatch(html, /<script>/);

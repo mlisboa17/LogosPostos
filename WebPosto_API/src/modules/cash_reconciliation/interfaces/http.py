@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import calendar
+import json
 import logging
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
@@ -19,10 +20,10 @@ from ..application.reincidencia import agregar_reincidencia
 from ..application.recebimentos import conciliar_recebimentos
 from ..application.painel_diretor import PainelDiretorErro, obter_unidades_painel
 from ..application.serializacao import serializar_fechamento
-from ..config import carregar_unidades
+from ..config import ARQUIVO as ARQUIVO_CONFIG_UNIDADES, carregar_unidades
 from ..domain.fechamento import ResultadoAuditoria
 from ..domain.models import Proveniencia
-from ..domain.pendencias import Pendencia
+from ..domain.pendencias import Pendencia, calcular_prazo_pendencia
 from ..domain.recebimentos import ResultadoRecebimentos
 from ..domain.tempo import agora
 from ...webposto_integration.funcionarios import buscar_nomes_funcionarios
@@ -75,8 +76,66 @@ def _escopo_pendencias(usuario: dict, unidade: int | None) -> int | None:
     return unidade
 
 
-def _serializar_pendencia(pendencia: Pendencia) -> dict:
-    return pendencia.model_dump(mode="json")
+def _carregar_prazos_pendencia() -> dict[str, int]:
+    try:
+        dados = json.loads(ARQUIVO_CONFIG_UNIDADES.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        logger.exception("Falha ao ler prazos das pendências.")
+        raise HTTPException(status_code=500, detail="Falha ao ler a configuração dos prazos.") from None
+    if not isinstance(dados, dict):
+        logger.error("Configuração inválida para prazos das pendências.")
+        raise HTTPException(status_code=500, detail="Configuração inválida para os prazos das pendências.")
+    prazos = dados.get("prazo_pendencia_dias")
+    if not isinstance(prazos, dict) or any(
+        isinstance(prazos.get(severidade), bool)
+        or not isinstance(prazos.get(severidade), int)
+        or prazos[severidade] < 0
+        for severidade in ("vermelho", "laranja")
+    ):
+        logger.error("Configuração inválida para prazo_pendencia_dias.")
+        raise HTTPException(status_code=500, detail="Configuração inválida para os prazos das pendências.")
+    return {"vermelho": prazos["vermelho"], "laranja": prazos["laranja"]}
+
+
+def _serializar_pendencia(
+    pendencia: Pendencia,
+    *,
+    instante: datetime | None = None,
+    prazos: dict[str, int] | None = None,
+) -> dict:
+    prazo = prazos if prazos is not None else _carregar_prazos_pendencia()
+    idade = calcular_prazo_pendencia(pendencia, instante or agora(), prazo)
+    return {**pendencia.model_dump(mode="json"), **idade}
+
+
+def _listar_pendencias_com_prazo(
+    *,
+    unidade: int | None,
+    status: str | None,
+    tipo: str | None,
+    instante: datetime,
+    prazos: dict[str, int],
+) -> list[dict]:
+    itens: list[Pendencia] = []
+    deslocamento = 0
+    total = 0
+    while deslocamento == 0 or deslocamento < total:
+        pagina, total = repositorio_pendencias.listar(
+            unidade=unidade,
+            status=status,
+            tipo=tipo,
+            limite=200,
+            deslocamento=deslocamento,
+        )
+        if not pagina:
+            break
+        itens.extend(pagina)
+        deslocamento += len(pagina)
+    serializados = [
+        _serializar_pendencia(item, instante=instante, prazos=prazos)
+        for item in itens
+    ]
+    return sorted(serializados, key=lambda item: not item["vencida"])
 
 
 def _ler_pendencia(pendencia_id: str) -> Pendencia:
@@ -290,7 +349,23 @@ def obter_painel_diretor(current_user: dict = Depends(get_current_user)) -> dict
             escopo=escopo,
             hoje=agora().date(),
         )
-    except (saude_robo.PersistenciaEstadoErro, PainelDiretorErro, PersistenciaErro):
+        prazos = _carregar_prazos_pendencia()
+        instante = agora()
+        for card in cards:
+            itens = _listar_pendencias_com_prazo(
+                unidade=card["empresa_codigo"],
+                status="aberta",
+                tipo=None,
+                instante=instante,
+                prazos=prazos,
+            )
+            card["pendencias_vencidas"] = sum(item["vencida"] for item in itens)
+    except (
+        saude_robo.PersistenciaEstadoErro,
+        PainelDiretorErro,
+        PersistenciaErro,
+        repositorio_pendencias.ErroPersistenciaPendencias,
+    ):
         logger.exception("Falha ao compor painel persistido.")
         raise HTTPException(status_code=500, detail="Falha ao ler dados persistidos do painel.") from None
     instante = agora()
@@ -356,23 +431,30 @@ def listar_pendencias(
     unidade: int | None = Query(default=None),
     status: Literal["aberta", "justificada", "aprovada", "recusada", "todas"] = Query(default="aberta"),
     tipo: str | None = Query(default=None, min_length=1, max_length=64),
+    vencidas: bool = Query(default=False),
     limite: int = Query(default=100, ge=1, le=200),
     deslocamento: int = Query(default=0, ge=0),
     current_user: dict = Depends(get_current_user),
 ) -> dict[str, object]:
     escopo = _escopo_pendencias(current_user, unidade)
     try:
-        itens, total = repositorio_pendencias.listar(
+        prazos = _carregar_prazos_pendencia()
+        instante = agora()
+        itens = _listar_pendencias_com_prazo(
             unidade=escopo,
             status=None if status == "todas" else status,
             tipo=tipo,
-            limite=limite,
-            deslocamento=deslocamento,
+            instante=instante,
+            prazos=prazos,
         )
+        if vencidas:
+            itens = [item for item in itens if item["vencida"]]
     except repositorio_pendencias.ErroPersistenciaPendencias:
         raise HTTPException(status_code=500, detail="Falha ao listar pendências.") from None
+    total = len(itens)
+    itens = itens[deslocamento:deslocamento + limite]
     return {
-        "items": [_serializar_pendencia(item) for item in itens],
+        "items": itens,
         "total": total,
         "limite": limite,
         "deslocamento": deslocamento,

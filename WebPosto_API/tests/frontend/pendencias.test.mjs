@@ -6,6 +6,7 @@ const {
   contarPendenciasAbertas,
   renderListaPendencias,
   renderPaginacaoPendencias,
+  renderPendencias,
 } = await import("../../frontend/pages/pendencias.js");
 const { apiClient } = await import("../../frontend/services/apiClient.js");
 
@@ -34,9 +35,15 @@ const pendencia = (overrides = {}) => ({
 });
 
 test("fila mostra campos, histórico e ação disponível conforme papel", () => {
-  const htmlGerente = renderListaPendencias([pendencia()], "gerente");
+  const htmlGerente = renderListaPendencias([
+    pendencia({ id: "normal", aberta_ha_dias: 1 }),
+    pendencia({ id: "vencida", vencida: true, aberta_ha_dias: 3 }),
+  ], "gerente");
   assert.match(htmlGerente, /Falta sem desconto/);
   assert.match(htmlGerente, /06\/10\/2026/);
+  assert.match(htmlGerente, /Aberta há<\/dt><dd>3 dias/);
+  assert.match(htmlGerente, /VENCIDA/);
+  assert.ok(htmlGerente.indexOf('data-pendencia="vencida"') < htmlGerente.indexOf('data-pendencia="normal"'));
   assert.match(htmlGerente, /Justificar/);
   assert.match(htmlGerente, /robô-noturno/);
   assert.doesNotMatch(htmlGerente, /data-acao="aprovar"/);
@@ -87,4 +94,38 @@ test("detalhe da pendência agrupada mostra alertas com conteúdo escapado", () 
   assert.match(html, /Sangria &lt;alterada&gt;/);
   assert.match(html, /DESPESA_SEM_PLANO/);
   assert.doesNotMatch(html, /Sangria <alterada>/);
+});
+
+test("filtro de vencidas é aplicado à consulta da fila", async (t) => {
+  const html = renderListaPendencias([
+    pendencia({ vencida: true, aberta_ha_dias: 3 }),
+  ], "auditor");
+  assert.match(html, /VENCIDA/);
+  assert.match(html, /Aberta há<\/dt><dd>3 dias/);
+  const anterior = window.location.search;
+  window.location.search = "?view=pendencias&vencidas=true";
+  const campos = {
+    ".pendencias": null,
+    "#peFiltros": { addEventListener() {} },
+    "#peAtualizar": { addEventListener() {} },
+    "#peLista": { addEventListener() {}, innerHTML: "" },
+    "#peUnidade": { options: [], value: "" },
+    "#peStatus": { value: "aberta" },
+    "#peTipo": { value: "" },
+    "#peVencidas": { checked: false },
+    "#peErro": { classList: { add() {}, remove() {} } },
+  };
+  const chamadas = [];
+  t.mock.method(apiClient, "get", async (url, options) => {
+    chamadas.push([url, options]);
+    return url.endsWith("/unidades") ? [{ empresa_codigo: 321, nome: "Unidade" }] : { items: [], total: 0 };
+  });
+  try {
+    await renderPendencias({ innerHTML: "", querySelector: (selector) => campos[selector] }, { papel: "auditor" });
+    const consulta = chamadas.find(([url]) => url === "/api/v1/cash-audit/pendencias");
+    assert.equal(campos["#peVencidas"].checked, true);
+    assert.equal(consulta[1].params.vencidas, true);
+  } finally {
+    window.location.search = anterior;
+  }
 });
