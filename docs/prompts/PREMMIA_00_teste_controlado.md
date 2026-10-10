@@ -10,6 +10,15 @@
 - Portal: `https://cn.vibraenergia.com.br/premmia/revendedor/login` → **Conferência → Pagamentos**.
 - Credenciais: variáveis `PREMMIA_usuario_POSTO_VIP` e `PREMMIA_SENHA_POSTO_VIP` em `WebPosto_API/.env`, carregadas com `load_dotenv`. **Nunca** imprimir, logar, salvar em arquivo ou colar no chat; o script só preenche os campos de login.
 
+## Filtro de datas pela URL (descoberto no teste de 10/10/2026)
+
+O login passou sem CAPTCHA. Os campos de data do portal são lentos e o robô não conseguiu alterá-los. **Não use os seletores de data.** O portal aceita o filtro direto no endereço:
+`/premmia/revendedor/conferencia/pagamentos?page=1&start=AAAA-MM-DD+00%3A00&end=AAAA-MM-DD+23%3A59&products=...`
+1. Depois do login, abra Conferência → Pagamentos uma vez, leia `page.url` e guarde o valor de `products` **como veio** (não invente).
+2. Para cada período, navegue direto para a URL trocando só `start`, `end` e `page`. Espere a tabela (linhas ou mensagem de vazio) com `wait_for_selector`, timeout 90 s; não use espera fixa.
+3. Paginação: incremente `page` até não haver linhas novas; ou use **Exportar** se ele exportar o período inteiro.
+4. A tela mostra CPF parcial e nome do cliente: **não** registrar no log nem no chat; no `.json` normalizado guarde só data/hora, valor, código, serviço e meio de pagamento.
+
 ## Referência (não portar ainda)
 
 Leia com `git show resgate/conciliacao-4-vias:<caminho>` — sem checkout:
