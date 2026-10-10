@@ -41,20 +41,32 @@ function rotuloNivel(nivel) {
 }
 
 function renderSaude(saude, papel) {
-  const alerta = saude.alerta_operacional;
   const falhas = saude.unidades_com_falha || [];
-  const status = saude.alerta_atraso
-    ? "Atenção: execução atrasada"
-    : saude.execucao_sem_unidades
-      ? "Atenção: nenhuma unidade processada"
-      : falhas.length
-        ? "Atenção: execução com falhas"
-        : "Execução dentro do prazo";
-  return `<section class="dd-panel dd-health ${alerta ? "dd-health--alert" : "dd-health--ok"}" aria-label="Saúde do robô">
+  const avisos = saude.avisos || [];
+  const estado = saude.estado || (saude.alerta_atraso || saude.execucao_sem_unidades || falhas.length
+    ? "falha"
+    : avisos.length ? "atencao" : "ok");
+  const status = estado === "falha"
+    ? saude.alerta_atraso
+      ? "Atenção: execução atrasada"
+      : saude.execucao_sem_unidades
+        ? "Atenção: nenhuma unidade processada"
+        : "Atenção: execução com falhas"
+    : estado === "atencao" ? "Atenção: configuração pendente" : "Execução dentro do prazo";
+  const estiloAviso = estado === "atencao"
+    ? ' style="border-left-color:#f59e0b;background:rgba(120,53,15,.25)"'
+    : "";
+  const listaAvisos = avisos.length
+    ? `<ul class="dd-health__warnings">${avisos.map((aviso) =>
+      `<li>${escapeHtml(aviso.unidade_nome)} (${escapeHtml(aviso.unidade_codigo)}) · ${escapeHtml(aviso.adquirente)}: ${escapeHtml(aviso.mensagem)}</li>`
+    ).join("")}</ul>`
+    : "";
+  return `<section class="dd-panel dd-health ${estado === "falha" ? "dd-health--alert" : estado === "atencao" ? "dd-health--warning" : "dd-health--ok"}"${estiloAviso} aria-label="Saúde do robô">
     <div><span class="dd-eyebrow">Saúde do robô</span>
       <h3>${status}</h3>
       <p>Última execução: ${escapeHtml(dataHora(saude.ultima_execucao))}</p>
       <p>Dia processado: ${saude.dia_processado ? escapeHtml(formatDate(saude.dia_processado)) : "Sem execução registrada"}</p>
+      ${listaAvisos}
     </div>
     <dl class="dd-health__facts">
       <div><dt>Unidades processadas</dt><dd>${saude.ultima_execucao ? escapeHtml((saude.unidades_processadas || []).length) : "—"}</dd></div>

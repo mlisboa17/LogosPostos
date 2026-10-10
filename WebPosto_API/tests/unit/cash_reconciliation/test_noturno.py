@@ -190,6 +190,7 @@ def test_rota_cache_corrompido_retorna_500(client, tmp_path, rota):
 
 
 async def test_job_isola_fechamento_e_persiste_demais_etapas(monkeypatch, tmp_path, caplog):
+    caplog.set_level("INFO", logger=noturno.logger.name)
     monkeypatch.setenv("WEBPOSTO_WRITES", "0")
     monkeypatch.setattr(noturno, "carregar_unidades", lambda: {EMPRESA: unidade()})
 
@@ -205,7 +206,55 @@ async def test_job_isola_fechamento_e_persiste_demais_etapas(monkeypatch, tmp_pa
     registro = persistencia.carregar_dia(EMPRESA, DIA, diretorio=tmp_path)
     assert registro.erro_fechamento == "falha ao consultar fechamento"
     assert len(registro.recebimentos.adquirentes) == 2
+    estado = saude_robo.carregar_estado()
+    assert estado.unidades_com_falha == (EMPRESA,)
+    assert "unidades_com_falha=1 unidades_com_aviso=0" in caplog.text
     assert "segredo" not in registro.model_dump_json() + caplog.text
+
+
+async def test_credencial_invalida_e_aviso_persistido_sem_falha(monkeypatch, tmp_path, caplog):
+    caplog.set_level("INFO", logger=noturno.logger.name)
+    monkeypatch.setenv("WEBPOSTO_WRITES", "0")
+    monkeypatch.setattr(noturno, "carregar_unidades", lambda: {EMPRESA: unidade()})
+    resultado = diario()
+    recebimentos = resultado.recebimentos.model_copy(update={
+        "adquirentes": (
+            RecebimentoAdquirente(
+                adquirente="PAGBANK",
+                situacao="credencial inválida",
+                erro="credencial inválida",
+            ),
+        ),
+    })
+
+    async def coletar(*args, **kwargs):
+        return resultado.model_copy(update={"recebimentos": recebimentos})
+
+    monkeypatch.setattr(noturno, "coletar_unidade", coletar)
+    assert await noturno.executar(DIA, diretorio=tmp_path) == 0
+    estado = saude_robo.carregar_estado()
+    assert estado.unidades_com_falha == ()
+    assert estado.unidades_com_aviso == (EMPRESA,)
+    assert "unidades_com_falha=0 unidades_com_aviso=1" in caplog.text
+
+
+def test_estado_antigo_sem_unidades_com_aviso_permanece_compativel(tmp_path):
+    import json
+
+    estado = saude_robo.EstadoRobo(
+        ultima_execucao=datetime(2026, 10, 1, 3),
+        dia_processado=DIA,
+        unidades_processadas=(EMPRESA,),
+        unidades_com_falha=(),
+        resumo_gerado=True,
+    )
+    dados_antigos = estado.model_dump(mode="json")
+    dados_antigos.pop("unidades_com_aviso")
+    caminho = tmp_path / "estado_robo.json"
+    caminho.write_text(json.dumps(dados_antigos), encoding="utf-8")
+    carregado = saude_robo.carregar_estado(caminho=caminho)
+    assert carregado is not None
+    assert carregado.unidades_com_aviso == ()
 
 
 async def test_job_registra_alertas_sem_duplicar_pendencias(monkeypatch, tmp_path):

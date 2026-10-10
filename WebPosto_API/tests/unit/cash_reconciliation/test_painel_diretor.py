@@ -65,6 +65,7 @@ def test_painel_usa_snapshots_sem_chamar_o_erp_e_filtra_escopo_do_gerente(client
     payload = response.json()
     assert payload["saude_robo"]["alerta_atraso"] is False
     assert payload["saude_robo"]["unidades_com_falha"] == [322]
+    assert payload["saude_robo"]["estado"] == "falha"
     posto = next(item for item in payload["unidades"] if item["empresa_codigo"] == EMPRESA)
     assert posto["fechamento"]["quebra_total"] == "2.50"
     assert posto["recebimentos_a_maior_total"] == "0"
@@ -132,6 +133,47 @@ def test_execucao_recente_sem_unidades_gera_alerta_operacional(client, tmp_path)
     assert saude["alerta_atraso"] is False
     assert saude["execucao_sem_unidades"] is True
     assert saude["alerta_operacional"] is True
+
+
+def test_credencial_invalida_e_atencao_com_unidade_e_adquirente(client, tmp_path):
+    from src.modules.cash_reconciliation.domain.recebimentos import RecebimentoAdquirente
+
+    registro = diario()
+    recebimentos = registro.recebimentos.model_copy(update={
+        "adquirentes": (
+            RecebimentoAdquirente(
+                adquirente="PAGBANK",
+                situacao="credencial inválida",
+                erro="credencial inválida",
+            ),
+        ),
+    })
+    persistencia.salvar_dia(
+        registro.model_copy(update={"recebimentos": recebimentos}),
+        diretorio=tmp_path / "snapshots",
+    )
+    saude_robo.salvar_estado(
+        saude_robo.EstadoRobo(
+            ultima_execucao=datetime(2026, 10, 9, 11, tzinfo=FUSO),
+            dia_processado=DIA,
+            unidades_processadas=(EMPRESA,),
+            unidades_com_falha=(),
+            unidades_com_aviso=(EMPRESA,),
+            resumo_gerado=True,
+        ),
+        caminho=tmp_path / "estado_robo.json",
+    )
+    response = client.get("/api/v1/cash-audit/painel-diretor")
+    assert response.status_code == 200
+    saude = response.json()["saude_robo"]
+    assert saude["estado"] == "atencao"
+    assert saude["unidades_com_aviso"] == [EMPRESA]
+    assert saude["avisos"] == [{
+        "unidade_codigo": EMPRESA,
+        "unidade_nome": "Sintetica",
+        "adquirente": "PAGBANK",
+        "mensagem": "credencial inválida",
+    }]
 
 
 def test_painel_restringe_auditor_e_erro_de_estado_corrompido(client, tmp_path):

@@ -105,6 +105,7 @@ async def executar(
     unidades = carregar_unidades()
     unidades_processadas = [unidade.empresa_codigo for unidade in unidades.values()]
     unidades_com_falha: set[int] = set()
+    unidades_com_aviso: set[int] = set()
     resultados = []
     for unidade in unidades.values():
         try:
@@ -120,11 +121,15 @@ async def executar(
             if novas:
                 repositorio_pendencias.registrar(novas, banco=diretorio_pendencias)
             if resultado.erro_fechamento or any(
-                item.situacao in {"erro", "credencial inválida"}
-                for item in resultado.recebimentos.adquirentes
+                item.situacao == "erro" for item in resultado.recebimentos.adquirentes
             ):
                 falhas += 1
                 unidades_com_falha.add(unidade.empresa_codigo)
+            if any(
+                item.situacao == "credencial inválida"
+                for item in resultado.recebimentos.adquirentes
+            ):
+                unidades_com_aviso.add(unidade.empresa_codigo)
             logger.info("Persistido unidade=%s dia=%s execucao=%s", unidade.empresa_codigo, formatar_data(dia), execucao_id)
         except Exception as exc:
             logger.error(
@@ -182,12 +187,19 @@ async def executar(
             dia_processado=dia,
             unidades_processadas=tuple(unidades_processadas),
             unidades_com_falha=tuple(sorted(unidades_com_falha)),
+            unidades_com_aviso=tuple(sorted(unidades_com_aviso)),
             resumo_gerado=resumo_gerado,
         ))
     except saude_robo.PersistenciaEstadoErro as exc:
         logger.error("Estado do robo nao concluido tipo=%s", type(exc).__name__)
         falhas += 1
-    logger.info("Execucao terminada dia=%s unidades_com_falha=%s execucao=%s", formatar_data(dia), falhas, execucao_id)
+    logger.info(
+        "Execucao terminada dia=%s unidades_com_falha=%s unidades_com_aviso=%s execucao=%s",
+        formatar_data(dia),
+        len(unidades_com_falha),
+        len(unidades_com_aviso),
+        execucao_id,
+    )
     return 1 if falhas else 0
 
 

@@ -24,6 +24,7 @@ class EstadoRobo(BaseModel):
     unidades_processadas: tuple[int, ...]
     unidades_com_falha: tuple[int, ...]
     resumo_gerado: bool
+    unidades_com_aviso: tuple[int, ...] = ()
 
     @field_validator("ultima_execucao")
     @classmethod
@@ -32,12 +33,18 @@ class EstadoRobo(BaseModel):
 
     @model_validator(mode="after")
     def validar_unidades(self) -> EstadoRobo:
-        if any(codigo <= 0 for codigo in (*self.unidades_processadas, *self.unidades_com_falha)):
+        if any(codigo <= 0 for codigo in (
+            *self.unidades_processadas,
+            *self.unidades_com_falha,
+            *self.unidades_com_aviso,
+        )):
             raise ValueError("Codigo de unidade invalido.")
         if len(set(self.unidades_processadas)) != len(self.unidades_processadas):
             raise ValueError("Unidade processada duplicada.")
         if not set(self.unidades_com_falha).issubset(self.unidades_processadas):
             raise ValueError("Falha fora das unidades processadas.")
+        if not set(self.unidades_com_aviso).issubset(self.unidades_processadas):
+            raise ValueError("Aviso fora das unidades processadas.")
         return self
 
 

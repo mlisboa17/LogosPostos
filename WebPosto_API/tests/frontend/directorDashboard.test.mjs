@@ -104,6 +104,56 @@ test("execução recente sem unidade processada aparece em alerta operacional", 
   assert.match(html, /Atenção: nenhuma unidade processada/);
 });
 
+test("saúde renderiza estados ok, atenção laranja e falha vermelha", () => {
+  const base = {
+    ...dados,
+    saude_robo: {
+      ...dados.saude_robo,
+      alerta_atraso: false,
+      execucao_sem_unidades: false,
+      unidades_com_falha: [],
+      alerta_operacional: false,
+    },
+  };
+  const ok = renderPainelDiretor({
+    ...base,
+    saude_robo: { ...base.saude_robo, estado: "ok" },
+  });
+  assert.match(ok, /dd-health--ok/);
+  assert.match(ok, /Execução dentro do prazo/);
+
+  const atencao = renderPainelDiretor({
+    ...base,
+    saude_robo: {
+      ...base.saude_robo,
+      estado: "atencao",
+      alerta_operacional: true,
+      unidades_com_aviso: [74014],
+      avisos: [{
+        unidade_nome: "Conveniencia 24h",
+        unidade_codigo: 74014,
+        adquirente: "PAGBANK",
+        mensagem: "credencial inválida",
+      }],
+    },
+  });
+  assert.match(atencao, /dd-health--warning/);
+  assert.match(atencao, /border-left-color:#f59e0b/);
+  assert.match(atencao, /Conveniencia 24h \(74014\) · PAGBANK: credencial inválida/);
+
+  const falha = renderPainelDiretor({
+    ...base,
+    saude_robo: {
+      ...base.saude_robo,
+      estado: "falha",
+      alerta_operacional: true,
+      unidades_com_falha: [74014],
+    },
+  });
+  assert.match(falha, /dd-health--alert/);
+  assert.match(falha, /Atenção: execução com falhas/);
+});
+
 test("painel carrega apenas os endpoints de leitura do resumo persistido", async (t) => {
   const chamadas = [];
   t.mock.method(apiClient, "get", async (url) => {

@@ -300,19 +300,42 @@ def obter_painel_diretor(current_user: dict = Depends(get_current_user)) -> dict
     execucao_sem_unidades = estado is not None and not estado.unidades_processadas
     unidades_processadas = estado.unidades_processadas if estado is not None else ()
     unidades_com_falha = estado.unidades_com_falha if estado is not None else ()
+    unidades_com_aviso = estado.unidades_com_aviso if estado is not None else ()
     if escopo is not None:
         unidades_processadas = tuple(codigo for codigo in unidades_processadas if codigo in escopo)
         unidades_com_falha = tuple(codigo for codigo in unidades_com_falha if codigo in escopo)
+        unidades_com_aviso = tuple(codigo for codigo in unidades_com_aviso if codigo in escopo)
+    avisos = [
+        {
+            "unidade_codigo": card["empresa_codigo"],
+            "unidade_nome": card["nome"],
+            "adquirente": adquirente["nome"],
+            "mensagem": "credencial inválida",
+        }
+        for card in cards
+        if card["empresa_codigo"] in unidades_com_aviso
+        for adquirente in card["adquirentes"]
+        if adquirente["situacao"] == "credencial inválida"
+    ]
+    estado_saude = (
+        "falha"
+        if alerta_atraso or execucao_sem_unidades or unidades_com_falha
+        else "atencao" if avisos
+        else "ok"
+    )
     return {
         "saude_robo": {
             "ultima_execucao": estado.ultima_execucao if estado is not None else None,
             "dia_processado": estado.dia_processado if estado is not None else None,
             "unidades_processadas": list(unidades_processadas),
             "unidades_com_falha": list(unidades_com_falha),
+            "unidades_com_aviso": list(unidades_com_aviso),
+            "avisos": avisos,
+            "estado": estado_saude,
             "resumo_gerado": estado.resumo_gerado if estado is not None else None,
             "alerta_atraso": alerta_atraso,
             "execucao_sem_unidades": execucao_sem_unidades,
-            "alerta_operacional": alerta_atraso or execucao_sem_unidades or bool(unidades_com_falha),
+            "alerta_operacional": estado_saude != "ok",
             "limite_horas": 26,
         },
         "unidades": cards,
