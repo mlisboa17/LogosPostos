@@ -26,6 +26,10 @@ class AuthConfigurationError(RuntimeError):
     """Authentication settings are missing or invalid."""
 
 
+class AuthNotConfiguredError(AuthConfigurationError):
+    """No login credentials have been configured."""
+
+
 class AuthUserConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -87,6 +91,8 @@ class AuthIdentity:
 
 def _legacy_identity() -> AuthIdentity:
     email = settings.auth_user_email.strip().casefold()
+    if not settings.auth_user_password and not settings.auth_user_password_hash:
+        raise AuthNotConfiguredError("Login não configurado.")
     if "@" not in email or not (settings.auth_user_password_hash or settings.auth_user_password):
         raise AuthConfigurationError("Credenciais legadas inválidas.")
     role = _ROLE_ALIASES.get(settings.auth_user_role.strip().casefold())

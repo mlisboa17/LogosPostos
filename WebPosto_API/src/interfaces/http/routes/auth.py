@@ -13,6 +13,7 @@ from src.infrastructure.security.jwt_utils import (
 )
 from src.infrastructure.security.auth_users import (
     AuthConfigurationError,
+    AuthNotConfiguredError,
     authenticate_user,
     find_auth_user,
 )
@@ -68,6 +69,9 @@ async def login(payload: LoginPayload, response: Response):
     """Validate credentials and issue HttpOnly access/refresh cookies."""
     try:
         user = authenticate_user(payload.email, payload.password)
+    except AuthNotConfiguredError:
+        logger.warning("Login recusado: nenhuma credencial foi configurada.")
+        raise HTTPException(status_code=503, detail="Login não configurado.") from None
     except AuthConfigurationError:
         logger.error("Cadastro de autenticação inválido.")
         raise HTTPException(status_code=503, detail="Autenticação indisponível.") from None

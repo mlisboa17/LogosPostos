@@ -1,9 +1,14 @@
+from pathlib import Path
+
+from dotenv import load_dotenv
 from pydantic import Field
 from pydantic_settings import BaseSettings
 
+load_dotenv(Path(__file__).resolve().parents[3] / ".env")
+
 
 class Settings(BaseSettings):
-    """Configurações da aplicação. Lê do .env."""
+    """Configurações da aplicação, com dotenv carregado explicitamente."""
 
     # Ambiente
     environment: str = "development"
@@ -50,8 +55,8 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = 7
     consumer_token: str = ""  # obrigatorio via .env; sem padrao (ARCH01)
     admin_token: str = ""  # obrigatorio via .env; sem padrao (ARCH01)
-    auth_user_email: str = "admin@company.com"
-    auth_user_password: str = "password"
+    auth_user_email: str = ""
+    auth_user_password: str = ""
     auth_user_password_hash: str = ""
     auth_user_role: str = "director"
     auth_user_company_id: str = "default-company"
@@ -64,8 +69,7 @@ class Settings(BaseSettings):
     circuit_breaker_timeout: int = 60
 
     class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
+        env_file = None
         case_sensitive = False
         extra = "ignore"
 

@@ -100,6 +100,23 @@ usuários contendo `email`, `password_hash` (PBKDF2-SHA256), `role` (`diretor`,
 esse cadastro substitui o usuário único legado `AUTH_USER_*`. Não inclua hashes
 ou senhas no Git.
 
+Gere cada hash sem exibir a senha no terminal:
+
+```powershell
+python -m src.infrastructure.security.gerar_hash
+```
+
+O comando solicita a senha duas vezes sem eco e imprime somente o hash. Exemplo
+de formato para `AUTH_USERS_JSON` (substitua o marcador pelo hash gerado):
+
+```json
+[{"email":"gerente.vip@exemplo.com","password_hash":"pbkdf2_sha256$<salt-hex>$<hash-hex>","role":"gerente","company_id":123}]
+```
+
+Os campos legados `AUTH_USER_EMAIL` e `AUTH_USER_PASSWORD` continuam aceitos
+quando configurados. Sem cadastro legado ou `AUTH_USERS_JSON`, o login é
+recusado como não configurado; não há credenciais padrão.
+
 Diretores e auditores podem ler todas as unidades; gerentes só leem a própria.
 O modo TV do placar usa cookie `display_token` HttpOnly, válido somente para
 leitura do placar de uma unidade por até `AUTH_TV_TOKEN_EXPIRE_HOURS` (padrão
