@@ -6,6 +6,7 @@ const UNIDADES_URL = "/api/v1/cash-audit/unidades";
 const consultas = new WeakMap();
 const unidadesCarregadas = new WeakMap();
 const deslocamentos = new WeakMap();
+const unidadeInicialAplicada = new WeakMap();
 const LIMITE = 50;
 
 const ROTULOS_STATUS = {
@@ -165,7 +166,7 @@ export async function contarPendenciasAbertas() {
   return apiClient.get(`${PENDENCIAS_URL}/contagem-abertas`);
 }
 
-export async function renderPendencias(container, { papel = "", onChange } = {}) {
+export async function renderPendencias(container, { papel = "", unidadeInicial = "", onChange } = {}) {
   if (!container.querySelector(".pendencias")) {
     container.innerHTML = `
       <section class="pendencias">
@@ -257,6 +258,11 @@ export async function renderPendencias(container, { papel = "", onChange } = {})
       erro.classList.remove("hidden");
       return;
     }
+  }
+  const inicial = String(unidadeInicial || "");
+  if (unidadeInicialAplicada.get(container) !== inicial) {
+    select.value = inicial;
+    unidadeInicialAplicada.set(container, inicial);
   }
   await carregarLista(container, papel, onChange);
 }

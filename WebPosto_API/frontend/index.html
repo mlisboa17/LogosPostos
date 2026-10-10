@@ -10,7 +10,7 @@
 
     <title>WebPosto Integracao</title>
 
-    <link rel="stylesheet" href="/frontend/styles.css?v=auth-sprint-52" />
+    <link rel="stylesheet" href="/frontend/styles.css?v=director-dashboard-63" />
 
   </head>
 
@@ -58,6 +58,8 @@
         <h2 class="tab-domain__title">Executive</h2>
 
         <div class="tab-domain__items">
+
+          <button class="tab hidden" data-view="directorDashboard" type="button">Painel do Diretor</button>
 
           <button class="tab" data-view="executive" type="button">Executive</button>
 
@@ -122,6 +124,7 @@
       <section id="executiveView" class="view hidden"></section>
 
       <section id="dashboardView" class="view"></section>
+      <section id="directorDashboardView" class="view hidden"></section>
 
       <section id="expensesView" class="view hidden"></section>
 
@@ -143,7 +146,7 @@
 
 
 
-    <script type="module" src="/frontend/app.js?v=auth-sprint-52"></script>
+    <script type="module" src="/frontend/app.js?v=director-dashboard-63"></script>
 
   </body>
 

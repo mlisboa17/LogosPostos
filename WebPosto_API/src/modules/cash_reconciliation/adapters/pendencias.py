@@ -244,6 +244,43 @@ def contar_abertas(*, unidade: int | None = None, banco: Path | None = None) -> 
         raise ErroPersistenciaPendencias("Falha ao contar pendências abertas.") from None
 
 
+def contar_abertas_somente_leitura(
+    *, unidade: int, banco: Path | None = None,
+) -> int | None:
+    """Conta pendências sem criar diretório, arquivo, tabelas ou índices."""
+    caminho = banco or BANCO_PENDENCIAS
+    try:
+        caminho.stat()
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        logger.error("Falha ao verificar banco de pendencias tipo=%s", type(exc).__name__)
+        raise ErroPersistenciaPendencias("Falha ao ler pendências abertas.") from None
+    try:
+        conexao = sqlite3.connect(
+            f"{caminho.resolve().as_uri()}?mode=ro",
+            uri=True,
+            timeout=10,
+        )
+        try:
+            conexao.execute("PRAGMA query_only = ON")
+            tabelas = conexao.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'pendencias'"
+            ).fetchone()
+            if tabelas is None:
+                raise sqlite3.DatabaseError("Tabela de pendências ausente.")
+            resultado = conexao.execute(
+                "SELECT COUNT(*) FROM pendencias WHERE status = 'aberta' AND unidade = ?",
+                (unidade,),
+            ).fetchone()
+            return int(resultado[0])
+        finally:
+            conexao.close()
+    except sqlite3.Error as exc:
+        logger.error("Falha ao contar pendencias somente leitura tipo=%s", type(exc).__name__)
+        raise ErroPersistenciaPendencias("Falha ao ler pendências abertas.") from None
+
+
 def transicionar(
     pendencia_id: str,
     *,

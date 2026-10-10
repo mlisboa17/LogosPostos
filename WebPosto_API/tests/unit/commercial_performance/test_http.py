@@ -1,5 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi import FastAPI
@@ -163,3 +164,63 @@ def test_lista_apenas_os_tres_postos_sem_chave_env(client):
         {"empresa_codigo": posto.empresa_codigo, "nome": posto.nome} for posto in POSTOS.values()
     ]
     assert "chave_env" not in response.text
+
+
+def test_painel_resumo_usa_apenas_snapshots_persistidos_e_calcula_percentuais(client, monkeypatch):
+    monkeypatch.setattr(
+        http,
+        "agora",
+        lambda: datetime(2026, 10, 9, 12, tzinfo=ZoneInfo("America/Recife")),
+    )
+    postos = {codigo: POSTOS[codigo] for codigo in (11495, 74014, 5555)}
+    monkeypatch.setattr(http, "POSTOS", postos)
+    chamadas = []
+
+    def carregar(posto, mes):
+        chamadas.append((posto, mes))
+        if posto == 5555:
+            return None
+        nivel = "bronze" if posto == 11495 else "ouro"
+        return placar_sintetico().model_copy(update={"posto": posto, "nivel_projetado": nivel})
+
+    def proibido(*args):
+        pytest.fail("O resumo do painel não pode buscar placar no ERP.")
+
+    monkeypatch.setattr(http, "carregar_placar", carregar)
+    monkeypatch.setattr(http, "obter_placar", proibido)
+    response = client.get("/api/v1/commercial/painel-resumo")
+
+    assert response.status_code == 200
+    resultado = response.json()
+    assert resultado["mes"] == "2026-10"
+    assert resultado["postos_com_snapshot"] == 2
+    assert resultado["postos_com_projecao"] == 2
+    assert resultado["percentuais"] == {"bronze": 50.0, "prata": 0.0, "ouro": 50.0}
+    assert resultado["postos"][2]["com_snapshot"] is False
+    assert chamadas == [(11495, "2026-10"), (74014, "2026-10"), (5555, "2026-10")]
+
+
+def test_painel_resumo_escopo_de_gerente_e_perfil_auditor(client, monkeypatch):
+    monkeypatch.setattr(
+        http,
+        "agora",
+        lambda: datetime(2026, 10, 9, 12, tzinfo=ZoneInfo("America/Recife")),
+    )
+    chamadas = []
+    monkeypatch.setattr(http, "carregar_placar", lambda posto, mes: chamadas.append((posto, mes)) or None)
+    client.cookies.set(
+        "access_token",
+        create_access_token("manager@example.invalid", extra={
+            "role": "gerente", "company_id": 11495, "token_type": "access",
+        }),
+    )
+    response = client.get("/api/v1/commercial/painel-resumo")
+    assert response.status_code == 200
+    assert response.json()["total_postos"] == 1
+    assert chamadas == [(11495, "2026-10")]
+
+    client.cookies.set(
+        "access_token",
+        create_access_token("auditor@example.invalid", extra={"role": "auditor", "token_type": "access"}),
+    )
+    assert client.get("/api/v1/commercial/painel-resumo").status_code == 403

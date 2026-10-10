@@ -39,6 +39,7 @@ import { renderCashFlow } from "./pages/cashFlow.js";
 import { renderCashAudit } from "./pages/cashAudit.js";
 import { contarPendenciasAbertas, renderPendencias } from "./pages/pendencias.js";
 import { renderCommercialScore } from "./pages/commercialScore.js?v=commercial-score-5";
+import { carregarPainelDiretor } from "./pages/directorDashboard.js";
 import { currentSession, login, logout } from "./services/auth.js";
 import { renderCompanySwitcher } from "./components/CompanySwitcher.js";
 import { createTableState } from "./services/tableState.js";
@@ -66,6 +67,8 @@ const VIEW_ALIASES = {
   cashaudit: "cashAudit",
   placar: "commercialScore",
   "commercial-score": "commercialScore",
+  "painel-diretor": "directorDashboard",
+  directordashboard: "directorDashboard",
 };
 
 const VIEW_URL_NAMES = {
@@ -73,6 +76,7 @@ const VIEW_URL_NAMES = {
   cashFlow: "cash-flow",
   cashAudit: "cash-audit",
   commercialScore: "placar",
+  directorDashboard: "painel-diretor",
 };
 
 function normalizeViewId(view) {
@@ -206,8 +210,10 @@ function fromUrl() {
   const viewNormalized = viewRaw === "fuel" ? "fuels" : normalizeViewId(viewRaw);
   return {
     view: viewNormalized,
+    viewSpecified: query.has("view"),
     tv: query.get("tv") === "1",
     tvUnit: query.get("posto") || "",
+    pendenciaUnidade: query.get("unidade") || "",
     pageExpenses: Number(query.get("pageExpenses") || 1),
     pageAccounts: Number(query.get("pageAccounts") || 1),
     pageSales: Number(query.get("pageSales") || 1),
@@ -236,6 +242,9 @@ function writeUrl(state) {
   if (state.view === "commercialScore" && state.tv) {
     query.set("tv", "1");
     if (state.tvUnit) query.set("posto", String(state.tvUnit));
+  }
+  if (state.view === "pendencias" && state.pendenciaUnidade) {
+    query.set("unidade", state.pendenciaUnidade);
   }
 
   Object.entries(state.filters).forEach(([key, value]) => {
@@ -326,6 +335,7 @@ const loadingNode = document.querySelector("#loading");
 const errorNode = document.querySelector("#error");
 const executiveNode = document.querySelector("#executiveView");
 const dashboardNode = document.querySelector("#dashboardView");
+const directorDashboardNode = document.querySelector("#directorDashboardView");
 const expensesNode = document.querySelector("#expensesView");
 const accountsNode = document.querySelector("#accountsView");
 const financeCenterNode = document.querySelector("#financeCenterView");
@@ -345,7 +355,20 @@ const authPassword = document.querySelector("#authPassword");
 const logoutButton = document.querySelector("#logoutBtn");
 const sessionUser = document.querySelector("#sessionUser");
 const pendenciasCount = document.querySelector("#pendenciasCount");
+const directorDashboardTab = document.querySelector('[data-view="directorDashboard"]');
 let authenticatedUser = null;
+
+function atualizarAcessoPainel(user) {
+  const permitido = ["diretor", "gerente"].includes(user?.role);
+  directorDashboardTab?.classList.toggle("hidden", !permitido);
+  if (permitido && !state.viewSpecified) {
+    setView("directorDashboard");
+    void refreshAll(false);
+  } else if (!permitido && state.view === "directorDashboard") {
+    setView("executive");
+    void refreshAll(false);
+  }
+}
 
 async function atualizarContadorPendencias() {
   if (!authenticatedUser) return;
@@ -375,6 +398,7 @@ window.addEventListener("auth:required", (event) => {
 window.addEventListener("auth:display-only", () => {
   sessionUser.classList.add("hidden");
   logoutButton.classList.add("hidden");
+  directorDashboardTab?.classList.add("hidden");
 });
 
 authForm.addEventListener("submit", async (event) => {
@@ -409,6 +433,7 @@ logoutButton.addEventListener("click", async () => {
 void currentSession().then((user) => {
   if (!user) return;
   authenticatedUser = user;
+  atualizarAcessoPainel(user);
   sessionUser.textContent = `${user.email} · ${user.role}`;
   sessionUser.classList.remove("hidden");
   logoutButton.classList.remove("hidden");
@@ -430,23 +455,30 @@ function setError(message) {
 }
 
 function setView(view) {
-  state.view = normalizeViewId(view);
+  const requestedView = normalizeViewId(view);
+  state.view = requestedView === "directorDashboard"
+    && authenticatedUser
+    && !["diretor", "gerente"].includes(authenticatedUser.role)
+    ? "executive"
+    : requestedView;
   writeUrl(state);
-  executiveNode.classList.toggle("hidden", view !== "executive");
-  dashboardNode.classList.toggle("hidden", view !== "dashboard");
-  expensesNode.classList.toggle("hidden", view !== "expenses");
-  accountsNode.classList.toggle("hidden", view !== "accounts");
-  financeCenterNode.classList.toggle("hidden", view !== "financeCenter");
-  cashFlowNode.classList.toggle("hidden", view !== "cashFlow");
-  cashAuditNode.classList.toggle("hidden", view !== "cashAudit");
-  pendenciasNode.classList.toggle("hidden", view !== "pendencias");
-  commercialScoreNode.classList.toggle("hidden", view !== "commercialScore");
-  fuelsNode.classList.toggle("hidden", view !== "fuels");
-  salesNode.classList.toggle("hidden", view !== "sales");
-  stockNode.classList.toggle("hidden", view !== "stock");
+  filtersNode.classList.toggle("hidden", state.view === "directorDashboard");
+  executiveNode.classList.toggle("hidden", state.view !== "executive");
+  dashboardNode.classList.toggle("hidden", state.view !== "dashboard");
+  directorDashboardNode.classList.toggle("hidden", state.view !== "directorDashboard");
+  expensesNode.classList.toggle("hidden", state.view !== "expenses");
+  accountsNode.classList.toggle("hidden", state.view !== "accounts");
+  financeCenterNode.classList.toggle("hidden", state.view !== "financeCenter");
+  cashFlowNode.classList.toggle("hidden", state.view !== "cashFlow");
+  cashAuditNode.classList.toggle("hidden", state.view !== "cashAudit");
+  pendenciasNode.classList.toggle("hidden", state.view !== "pendencias");
+  commercialScoreNode.classList.toggle("hidden", state.view !== "commercialScore");
+  fuelsNode.classList.toggle("hidden", state.view !== "fuels");
+  salesNode.classList.toggle("hidden", state.view !== "sales");
+  stockNode.classList.toggle("hidden", state.view !== "stock");
 
   document.querySelectorAll(".tab").forEach((tab) => {
-    tab.classList.toggle("active", tab.dataset.view === view);
+    tab.classList.toggle("active", tab.dataset.view === state.view);
   });
 }
 
@@ -1009,6 +1041,19 @@ async function refreshOperationalDataInBackground(bypassCache = false) {
 }
 
 async function refreshAll(bypassCache = false) {
+  if (state.view === "directorDashboard") {
+    setError("");
+    setLoading(true);
+    try {
+      await carregarPainelDiretor(directorDashboardNode, {
+        papel: authenticatedUser?.role || "",
+      });
+    } finally {
+      setLoading(false);
+    }
+    return;
+  }
+
   if (state.view === "executive") {
     await refreshExecutiveFirst(bypassCache);
     refreshOperationalDataInBackground(bypassCache);
@@ -1038,6 +1083,7 @@ async function refreshAll(bypassCache = false) {
     if (state.view === "pendencias") {
       await renderPendencias(pendenciasNode, {
         papel: authenticatedUser?.role || "",
+        unidadeInicial: state.pendenciaUnidade,
         onChange: atualizarContadorPendencias,
       });
       return;

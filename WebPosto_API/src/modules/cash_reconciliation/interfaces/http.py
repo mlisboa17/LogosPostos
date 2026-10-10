@@ -13,9 +13,11 @@ from pydantic import BaseModel, Field, field_validator
 from ..adapters.webposto_http import WebPostoErro
 from ..adapters.persistencia import PersistenciaErro, carregar_dia
 from ..adapters import pendencias as repositorio_pendencias
+from ..adapters import saude_robo
 from ..application.auditar_fechamento import auditar_unidade
 from ..application.reincidencia import agregar_reincidencia
 from ..application.recebimentos import conciliar_recebimentos
+from ..application.painel_diretor import PainelDiretorErro, obter_unidades_painel
 from ..application.serializacao import serializar_fechamento
 from ..config import carregar_unidades
 from ..domain.fechamento import ResultadoAuditoria
@@ -267,6 +269,54 @@ def listar_unidades(current_user: dict = Depends(get_current_user)) -> list[dict
         if current_user["role"] in {"diretor", "auditor"}
         or current_user.get("company_id") == unidade.empresa_codigo
     ]
+
+
+@router.get("/painel-diretor")
+def obter_painel_diretor(current_user: dict = Depends(get_current_user)) -> dict[str, object]:
+    papel = current_user.get("role")
+    if papel not in {"diretor", "gerente"}:
+        raise HTTPException(status_code=403, detail="Perfil sem acesso ao painel.")
+    unidades = carregar_unidades()
+    escopo = None
+    if papel == "gerente":
+        propria = current_user.get("company_id")
+        if isinstance(propria, bool) or not isinstance(propria, int) or propria not in unidades:
+            raise HTTPException(status_code=403, detail="Unidade do gerente inválida.")
+        escopo = {propria}
+    try:
+        estado = saude_robo.carregar_estado()
+        cards = obter_unidades_painel(
+            unidades,
+            escopo=escopo,
+            hoje=agora().date(),
+        )
+    except (saude_robo.PersistenciaEstadoErro, PainelDiretorErro, PersistenciaErro):
+        logger.exception("Falha ao compor painel persistido.")
+        raise HTTPException(status_code=500, detail="Falha ao ler dados persistidos do painel.") from None
+    instante = agora()
+    limite = timedelta(hours=26)
+    idade = instante - estado.ultima_execucao if estado is not None else None
+    alerta_atraso = idade is None or idade < timedelta(0) or idade > limite
+    execucao_sem_unidades = estado is not None and not estado.unidades_processadas
+    unidades_processadas = estado.unidades_processadas if estado is not None else ()
+    unidades_com_falha = estado.unidades_com_falha if estado is not None else ()
+    if escopo is not None:
+        unidades_processadas = tuple(codigo for codigo in unidades_processadas if codigo in escopo)
+        unidades_com_falha = tuple(codigo for codigo in unidades_com_falha if codigo in escopo)
+    return {
+        "saude_robo": {
+            "ultima_execucao": estado.ultima_execucao if estado is not None else None,
+            "dia_processado": estado.dia_processado if estado is not None else None,
+            "unidades_processadas": list(unidades_processadas),
+            "unidades_com_falha": list(unidades_com_falha),
+            "resumo_gerado": estado.resumo_gerado if estado is not None else None,
+            "alerta_atraso": alerta_atraso,
+            "execucao_sem_unidades": execucao_sem_unidades,
+            "alerta_operacional": alerta_atraso or execucao_sem_unidades or bool(unidades_com_falha),
+            "limite_horas": 26,
+        },
+        "unidades": cards,
+    }
 
 
 @router.get("/pendencias/contagem-abertas")

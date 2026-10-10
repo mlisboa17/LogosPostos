@@ -17,11 +17,13 @@ from src.modules.commercial_performance.config import POSTOS
 
 from ..adapters.persistencia import DIRETORIO, carregar_dia, salvar_dia
 from ..adapters import pendencias as repositorio_pendencias
+from ..adapters import saude_robo
 from ..application.auditar_fechamento import auditar_unidade
 from ..application.gerar_pendencias import (
     executar_reincidencia_mes,
     pendencias_do_dia,
 )
+from ..application.resumo_diario import gerar_resumo_diario
 from ..application.recebimentos import TIMEOUT_ETAPA, conciliar_adquirente
 from ..config import carregar_unidades
 from ..domain.execucao import ResultadoDiario
@@ -100,10 +102,15 @@ async def executar(
         return 1
     execucao_id = uuid.uuid4().hex
     falhas = 0
-    for unidade in carregar_unidades().values():
+    unidades = carregar_unidades()
+    unidades_processadas = [unidade.empresa_codigo for unidade in unidades.values()]
+    unidades_com_falha: set[int] = set()
+    resultados = []
+    for unidade in unidades.values():
         try:
             resultado = await coletar_unidade(unidade, dia, execucao_id, timeout=timeout)
             salvar_dia(resultado, diretorio=diretorio)
+            resultados.append(resultado)
             novas = pendencias_do_dia(resultado)
             novas.extend(executar_reincidencia_mes(
                 unidade.empresa_codigo,
@@ -112,8 +119,12 @@ async def executar(
             ))
             if novas:
                 repositorio_pendencias.registrar(novas, banco=diretorio_pendencias)
-            if resultado.erro_fechamento or any(item.situacao == "erro" for item in resultado.recebimentos.adquirentes):
+            if resultado.erro_fechamento or any(
+                item.situacao in {"erro", "credencial inválida"}
+                for item in resultado.recebimentos.adquirentes
+            ):
                 falhas += 1
+                unidades_com_falha.add(unidade.empresa_codigo)
             logger.info("Persistido unidade=%s dia=%s execucao=%s", unidade.empresa_codigo, formatar_data(dia), execucao_id)
         except Exception as exc:
             logger.error(
@@ -121,6 +132,7 @@ async def executar(
                 unidade.empresa_codigo, formatar_data(dia), type(exc).__name__,
             )
             falhas += 1
+            unidades_com_falha.add(unidade.empresa_codigo)
     for posto in POSTOS.values():
         try:
             placar = await asyncio.wait_for(
@@ -138,6 +150,43 @@ async def executar(
                 posto.empresa_codigo, dia.strftime("%Y-%m"), type(exc).__name__,
             )
             falhas += 1
+            unidades_com_falha.add(posto.empresa_codigo)
+
+    resumo_gerado = False
+    try:
+        pendencias_abertas = {
+            unidade: repositorio_pendencias.contar_abertas_somente_leitura(
+                unidade=unidade,
+                banco=diretorio_pendencias,
+            )
+            for unidade in unidades_processadas
+        }
+        resumo = gerar_resumo_diario(
+            dia,
+            resultados,
+            unidades_processadas,
+            unidades_com_falha,
+            pendencias_abertas,
+        )
+        saude_robo.salvar_resumo(dia, resumo)
+        resumo_gerado = True
+    except (OSError, repositorio_pendencias.ErroPersistenciaPendencias, saude_robo.PersistenciaEstadoErro) as exc:
+        logger.error(
+            "Resumo diario nao concluido dia=%s tipo=%s",
+            formatar_data(dia), type(exc).__name__,
+        )
+        falhas += 1
+    try:
+        saude_robo.salvar_estado(saude_robo.EstadoRobo(
+            ultima_execucao=agora(),
+            dia_processado=dia,
+            unidades_processadas=tuple(unidades_processadas),
+            unidades_com_falha=tuple(sorted(unidades_com_falha)),
+            resumo_gerado=resumo_gerado,
+        ))
+    except saude_robo.PersistenciaEstadoErro as exc:
+        logger.error("Estado do robo nao concluido tipo=%s", type(exc).__name__)
+        falhas += 1
     logger.info("Execucao terminada dia=%s unidades_com_falha=%s execucao=%s", formatar_data(dia), falhas, execucao_id)
     return 1 if falhas else 0
 

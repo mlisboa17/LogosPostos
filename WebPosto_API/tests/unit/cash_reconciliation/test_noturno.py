@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from src.modules.cash_reconciliation.adapters import persistencia
+from src.modules.cash_reconciliation.adapters import saude_robo
 from src.modules.cash_reconciliation.domain.execucao import ResultadoDiario
 from src.modules.cash_reconciliation.domain.models import AdquirenteConfigurada, Proveniencia, Unidade
 from src.modules.cash_reconciliation.domain.recebimentos import RecebimentoAdquirente, ResultadoRecebimentos, ResumoCasados
@@ -22,8 +23,10 @@ EMPRESA = 321
 
 
 @pytest.fixture(autouse=True)
-def sem_postos_comerciais_reais(monkeypatch):
+def sem_postos_comerciais_reais(monkeypatch, tmp_path):
     monkeypatch.setattr(noturno, "POSTOS", {})
+    monkeypatch.setattr(saude_robo, "DIRETORIO_RESUMOS", tmp_path / "resumos")
+    monkeypatch.setattr(saude_robo, "CAMINHO_ESTADO", tmp_path / "resumos" / "estado_robo.json")
 
 
 def unidade(empresa=EMPRESA):
@@ -232,6 +235,13 @@ async def test_job_registra_alertas_sem_duplicar_pendencias(monkeypatch, tmp_pat
     assert total == 1
     assert itens[0].tipo == "fechamento_quebra"
     assert [evento.acao for evento in itens[0].historico] == ["criada"]
+    estado = saude_robo.carregar_estado()
+    assert estado.dia_processado == DIA
+    assert estado.unidades_processadas == (EMPRESA,)
+    assert estado.resumo_gerado is True
+    resumo = saude_robo.caminho_resumo(DIA).read_text(encoding="utf-8")
+    assert "Faltas sem desconto" in resumo
+    assert "R$ 2,50" in resumo
 
 
 async def test_job_timeout_nao_impede_recebimentos(monkeypatch, tmp_path):
