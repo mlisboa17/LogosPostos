@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -63,6 +64,31 @@ class LinhaModalidade(_Frozen):
     diferenca: Decimal  # apresentado - apurado (negativo = falta)
 
 
+class ValeFuncionario(_Frozen):
+    codigo: int
+    empresa_codigo: int
+    caixa_codigo: int
+    funcionario_codigo: int | None
+    origem: str
+    valor: Decimal
+
+
+class MovimentoDespesa(_Frozen):
+    codigo: int
+    caixa_codigo: int
+    tipo: str
+    valor: Decimal
+    plano_conta_codigo: str | None
+    descricao: str | None
+
+
+class DescontoFalta(_Frozen):
+    situacao: Literal["sem_desconto", "descontado", "divergente"]
+    falta: Decimal
+    total_vale: Decimal
+    diferenca: Decimal
+
+
 class Alerta(_Frozen):
     codigo: str
     severidade: Severidade
@@ -76,6 +102,9 @@ class AuditoriaCaixa(_Frozen):
     modalidades: tuple[LinhaModalidade, ...]
     sangrias: tuple[Sangria, ...]
     alertas: tuple[Alerta, ...]
+    vales_falta: tuple[ValeFuncionario, ...] = ()
+    desconto_falta: DescontoFalta | None = None
+    despesas: tuple[MovimentoDespesa, ...] = ()
 
     @property
     def quebra(self) -> Decimal:

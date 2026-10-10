@@ -1005,7 +1005,7 @@ label.empresa-ms__row {
 }
 
 .ca-filters {
-  grid-template-columns: minmax(220px, 2fr) repeat(2, minmax(140px, 1fr)) auto;
+  grid-template-columns: minmax(220px, 2fr) repeat(3, minmax(140px, 1fr)) auto;
 }
 
 .ca-filters button {
@@ -1081,7 +1081,10 @@ label.empresa-ms__row {
 .ca-receipts { display: grid; gap: 1rem; }
 .ca-receipts .ca-panel { display: grid; gap: 0.75rem; }
 .ca-receipts-table { min-width: 850px; }
+.ca-reincidencia { display: grid; gap: 0.5rem; }
+.ca-reincidencia-table { min-width: 1050px; }
 .ca-candidates { margin: 0.35rem 0 0; padding-left: 1.1rem; font-size: 0.78rem; }
+.ca-warning { color: #fde68a; }
 
 .ca-row--vermelho { background: rgba(153, 27, 27, 0.18); }
 .ca-row--laranja { background: rgba(154, 87, 14, 0.14); }

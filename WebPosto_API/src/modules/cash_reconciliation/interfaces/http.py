@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import calendar
 import logging
 import uuid
 from datetime import date, timedelta
@@ -10,6 +11,7 @@ from fastapi import APIRouter, HTTPException, Query
 from ..adapters.webposto_http import WebPostoErro
 from ..adapters.persistencia import PersistenciaErro, carregar_dia
 from ..application.auditar_fechamento import auditar_unidade
+from ..application.reincidencia import agregar_reincidencia
 from ..application.recebimentos import conciliar_recebimentos
 from ..application.serializacao import serializar_fechamento
 from ..config import carregar_unidades
@@ -17,6 +19,7 @@ from ..domain.fechamento import ResultadoAuditoria
 from ..domain.models import Proveniencia
 from ..domain.recebimentos import ResultadoRecebimentos
 from ..domain.tempo import agora
+from ...webposto_integration.funcionarios import buscar_nomes_funcionarios
 
 router = APIRouter(prefix="/api/v1/cash-audit", tags=["cash-audit"])
 logger = logging.getLogger(__name__)
@@ -107,6 +110,79 @@ async def obter_fechamento(
         payload = serializar_fechamento(resultado)
         payload["execucoes"] = [p.model_dump(mode="json") for p in proveniencias]
         return payload
+    except PersistenciaErro:
+        raise HTTPException(status_code=500, detail="Falha ao ler auditoria persistida.") from None
+    except WebPostoErro:
+        raise HTTPException(
+            status_code=502,
+            detail="Falha ao consultar os dados operacionais.",
+        ) from None
+
+
+@router.get("/reincidencia")
+async def obter_reincidencia(
+    unidade: int = Query(...),
+    mes: str = Query(...),
+) -> dict:
+    try:
+        inicio = date.fromisoformat(f"{mes}-01")
+        if len(mes) != 7 or inicio.strftime("%Y-%m") != mes:
+            raise ValueError
+    except ValueError:
+        raise HTTPException(status_code=422, detail="O mês deve estar no formato AAAA-MM.") from None
+
+    unidades = carregar_unidades()
+    if unidade not in unidades:
+        raise HTTPException(status_code=404, detail="Unidade não encontrada.")
+
+    quantidade_dias = calendar.monthrange(inicio.year, inicio.month)[1]
+    fim_mes = inicio + timedelta(days=quantidade_dias - 1)
+    fim = min(fim_mes, agora().date())
+    dias = [inicio + timedelta(days=indice) for indice in range(max((fim - inicio).days + 1, 0))]
+    try:
+        registros = [carregar_dia(unidade, dia) for dia in dias]
+        resultados = [registro for registro in registros if registro is not None]
+        codigos = {
+            auditoria.caixa.funcionario_codigo
+            for resultado in resultados
+            if resultado.fechamento is not None
+            for auditoria in resultado.fechamento.caixas
+        }
+        codigos.update(
+            candidato.abastecimento.frentista
+            for resultado in resultados
+            for adquirente in resultado.recebimentos.adquirentes
+            if adquirente.adquirente.upper() == "PAGBANK"
+            for investigacao in (
+                *adquirente.a_maior,
+                *(par.investigacao for par in adquirente.pares_provaveis),
+            )
+            for candidato in investigacao.candidatos
+            if candidato.abastecimento.frentista is not None
+        )
+        codigos.update(
+            investigacao.frentista
+            for resultado in resultados
+            for adquirente in resultado.recebimentos.adquirentes
+            if adquirente.adquirente.upper() == "PAGBANK"
+            for investigacao in (
+                *adquirente.a_maior,
+                *(par.investigacao for par in adquirente.pares_provaveis),
+            )
+            if investigacao.frentista is not None
+        )
+        nomes = (
+            await buscar_nomes_funcionarios(unidades[unidade], inicio, fim)
+            if codigos
+            else {}
+        )
+        return agregar_reincidencia(
+            unidade,
+            mes,
+            dias,
+            resultados,
+            {codigo: nome for codigo, nome in nomes.items() if codigo in codigos},
+        ).model_dump(mode="json")
     except PersistenciaErro:
         raise HTTPException(status_code=500, detail="Falha ao ler auditoria persistida.") from None
     except WebPostoErro:

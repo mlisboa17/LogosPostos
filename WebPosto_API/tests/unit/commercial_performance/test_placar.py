@@ -11,6 +11,7 @@ from src.modules.commercial_performance.application import placar
 from src.modules.commercial_performance.config import MetasErro, POSTOS, ler_metas
 from src.modules.commercial_performance.domain.models import Abastecimento, MetasPosto, Produto, Proveniencia
 from src.modules.commercial_performance.rules.placar import calcular, referencia
+from src.modules.webposto_integration import funcionarios as integracao_funcionarios
 from src.modules.webposto_integration.http import WebPostoErro
 
 DIA = date(2026, 10, 2)
@@ -148,21 +149,36 @@ async def test_adapter_filtra_afericao_tenant_data_e_mapeia_venda(monkeypatch):
         webposto.PATHS["abastecimentos"]: [registro, {**registro, "afericao": "S"}, {**registro, "empresaCodigo": 5555}],
         webposto.PATHS["itens"]: [{"empresaCodigo": 11495, "vendaItemCodigo": 2, "vendaCodigo": 3}],
         webposto.PATHS["produtos"]: [{"produtoCodigo": 1, "nome": "Gasolina ADITIVADA sintetica"}],
-        webposto.PATHS["funcionarios"]: [{"empresaCodigo": 11495, "funcionarioCodigo": 7, "nome": "Sintetico",
-                                        "cpf": "nao deve ser mapeado"},
-                                       {"empresaCodigo": 5555, "funcionarioCodigo": 8, "nome": "Outro sintetico"}],
     }
 
     async def paginar(unidade, path, params):
         assert params["empresaCodigo"] == 11495
         return dados[path]
 
+    async def nomes(unidade, inicio, fim):
+        return {7: "Sintetico"}
+
     monkeypatch.setattr(webposto, "paginar", paginar)
+    monkeypatch.setattr(webposto, "buscar_nomes_funcionarios", nomes)
     linhas, produtos, funcionarios = await webposto.buscar(POSTOS[11495], DIA, DIA)
     assert len(linhas) == 1 and linhas[0].venda == 3
     assert linhas[0].momento.hour == 0
     assert produtos[1].aditivado and funcionarios == {7: "Sintetico"}
     assert "cpf" not in linhas[0].model_dump_json()
+
+
+async def test_integracao_compartilhada_retorna_somente_nomes_do_tenant(monkeypatch):
+    async def paginar(unidade, path, params):
+        assert path == "/INTEGRACAO/V1/FUNCIONARIOS"
+        assert params["empresaCodigo"] == 11495
+        return [
+            {"empresaCodigo": 11495, "funcionarioCodigo": 7, "nome": "Sintetico", "cpf": "não expor"},
+            {"empresaCodigo": 5555, "funcionarioCodigo": 8, "nome": "Outro", "cpf": "não expor"},
+        ]
+
+    monkeypatch.setattr(integracao_funcionarios, "paginar", paginar)
+    nomes = await integracao_funcionarios.buscar_nomes_funcionarios(POSTOS[11495], DIA, DIA)
+    assert nomes == {7: "Sintetico"}
 
 
 async def test_fonte_falha_nao_retorna_volume_ficticio(monkeypatch):

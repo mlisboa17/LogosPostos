@@ -42,4 +42,13 @@ class ResultadoDiario(BaseModel):
             if any(c.caixa.empresa_codigo != self.empresa_codigo or c.caixa.data != self.dia
                    for c in self.fechamento.caixas):
                 raise ValueError("Caixa fora do escopo do registro.")
+            for auditoria in self.fechamento.caixas:
+                if any(
+                    vale.empresa_codigo != self.empresa_codigo
+                    or vale.caixa_codigo != auditoria.caixa.codigo
+                    for vale in auditoria.vales_falta
+                ):
+                    raise ValueError("Vale fora do escopo do caixa.")
+                if any(despesa.caixa_codigo != auditoria.caixa.codigo for despesa in auditoria.despesas):
+                    raise ValueError("Despesa fora do escopo do caixa.")
         return self

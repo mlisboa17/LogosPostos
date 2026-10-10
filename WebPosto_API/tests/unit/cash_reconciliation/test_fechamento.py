@@ -2,12 +2,14 @@ from datetime import date, datetime
 from decimal import Decimal
 
 import httpx
+import pytest
 
 from src.modules.cash_reconciliation.adapters.webposto_caixas import (
     buscar_apresentados, para_caixa, para_modalidades,
 )
 from src.modules.cash_reconciliation.application.auditar_fechamento import auditar
-from src.modules.cash_reconciliation.domain.fechamento import Severidade
+from src.modules.cash_reconciliation.config import dias_tolerancia_consolidacao
+from src.modules.cash_reconciliation.domain.fechamento import MovimentoDespesa, Severidade, ValeFuncionario
 from src.modules.cash_reconciliation.domain.models import Sangria, Unidade
 from src.modules.cash_reconciliation.rules.fechamento import VERSAO, auditar_caixa
 
@@ -50,9 +52,27 @@ def test_quebra_acima_do_limite_e_vermelha():
 
 
 def test_fechado_nao_consolidado_e_laranja():
-    a = auditar_caixa(caixa(consolidado=False), (), [])
-    assert [(x.codigo, x.mensagem) for x in a.alertas] == [("NAO_CONSOLIDADO", "Caixa fechado e não consolidado")]
+    a = auditar_caixa(caixa(consolidado=False), (), [], hoje=date(2026, 10, 6))
+    assert [(x.codigo, x.mensagem) for x in a.alertas] == [("NAO_CONSOLIDADO", "Fechado há 0 dias sem consolidar")]
     assert a.severidade is Severidade.LARANJA
+
+
+def test_tolerancia_de_consolidacao_padrao_configuravel_e_validada(monkeypatch):
+    monkeypatch.delenv("CASH_AUDIT_DIAS_TOLERANCIA_CONSOLIDACAO", raising=False)
+    assert dias_tolerancia_consolidacao() == 2
+    monkeypatch.setenv("CASH_AUDIT_DIAS_TOLERANCIA_CONSOLIDACAO", "4")
+    assert dias_tolerancia_consolidacao() == 4
+    monkeypatch.setenv("CASH_AUDIT_DIAS_TOLERANCIA_CONSOLIDACAO", "-1")
+    with pytest.raises(ValueError, match="inteiro não negativo"):
+        dias_tolerancia_consolidacao()
+
+
+def test_nao_consolidado_fica_vermelho_depois_da_tolerancia():
+    a = auditar_caixa(caixa(consolidado=False), (), [], hoje=date(2026, 10, 9))
+    (alerta,) = a.alertas
+    assert alerta.codigo == "NAO_CONSOLIDADO"
+    assert alerta.severidade is Severidade.VERMELHO
+    assert alerta.mensagem == "Fechado há 3 dias sem consolidar"
 
 
 def test_caixa_aberto_nao_gera_quebra():
@@ -66,6 +86,66 @@ def test_sangrias_sem_destino_e_alterada_do_proprio_caixa():
     a = auditar_caixa(caixa(), (), [S(1, conta=None), S(2, alterada=True), S(3, conta=None, caixa_cod=2)])
     assert [(x.codigo, x.referencia) for x in a.alertas] == [("SANGRIA_SEM_DESTINO", 1), ("SANGRIA_ALTERADA", 2)]
     assert a.severidade is Severidade.VERMELHO and len(a.sangrias) == 2
+
+
+def test_falta_em_dinheiro_sem_vale_gera_alerta_vermelho():
+    linhas = para_modalidades({**APRESENTADO_API, "dinheiroDiferenca": -50})
+    a = auditar_caixa(caixa(), linhas, [])
+    assert a.desconto_falta.situacao == "sem_desconto"
+    assert a.desconto_falta.falta == Decimal("50")
+    assert any(x.codigo == "FALTA_SEM_DESCONTO" and x.severidade is Severidade.VERMELHO for x in a.alertas)
+
+
+def test_vale_correspondente_e_vale_divergente():
+    linhas = para_modalidades({**APRESENTADO_API, "dinheiroDiferenca": -50})
+    vale = ValeFuncionario(
+        codigo=10, empresa_codigo=5555, caixa_codigo=1, funcionario_codigo=7,
+        origem="D", valor=Decimal("50"),
+    )
+    descontado = auditar_caixa(caixa(), linhas, [], vales=[vale])
+    assert descontado.desconto_falta.situacao == "descontado"
+    assert descontado.desconto_falta.total_vale == Decimal("50")
+    assert not any(x.codigo == "FALTA_SEM_DESCONTO" for x in descontado.alertas)
+
+    divergente = auditar_caixa(
+        caixa(), linhas, [],
+        vales=[vale.model_copy(update={"valor": Decimal("45")})],
+    )
+    alerta = next(x for x in divergente.alertas if x.codigo == "VALE_DIVERGENTE")
+    assert divergente.desconto_falta.situacao == "divergente"
+    assert alerta.severidade is Severidade.LARANJA and alerta.valor == Decimal("5")
+
+
+def test_vale_de_outro_operador_caixa_ou_origem_nao_desconta_falta():
+    linhas = para_modalidades({**APRESENTADO_API, "dinheiroDiferenca": -50})
+    vales = [
+        ValeFuncionario(codigo=1, empresa_codigo=5555, caixa_codigo=2, funcionario_codigo=7, origem="D", valor=50),
+        ValeFuncionario(codigo=2, empresa_codigo=5555, caixa_codigo=1, funcionario_codigo=8, origem="D", valor=50),
+        ValeFuncionario(codigo=3, empresa_codigo=5555, caixa_codigo=1, funcionario_codigo=7, origem="C", valor=50),
+    ]
+    a = auditar_caixa(caixa(), linhas, [], vales=vales)
+    assert a.vales_falta == ()
+    assert a.desconto_falta.situacao == "sem_desconto"
+
+
+def test_despesas_d_do_caixa_exibidas_e_alertadas_quando_sem_classificacao():
+    despesas = [
+        MovimentoDespesa(
+            codigo=11, caixa_codigo=1, tipo="D", valor=Decimal("20"),
+            plano_conta_codigo=None, descricao=None,
+        ),
+        MovimentoDespesa(
+            codigo=12, caixa_codigo=1, tipo="C", valor=Decimal("15"),
+            plano_conta_codigo=None, descricao=None,
+        ),
+        MovimentoDespesa(
+            codigo=13, caixa_codigo=2, tipo="D", valor=Decimal("5"),
+            plano_conta_codigo=None, descricao=None,
+        ),
+    ]
+    a = auditar_caixa(caixa(), (), [], despesas=despesas)
+    assert [item.codigo for item in a.despesas] == [11]
+    assert {item.codigo for item in a.alertas} == {"DESPESA_SEM_PLANO", "DESPESA_SEM_DESCRICAO"}
 
 
 def test_auditar_filtra_unidade_periodo_e_tem_proveniencia():

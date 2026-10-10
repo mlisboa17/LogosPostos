@@ -1,7 +1,22 @@
 # Auditoria de caixa e recebimentos
 
-As regras `FECHAMENTO_V2` e `CARTOES_V1` continuam no domínio do módulo.
+As regras `FECHAMENTO_V3` e `CARTOES_V1` continuam no domínio do módulo.
 O ERP é consultado somente por leitura; correções são humanas.
+
+## FECHAMENTO_V3
+
+- Falta em dinheiro acima de R$ 10 é comparada com vales `origem=D` do mesmo
+  operador e caixa. Sem vale, o alerta é vermelho; valor divergente gera alerta
+  laranja. O detalhe mostra o total descontado, sem persistir nomes de pessoas.
+- Caixa fechado e não consolidado fica laranja até a tolerância e vermelho
+  depois dela. O padrão é **2 dias corridos** (`CASH_AUDIT_DIAS_TOLERANCIA_CONSOLIDACAO`);
+  esse padrão ainda aguarda confirmação do sócio-diretor.
+- Despesas `tipo=D` de `MOVIMENTACOES_CAIXA` são exibidas no detalhe. Falta de
+  plano de contas ou de descrição útil gera alerta laranja.
+- `GET /api/v1/cash-audit/reincidencia?unidade=<empresaCodigo>&mes=AAAA-MM`
+  agrega fechamentos e recebimentos PagBank dos snapshots noturnos existentes.
+  A resposta explicita os dias cobertos e ausentes; nomes vêm de `FUNCIONARIOS`
+  em tempo de consulta e não são persistidos.
 
 ## Recebimentos
 

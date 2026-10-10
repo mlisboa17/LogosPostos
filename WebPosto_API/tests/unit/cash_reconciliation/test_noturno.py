@@ -59,7 +59,7 @@ def diario(empresa=EMPRESA, dia=DIA, erro=None):
             versao_regra=noturno.VERSAO_JOB, fonte_sangrias="sintetica",
             extratos=(), outras_fontes=("sintetica",),
         ),
-        versoes_regras=("FECHAMENTO_V2", "CARTOES_V1"),
+        versoes_regras=("FECHAMENTO_V3", "CARTOES_V1"),
     )
 
 

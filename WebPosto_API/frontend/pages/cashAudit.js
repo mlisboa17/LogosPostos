@@ -4,12 +4,18 @@ import { formatCurrency, formatDate, formatTime, formatDateTime, recifeDateISO }
 const UNIDADES_URL = "/api/v1/cash-audit/unidades";
 const FECHAMENTO_URL = "/api/v1/cash-audit/fechamento";
 const RECEBIMENTOS_URL = "/api/v1/cash-audit/recebimentos";
+const REINCIDENCIA_URL = "/api/v1/cash-audit/reincidencia";
 let unidadesCarregadas = null;
 const consultas = new WeakMap();
 const consultasRecebimentos = new WeakMap();
+const consultasReincidencia = new WeakMap();
 
 export function consultarFechamento(unidade, inicio, fim) {
   return apiClient.get(FECHAMENTO_URL, { params: { unidade, inicio, fim }, timeout: 200000 });
+}
+
+export function consultarReincidencia(unidade, mes) {
+  return apiClient.get(REINCIDENCIA_URL, { params: { unidade, mes }, timeout: 200000 });
 }
 
 // Centros de custo da rede (V1/CENTROS_CUSTO, 2026-10-06)
@@ -24,6 +30,10 @@ const ALERTA_ROTULO = {
   CAIXA_ABERTO: "Em andamento",
   SANGRIA_SEM_DESTINO: "Sangria sem destino",
   SANGRIA_ALTERADA: "Sangria alterada",
+  FALTA_SEM_DESCONTO: "Sem desconto",
+  VALE_DIVERGENTE: "Vale divergente",
+  DESPESA_SEM_PLANO: "Despesa sem plano",
+  DESPESA_SEM_DESCRICAO: "Despesa sem descrição",
 };
 
 function escapeHtml(value) {
@@ -221,7 +231,7 @@ function renderKpis(resultado) {
   `;
 }
 
-function renderDetalhes(auditoria) {
+export function renderDetalhes(auditoria) {
   const modalidades = auditoria.modalidades?.length
     ? auditoria.modalidades.map((item) => `
       <tr>
@@ -234,14 +244,36 @@ function renderDetalhes(auditoria) {
   const alertas = auditoria.alertas?.length
     ? `<ul>${auditoria.alertas.map((alerta) => `<li>${escapeHtml(alerta.mensagem)}</li>`).join("")}</ul>`
     : "<p>Sem alertas.</p>";
+  const desconto = auditoria.desconto_falta;
+  const descontoHtml = !desconto
+    ? ""
+    : desconto.situacao === "descontado"
+      ? `<p class="ca-ok">Descontado (vale ${safeCurrency(desconto.total_vale)}).</p>`
+      : desconto.situacao === "sem_desconto"
+        ? `<p class="ca-neg">Falta de ${safeCurrency(desconto.falta)} sem desconto lançado.</p>`
+        : `<p class="ca-warning">Vale divergente: falta de ${safeCurrency(desconto.falta)}, vale de ${safeCurrency(desconto.total_vale)}; diferença de ${safeCurrency(desconto.diferenca)}.</p>`;
+  const despesas = auditoria.despesas?.length
+    ? `<div class="ca-table-wrap"><table class="table-compact"><thead><tr>
+        <th>Despesa paga no caixa</th><th>Plano de contas</th><th class="ca-num">Valor</th>
+      </tr></thead><tbody>${auditoria.despesas.map((despesa) => `
+        <tr><td>${escapeHtml(despesa.descricao || "Sem descrição útil")}</td>
+        <td>${escapeHtml(despesa.plano_conta_codigo || "Sem plano de contas")}</td>
+        <td class="ca-num">${safeCurrency(despesa.valor)}</td></tr>`).join("")}</tbody></table></div>`
+    : '<p class="ca-muted">Nenhuma despesa em dinheiro registrada para este caixa.</p>';
   return `
     <div class="ca-detail-grid">
       <div><h4>Modalidades</h4>
         <table class="table-compact"><thead><tr><th>Modalidade</th><th class="ca-num">Apresentado</th><th class="ca-num">Apurado</th><th class="ca-num">Diferença</th></tr></thead>
         <tbody>${modalidades}</tbody></table>
+        ${descontoHtml}
       </div>
-      <div><h4>Alertas</h4>${alertas}</div>
+      <div><h4>Alertas</h4>${alertas}<h4>Despesas do caixa</h4>${despesas}</div>
     </div>`;
+}
+
+function rotuloAlerta(alerta) {
+  if (alerta.codigo === "NAO_CONSOLIDADO") return `Parado ${escapeHtml(alerta.valor ?? 0)} dias`;
+  return escapeHtml(ALERTA_ROTULO[alerta.codigo] || alerta.codigo);
 }
 
 function renderChips(alertas) {
@@ -254,11 +286,11 @@ function renderChips(alertas) {
   });
   return [...grupos.values()].map((g) =>
     `<span class="ca-chip ca-chip--${escapeHtml(g.severidade)}" title="${escapeHtml(g.mensagem)}">` +
-    `${escapeHtml(ALERTA_ROTULO[g.codigo] || g.codigo)}${g.n > 1 ? ` ×${g.n}` : ""}</span>`
+    `${rotuloAlerta(g)}${g.n > 1 ? ` ×${g.n}` : ""}</span>`
   ).join("");
 }
 
-function renderTabela(resultado) {
+export function renderTabela(resultado) {
   const caixas = resultado?.caixas || [];
   if (!caixas.length) return '<p class="ca-empty">Nenhum caixa encontrado no período.</p>';
   const linhas = caixas.map((auditoria, indice) => {
@@ -293,6 +325,47 @@ function renderTabela(resultado) {
       <tbody>${linhas}</tbody>
     </table></div>
     <p class="ca-hint">Clique em um caixa para ver as modalidades e os alertas em detalhe.</p>`;
+}
+
+export function renderReincidencia(resultado) {
+  const funcionarios = resultado?.funcionarios || [];
+  const cobertura = (resultado?.dias_com_dados || []).length;
+  const semDados = resultado?.dias_sem_dados || [];
+  const semFechamento = resultado?.dias_sem_fechamento || [];
+  const semRecebimentos = resultado?.dias_sem_recebimentos || [];
+  const coberturaHtml = `<p class="ca-hint">${cobertura} dia(s) com snapshots; ${semDados.length} dia(s) sem arquivo` +
+    `${semDados.length ? `: ${semDados.map(escapeHtml).join(", ")}` : ""}.</p>` +
+    `<p class="ca-hint">Fechamento indisponível: ${semFechamento.map(escapeHtml).join(", ") || "nenhum"} · ` +
+    `PagBank indisponível: ${semRecebimentos.map(escapeHtml).join(", ") || "nenhum"}.</p>`;
+  if (!funcionarios.length) {
+    return `${coberturaHtml}<p class="ca-empty">Sem recorrências registradas nos snapshots disponíveis.</p>`;
+  }
+  const linhas = funcionarios.map((item) => `
+    <tr><td>${escapeHtml(item.nome || `Funcionário #${item.funcionario_codigo}`)}</td>
+      <td class="ca-num">${escapeHtml(item.quebras)}</td>
+      <td class="ca-num">${safeCurrency(item.faltas_total)}</td>
+      <td class="ca-num">${escapeHtml(item.sangrias_alteradas)}</td>
+      <td class="ca-num">${escapeHtml(item.recebimentos_a_maior_atribuidos)} · ${safeCurrency(item.valor_recebimentos_a_maior_atribuidos)}</td>
+      <td class="ca-num">${escapeHtml(item.recebimentos_a_maior_sugeridos)} · ${safeCurrency(item.valor_recebimentos_a_maior_sugeridos)}</td>
+    </tr>`).join("");
+  return `${coberturaHtml}<div class="ca-table-wrap"><table class="table-compact ca-reincidencia-table">
+    <thead><tr><th>Funcionário</th><th>Quebras</th><th>Faltas</th><th>Sangrias alteradas</th>
+      <th>A maior atribuídos</th><th>A maior sugeridos</th></tr></thead><tbody>${linhas}</tbody></table></div>`;
+}
+
+export async function carregarReincidencia(container, unidade, mes) {
+  const sequencia = (consultasReincidencia.get(container) || 0) + 1;
+  consultasReincidencia.set(container, sequencia);
+  const conteudo = container.querySelector("#caReincidencia");
+  conteudo.innerHTML = '<p class="ca-empty">Carregando reincidência do mês…</p>';
+  try {
+    const resultado = await consultarReincidencia(unidade, mes);
+    if (consultasReincidencia.get(container) !== sequencia) return;
+    conteudo.innerHTML = renderReincidencia(resultado);
+  } catch (error) {
+    if (consultasReincidencia.get(container) !== sequencia) return;
+    conteudo.innerHTML = `<p class="ca-error" role="alert">${escapeHtml(error?.message || "Falha ao carregar reincidência.")}</p>`;
+  }
 }
 
 function showError(container, error) {
@@ -332,6 +405,7 @@ async function executarConsulta(container) {
   const unidade = container.querySelector("#caUnidade").value;
   const inicio = container.querySelector("#caInicio").value;
   const fim = container.querySelector("#caFim").value;
+  const mes = container.querySelector("#caMes").value;
   const mensagem = container.querySelector("#caError");
   const conteudo = container.querySelector("#caResults");
   let dias;
@@ -347,6 +421,7 @@ async function executarConsulta(container) {
   conteudo.innerHTML = '<p class="ca-empty">Carregando auditoria…</p>';
   container.querySelector("#caRecebimentos").innerHTML = '<h3>Recebimentos eletrônicos</h3><p class="ca-muted">Aguardando o fechamento…</p>';
   container.querySelector("#caProveniencia").textContent = "";
+  void carregarReincidencia(container, unidade, mes);
   try {
     const resultado = await consultarFechamento(unidade, inicio, fim);
     conteudo.innerHTML = `${renderKpis(resultado)}<section class="ca-panel"><h3>Caixas auditados</h3>${renderTabela(resultado)}</section>`;
@@ -391,11 +466,16 @@ export async function renderCashAudit(container, { load = false } = {}) {
           <label>Unidade<select id="caUnidade" required></select></label>
           <label>Data início<input id="caInicio" type="date" lang="pt-BR" value="${inicio}" required></label>
           <label>Data fim<input id="caFim" type="date" lang="pt-BR" value="${fim}" required></label>
+          <label>Mês da reincidência<input id="caMes" type="month" lang="pt-BR" value="${fim.slice(0, 7)}" required></label>
           <button type="submit">Consultar</button>
         </form>
         <p id="caError" class="ca-error hidden" role="alert"></p>
         <div id="caResults"><p class="ca-empty">Selecione uma unidade para consultar.</p></div>
         <section id="caRecebimentos" class="ca-receipts" aria-live="polite"></section>
+        <section class="ca-panel ca-reincidencia" aria-live="polite">
+          <h3>Reincidência do mês</h3>
+          <div id="caReincidencia"><p class="ca-empty">Selecione uma unidade para consultar.</p></div>
+        </section>
         <footer id="caProveniencia" class="ca-provenance">Proveniência disponível após a consulta.</footer>
       </div>`;
     container.querySelector("#caFilters").addEventListener("submit", (event) => {

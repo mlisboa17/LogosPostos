@@ -5,13 +5,13 @@ import asyncio
 from datetime import date
 
 from src.modules.webposto_integration.http import paginar
+from src.modules.webposto_integration.funcionarios import buscar_nomes_funcionarios
 from src.modules.webposto_integration.tempo import ler_data_hora
 
 from ..domain.models import Abastecimento, Posto, Produto
 
 PATHS = {
     "abastecimentos": "/INTEGRACAO/V1/ABASTECIMENTOS",
-    "funcionarios": "/INTEGRACAO/V1/FUNCIONARIOS",
     "produtos": "/INTEGRACAO/V1/PRODUTOS",
     "itens": "/INTEGRACAO/V1/VENDAS/ITENS",
 }
@@ -32,9 +32,12 @@ async def buscar(
     posto: Posto, inicio: date, fim: date,
 ) -> tuple[list[Abastecimento], dict[int, Produto], dict[int, str]]:
     params = {"empresaCodigo": posto.empresa_codigo, "dataInicial": inicio.isoformat(), "dataFinal": fim.isoformat()}
-    abastecimentos, funcionarios, produtos, itens = await asyncio.gather(*(
-        paginar(posto, PATHS[nome], params) for nome in ("abastecimentos", "funcionarios", "produtos", "itens")
-    ))
+    abastecimentos, funcionarios, produtos, itens = await asyncio.gather(
+        paginar(posto, PATHS["abastecimentos"], params),
+        buscar_nomes_funcionarios(posto, inicio, fim),
+        paginar(posto, PATHS["produtos"], params),
+        paginar(posto, PATHS["itens"], params),
+    )
     vendas = {
         i["vendaItemCodigo"]: i["vendaCodigo"] for i in itens
         if i.get("empresaCodigo") == posto.empresa_codigo
@@ -43,10 +46,7 @@ async def buscar(
         p["produtoCodigo"]: Produto(codigo=p["produtoCodigo"], nome=p["nome"], aditivado="ADITIV" in p["nome"].upper())
         for p in produtos
     }
-    nomes = {
-        f["funcionarioCodigo"]: f["nome"] for f in funcionarios
-        if f.get("empresaCodigo") == posto.empresa_codigo
-    }
+    nomes = funcionarios
     linhas = []
     for a in abastecimentos:
         if a.get("empresaCodigo") != posto.empresa_codigo or _afericao(a.get("afericao")):

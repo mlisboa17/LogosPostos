@@ -2,7 +2,19 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 globalThis.window = { location: { origin: "http://localhost" } };
-const { diasDoPeriodo, rankingFrentistas, renderRecebimentos, periodoPadrao, consultarFechamento, carregarRecebimentos } = await import("../../frontend/pages/cashAudit.js");
+const {
+  diasDoPeriodo,
+  rankingFrentistas,
+  renderRecebimentos,
+  renderDetalhes,
+  renderTabela,
+  renderReincidencia,
+  periodoPadrao,
+  consultarFechamento,
+  consultarReincidencia,
+  carregarRecebimentos,
+  carregarReincidencia,
+} = await import("../../frontend/pages/cashAudit.js");
 const { apiClient } = await import("../../frontend/services/apiClient.js");
 const { formatDate, formatTime, formatDateTime, recifeDateISO } = await import("../../frontend/services/format.js");
 
@@ -33,6 +45,65 @@ test("fechamento aguarda o prazo do backend em vez do timeout padrao de 30s", as
     "/api/v1/cash-audit/fechamento",
     { params: { unidade: 321, inicio: "2026-01-01", fim: "2026-01-02" }, timeout: 200000 },
   ]);
+});
+
+test("auditoria mostra os chips novos e os detalhes de desconto e despesas", () => {
+  const auditoria = {
+    caixa: {
+      codigo: 10, data: "2026-10-06", turno: "1º TURNO", centro_custo: 7295,
+      fechado: true, consolidado: false,
+    },
+    quebra: "-50",
+    severidade: "vermelho",
+    modalidades: [{
+      modalidade: "dinheiro", rotulo: "Dinheiro", apresentado: "0", apurado: "50", diferenca: "-50",
+    }],
+    alertas: [
+      { codigo: "FALTA_SEM_DESCONTO", severidade: "vermelho", mensagem: "Falta sem desconto" },
+      { codigo: "NAO_CONSOLIDADO", severidade: "vermelho", valor: "3", mensagem: "Fechado há 3 dias" },
+      { codigo: "DESPESA_SEM_PLANO", severidade: "laranja", mensagem: "Despesa sem plano" },
+    ],
+    desconto_falta: { situacao: "sem_desconto", falta: "50", total_vale: "0", diferenca: "50" },
+    despesas: [{
+      codigo: 3, descricao: "<script>inseguro</script>", plano_conta_codigo: null, valor: "12.30",
+    }],
+  };
+  const tabela = renderTabela({ caixas: [auditoria] });
+  const detalhes = renderDetalhes(auditoria);
+  assert.match(tabela, /Sem desconto/);
+  assert.match(tabela, /Parado 3 dias/);
+  assert.match(tabela, /Despesa sem plano/);
+  assert.match(detalhes, /sem desconto lançado/);
+  assert.match(detalhes, /Sem plano de contas/);
+  assert.match(detalhes, /&lt;script&gt;/);
+  assert.doesNotMatch(detalhes, /<script>/);
+});
+
+test("reincidencia consulta mes/unidade e mostra cobertura sem criar numeros", async (t) => {
+  const resultado = {
+    empresa_codigo: 321,
+    mes: "2026-10",
+    dias_com_dados: ["06/10/2026"],
+    dias_sem_dados: ["07/10/2026"],
+    funcionarios: [{
+      funcionario_codigo: 7, nome: "Nome sintético", quebras: 1, faltas_total: "25.50",
+      sangrias_alteradas: 2, recebimentos_a_maior_atribuidos: 1,
+      valor_recebimentos_a_maior_atribuidos: "12.30", recebimentos_a_maior_sugeridos: 2,
+      valor_recebimentos_a_maior_sugeridos: "24.60",
+    }],
+  };
+  const get = t.mock.method(apiClient, "get", async () => resultado);
+  const container = { alvo: { innerHTML: "" }, querySelector: () => container.alvo };
+  await carregarReincidencia(container, 321, "2026-10");
+  assert.deepEqual(get.mock.calls[0].arguments, [
+    "/api/v1/cash-audit/reincidencia",
+    { params: { unidade: 321, mes: "2026-10" }, timeout: 200000 },
+  ]);
+  assert.match(container.alvo.innerHTML, /dia\(s\) com snapshots/);
+  assert.match(container.alvo.innerHTML, /Nome sintético/);
+  assert.match(container.alvo.innerHTML, /07\/10\/2026/);
+  assert.match(renderReincidencia({ dias_com_dados: [], dias_sem_dados: [], funcionarios: [] }), /Sem recorrências/);
+  assert.equal(await consultarReincidencia(321, "2026-10"), resultado);
 });
 
 function containerRecebimentos() {

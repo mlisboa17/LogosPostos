@@ -27,7 +27,7 @@ from ..rules.cartoes import VERSAO as VERSAO_CARTOES
 from ..rules.fechamento import VERSAO as VERSAO_FECHAMENTO
 
 logger = logging.getLogger("src.modules.cash_reconciliation.jobs.noturno")
-VERSAO_JOB = "CASH_AUDIT_NOTURNO_V1"
+VERSAO_JOB = "CASH_AUDIT_NOTURNO_V2"
 
 
 class FormatoLogBrasil(logging.Formatter):
