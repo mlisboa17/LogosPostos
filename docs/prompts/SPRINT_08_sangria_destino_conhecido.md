@@ -23,7 +23,7 @@ Arquivos:
 5. `gerar_pendencias.py`: pendências `fechamento_sangria_sem_destino` ainda `aberta` de unidade com repasse configurado → fechar com status existente adequado (`aprovada`), usuário `robo`, justificativa "Regra FECHAMENTO_V4: sangria da Conveniência 24h repassada ao Casa Caiada (decisão do diretor em 10/10/2026)". Evento no histórico, sem apagar. Pendências `justificada`/`recusada` não são tocadas.
 6. Testes (sem rede): 118508 com sangria sem conta → sem alerta vermelho e com informativo; unidade sem repasse → continua vermelho; reprocessar não duplica e fecha as abertas antigas com histórico; JSON de resultado V3 antigo continua abrindo.
 
-## PARTE B — Casa Caiada (aplicar SOMENTE se o diretor aprovar)
+## PARTE B — Casa Caiada (aprovada pelo diretor em 10/10/2026: sangria sem conta vai para o cofre)
 
 O `units.json` já tem `"destino_padrao": 17837` (cofre BB) no Casa Caiada, mas a regra de fechamento ignora esse campo; por isso as 21 sangrias aparecem como "sem destino".
 Se aprovada: na regra V4, sangria sem conta em unidade com `destino_padrao` → informativo "assumida no cofre (destino padrão)", sem pendência; fechar as abertas do Casa Caiada como no item 5, com justificativa citando o destino padrão.
