@@ -1,6 +1,11 @@
+# Uso:
+#   Como administrador (roda mesmo sem ninguem logado):  .\registrar_robo_noturno.ps1
+#   Sem administrador (provisorio; roda com a sessao do Windows aberta, tela pode estar bloqueada):
+#                                                        .\registrar_robo_noturno.ps1 -SemAdmin
 param(
     [string]$PythonExe = "",
-    [string]$NomeTarefa = "LOGOS - Auditoria de Caixa"
+    [string]$NomeTarefa = "LOGOS - Auditoria de Caixa",
+    [switch]$SemAdmin
 )
 
 $ErrorActionPreference = "Stop"
@@ -22,7 +27,16 @@ if (-not (Test-Path -LiteralPath (Join-Path $DiretorioApi "src\modules\cash_reco
     throw "Modulo do robo noturno nao encontrado."
 }
 
-$Acao = New-ScheduledTaskAction -Execute $PythonExe `
+$Executavel = $PythonExe
+$TipoLogon = "S4U"
+if ($SemAdmin) {
+    # Sessao interativa: usa pythonw.exe (sem janela de console abrindo as 03:00), se existir.
+    $PythonW = Join-Path (Split-Path -Parent $PythonExe) "pythonw.exe"
+    if (Test-Path -LiteralPath $PythonW) { $Executavel = $PythonW }
+    $TipoLogon = "Interactive"
+}
+
+$Acao = New-ScheduledTaskAction -Execute $Executavel `
     -Argument "-B -m src.modules.cash_reconciliation.jobs.noturno" `
     -WorkingDirectory $DiretorioApi
 $Gatilho = New-ScheduledTaskTrigger -Daily -At "03:00"
@@ -30,8 +44,11 @@ $Configuracao = New-ScheduledTaskSettingsSet -StartWhenAvailable `
     -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Hours 3)
 $Principal = New-ScheduledTaskPrincipal `
     -UserId ([System.Security.Principal.WindowsIdentity]::GetCurrent().Name) `
-    -LogonType S4U -RunLevel Limited
+    -LogonType $TipoLogon -RunLevel Limited
 
 Register-ScheduledTask -TaskName $NomeTarefa -Action $Acao -Trigger $Gatilho `
     -Settings $Configuracao -Principal $Principal -ErrorAction Stop | Out-Null
-Write-Host "Tarefa registrada para 03:00: $NomeTarefa"
+Write-Host "Tarefa registrada para 03:00 ($TipoLogon): $NomeTarefa"
+if ($SemAdmin) {
+    Write-Host "Modo provisorio: a sessao do Windows precisa estar aberta as 03:00 (tela bloqueada serve). Computador desligado: roda quando ligar."
+}
