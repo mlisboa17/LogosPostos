@@ -9,7 +9,7 @@
             vale divergente; despesa sem plano de contas/descricao util
 V2: caixa aberto nao gera quebra (antes mostrava todo o apurado como "falta").
 V3: verifica vales, tempo sem consolidar e despesas pagas no caixa.
-V4: sangrias sem conta repassadas para outra unidade sao informativas, sem pendencia.
+V4: sangrias sem conta com repasse ou destino padrao sao informativas, sem pendencia.
 Mudou alguma regra? Crie nova VERSAO.
 """
 from __future__ import annotations
@@ -53,6 +53,7 @@ def auditar_caixa(
     hoje: date | None = None,
     repasse_sangria_para: int | None = None,
     nome_destino_repasse: str | None = None,
+    destino_padrao: int | None = None,
 ) -> AuditoriaCaixa:
     linhas = tuple(modalidades)
     do_caixa = tuple(s for s in sangrias if s.caixa_codigo == caixa.codigo)
@@ -135,6 +136,11 @@ def auditar_caixa(
                 destino = nome_destino_repasse or f"unidade {repasse_sangria_para}"
                 informativos.append(
                     f"Sangria de {_brl(s.valor)} às {s.momento:%H:%M} repassada ao {destino}"
+                )
+            elif destino_padrao is not None:
+                informativos.append(
+                    f"Sangria de {_brl(s.valor)} às {s.momento:%H:%M} "
+                    "assumida no cofre (destino padrão)"
                 )
             else:
                 alertas.append(Alerta(

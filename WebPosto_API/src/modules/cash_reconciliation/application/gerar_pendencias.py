@@ -102,7 +102,9 @@ def pendencias_do_dia(resultado: ResultadoDiario) -> list[NovaPendencia]:
                     identidade=f"{resultado.empresa_codigo}|{resultado.dia.isoformat()}|caixa:{caixa}|laranja",
                 ))
     unidade = carregar_unidades().get(resultado.empresa_codigo)
-    if unidade is not None and unidade.repasse_sangria_para is not None:
+    if unidade is not None and (
+        unidade.repasse_sangria_para is not None or unidade.destino_padrao is not None
+    ):
         abertas = repositorio_pendencias.contar_abertas_somente_leitura(
             unidade=resultado.empresa_codigo,
         )
@@ -132,6 +134,12 @@ def pendencias_do_dia(resultado: ResultadoDiario) -> list[NovaPendencia]:
                         justificativa=(
                             "Regra FECHAMENTO_V4: sangria da Conveniência 24h "
                             "repassada ao Casa Caiada (decisão do diretor em 10/10/2026)"
+                            if unidade.repasse_sangria_para is not None
+                            else (
+                                "Regra FECHAMENTO_V4: sangria assumida no cofre "
+                                f"(destino padrão {unidade.destino_padrao}), conforme decisão "
+                                "do diretor em 10/10/2026"
+                            )
                         ),
                     )
     for adquirente in resultado.recebimentos.adquirentes:

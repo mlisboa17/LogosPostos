@@ -150,6 +150,13 @@ def test_sangrias_repassadas_aprovam_abertas_e_preservam_justificadas_recusadas(
                 destinos=(),
                 repasse_sangria_para=5555,
             ),
+            5555: Unidade(
+                empresa_codigo=5555,
+                nome="AP CASA CAIADA",
+                chave_env="CHAVE_CASA_CAIADA",
+                destinos=(),
+                destino_padrao=17837,
+            ),
         },
     )
     antigas = [
@@ -206,6 +213,31 @@ def test_sangrias_repassadas_aprovam_abertas_e_preservam_justificadas_recusadas(
     novamente, _ = repositorio.listar(unidade=118508, tipo="fechamento_sangria_sem_destino", banco=banco)
     assert len(next(item for item in novamente if item.status == "aprovada").historico) == historico_final
     assert {item.status for item in novamente} == {"aprovada", "justificada", "recusada"}
+
+    antiga_casa_caiada = NovaPendencia(
+        unidade=5555,
+        dia=DIA,
+        tipo="fechamento_sangria_sem_destino",
+        severidade="vermelho",
+        valor=Decimal("25.00"),
+        referencia="caixa:1:sangria:10",
+        mensagem="Sangria sem conta de destino",
+    )
+    repositorio.registrar([antiga_casa_caiada], banco=banco)
+    pendencias_do_dia(criar_diario(DIA, unidade=5555))
+    casa_caiada, total_casa_caiada = repositorio.listar(
+        unidade=5555,
+        tipo="fechamento_sangria_sem_destino",
+        banco=banco,
+    )
+    assert total_casa_caiada == 1
+    assert casa_caiada[0].status == "aprovada"
+    assert casa_caiada[0].historico[-1].usuario == "robo"
+    assert casa_caiada[0].historico[-1].justificativa == (
+        "Regra FECHAMENTO_V4: sangria assumida no cofre "
+        "(destino padrão 17837), conforme decisão do diretor em 10/10/2026"
+    )
+
 
 def diario_com_alertas(alertas):
     resultado = criar_diario(DIA)

@@ -104,6 +104,15 @@ def test_sangria_repassada_e_informativa_com_destino_configurado():
     assert a.severidade is None
 
 
+def test_sangria_com_destino_padrao_e_informativa():
+    a = auditar_caixa(caixa(), (), [S(1, conta=None)], destino_padrao=17837)
+    assert not any(alerta.codigo == "SANGRIA_SEM_DESTINO" for alerta in a.alertas)
+    assert a.informativos == (
+        "Sangria de R$ 300,00 às 14:30 assumida no cofre (destino padrão)",
+    )
+    assert a.severidade is None
+
+
 def test_resultado_v3_sem_campo_informativos_continua_valido():
     legado = auditar_caixa(caixa(), (), [S(1)]).model_dump(mode="python")
     legado.pop("informativos")
