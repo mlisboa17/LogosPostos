@@ -1,7 +1,8 @@
 # STATUS — LOGOS Auditoria (atualizado em 10/10/2026)
 
 Repositório canônico: C:\Projetos\LOGOS\LogosPostos · branch feature/cash-audit-fechamento
-Último commit de código: 4eab908 (Sprint 6 concluída) · 27 commits à frente de logos/main · NÃO enviado ao GitHub
+Último commit de código: 4eab908 (Sprint 6 concluída) · branch enviado ao GitHub privado em 10/10/2026 (sem merge na main)
+PR a abrir: https://github.com/mlisboa17/LogosPostos/pull/new/feature/cash-audit-fechamento
 
 ## Pronto
 - Auditoria de fechamento FECHAMENTO_V3: quebra, falta sem desconto, caixa parado, despesas do caixa, reincidência
@@ -11,7 +12,7 @@ Repositório canônico: C:\Projetos\LOGOS\LogosPostos · branch feature/cash-aud
 - Datas no padrão Brasil (America/Recife)
 
 ## Aguardando o diretor
-1. Aprovar o push do branch ao GitHub (privado)
+1. Revisar e abrir o PR (descrição pronta em docs/status/PR_feature_cash_audit.md); merge na main só após revisão
 2. Regra de pendências: vermelho = pendência individual; laranja = 1 pendência por caixa/dia (hoje são 155 abertas em 8 dias)
 3. Metas de out/2026 do Doze e do Casa Caiada
 4. Fornecedores: credencial PagBank da Conveniência 24h, documentação da Mais Pagamentos, EDI da Rede, credencial Cielo
