@@ -1,9 +1,10 @@
 .states
 .web
+# Python bytecode and cache directories stay local, including previously tracked files.
 *.py[cod]
 *.db
 assets/external/
-__pycache__/
+**/__pycache__/
 .env
 *.env
 .env.*
