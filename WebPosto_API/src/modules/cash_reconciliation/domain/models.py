@@ -2,6 +2,7 @@
 
 Valores monetarios em Decimal. Todo resultado carrega Proveniencia (diretiva 6.2).
 """
+
 from __future__ import annotations
 
 from datetime import date, datetime
@@ -19,13 +20,15 @@ class _Frozen(BaseModel):
 
 
 class TipoDestino(str, Enum):
-    DEPOSITO_DIRETO = "deposito_direto"  # sangria vai direto ao banco (caixa 24h / cofre inteligente)
-    COFRE = "cofre"                      # sangria fica no cofre e e depositada depois
+    DEPOSITO_DIRETO = (
+        "deposito_direto"  # sangria vai direto ao banco (caixa 24h / cofre inteligente)
+    )
+    COFRE = "cofre"  # sangria fica no cofre e e depositada depois
 
 
 class Canal(str, Enum):
-    BCO24H = "bco24h"      # terminal Banco24Horas / cofre inteligente
-    ATM_AGENCIA = "atm"    # caixa eletronico da agencia
+    BCO24H = "bco24h"  # terminal Banco24Horas / cofre inteligente
+    ATM_AGENCIA = "atm"  # caixa eletronico da agencia
     OUTRO = "outro"
 
 
@@ -56,11 +59,11 @@ class DepositoBancario(_Frozen):
 
 
 class Destino(_Frozen):
-    conta_codigo: int | None              # None = sangrias lancadas sem conta no webPosto
+    conta_codigo: int | None  # None = sangrias lancadas sem conta no webPosto
     tipo: TipoDestino
     banco: str
-    conta_sufixo: str = ""                 # opcional; numero de conta nao vai para o repositorio
-    terminais: tuple[str, ...] = ()        # filtro de terminal para deposito direto (vazio = qualquer)
+    conta_sufixo: str = ""  # opcional; numero de conta nao vai para o repositorio
+    terminais: tuple[str, ...] = ()  # filtro de terminal para deposito direto (vazio = qualquer)
     prazo_dias: int = 1
 
 
@@ -80,9 +83,10 @@ class AdquirenteConfigurada(_Frozen):
 class Unidade(_Frozen):
     empresa_codigo: int
     nome: str
-    chave_env: str                         # NOME da variavel de ambiente com a CHAVE (nunca o valor)
+    chave_env: str  # NOME da variavel de ambiente com a CHAVE (nunca o valor)
     destinos: tuple[Destino, ...]
-    destino_padrao: int | None = None      # conta assumida quando a sangria vem sem contaCodigo
+    apelido: str | None = None
+    destino_padrao: int | None = None  # conta assumida quando a sangria vem sem contaCodigo
     repasse_sangria_para: int | None = None
     adquirentes: tuple[AdquirenteConfigurada, ...] = ()
 
@@ -95,6 +99,7 @@ class Unidade(_Frozen):
 
 class ContaCompartilhada(_Frozen):
     """Conta bancaria que recebe especie de mais de uma unidade."""
+
     nome: str
     banco: str
     membros: tuple[int, ...]  # empresaCodigo das unidades que depositam nela

@@ -12,6 +12,7 @@ V3: verifica vales, tempo sem consolidar e despesas pagas no caixa.
 V4: sangrias sem conta com repasse ou destino padrao sao informativas, sem pendencia.
 Mudou alguma regra? Crie nova VERSAO.
 """
+
 from __future__ import annotations
 
 from datetime import date
@@ -57,15 +58,19 @@ def auditar_caixa(
 ) -> AuditoriaCaixa:
     linhas = tuple(modalidades)
     do_caixa = tuple(s for s in sangrias if s.caixa_codigo == caixa.codigo)
-    vales_do_caixa = tuple(
-        vale for vale in vales
-        if vale.caixa_codigo == caixa.codigo
-        and vale.funcionario_codigo == caixa.funcionario_codigo
+    todos_vales = tuple(vales)
+    vales_do_caixa = tuple(vale for vale in todos_vales if vale.caixa_codigo == caixa.codigo)
+    vales_falta = tuple(
+        vale
+        for vale in vales_do_caixa
+        if vale.funcionario_codigo == caixa.funcionario_codigo
         and vale.origem.upper() == ORIGEM_VALE_FALTA
     )
     despesas_do_caixa = tuple(
-        movimento for movimento in despesas
-        if movimento.caixa_codigo == caixa.codigo and movimento.tipo.upper() == TIPO_MOVIMENTO_DESPESA
+        movimento
+        for movimento in despesas
+        if movimento.caixa_codigo == caixa.codigo
+        and movimento.tipo.upper() == TIPO_MOVIMENTO_DESPESA
     )
     alertas: list[Alerta] = []
     informativos: list[str] = []
@@ -74,55 +79,80 @@ def auditar_caixa(
     for m in (linhas if caixa.fechado else ()):
         if abs(m.diferenca) > limite:
             tipo = "falta" if m.diferenca < 0 else "sobra"
-            alertas.append(Alerta(codigo="QUEBRA", severidade=Severidade.VERMELHO, valor=m.diferenca,
-                                  referencia=caixa.codigo, mensagem=f"{m.rotulo}: {tipo} de {_brl(abs(m.diferenca))}"))
+            alertas.append(
+                Alerta(
+                    codigo="QUEBRA",
+                    severidade=Severidade.VERMELHO,
+                    valor=m.diferenca,
+                    referencia=caixa.codigo,
+                    mensagem=f"{m.rotulo}: {tipo} de {_brl(abs(m.diferenca))}",
+                )
+            )
     if not caixa.fechado:
-        alertas.append(Alerta(codigo="CAIXA_ABERTO", severidade=Severidade.LARANJA, referencia=caixa.codigo,
-                              mensagem="Caixa em andamento: quebra só após o fechamento"))
+        alertas.append(
+            Alerta(
+                codigo="CAIXA_ABERTO",
+                severidade=Severidade.LARANJA,
+                referencia=caixa.codigo,
+                mensagem="Caixa em andamento: quebra só após o fechamento",
+            )
+        )
     elif not caixa.consolidado:
         data_fechamento = caixa.fechamento.date() if caixa.fechamento else caixa.data
         dias_parado = max(((hoje or agora().date()) - data_fechamento).days, 0)
         severidade = (
-            Severidade.VERMELHO if dias_parado > dias_tolerancia_consolidacao else Severidade.LARANJA
+            Severidade.VERMELHO
+            if dias_parado > dias_tolerancia_consolidacao
+            else Severidade.LARANJA
         )
-        alertas.append(Alerta(
-            codigo="NAO_CONSOLIDADO",
-            severidade=severidade,
-            referencia=caixa.codigo,
-            mensagem=f"Fechado há {dias_parado} dias sem consolidar",
-            valor=Decimal(dias_parado),
-        ))
+        alertas.append(
+            Alerta(
+                codigo="NAO_CONSOLIDADO",
+                severidade=severidade,
+                referencia=caixa.codigo,
+                mensagem=f"Fechado há {dias_parado} dias sem consolidar",
+                valor=Decimal(dias_parado),
+            )
+        )
 
     falta_dinheiro = sum(
-        (-linha.diferenca for linha in linhas if linha.modalidade == "dinheiro" and linha.diferenca < 0),
+        (
+            -linha.diferenca
+            for linha in linhas
+            if linha.modalidade == "dinheiro" and linha.diferenca < 0
+        ),
         Decimal(0),
     )
     if caixa.fechado and falta_dinheiro > limite:
-        total_vale = sum((vale.valor for vale in vales_do_caixa), Decimal(0))
-        if not vales_do_caixa:
+        total_vale = sum((vale.valor for vale in vales_falta), Decimal(0))
+        if not vales_falta:
             situacao = "sem_desconto"
-            alertas.append(Alerta(
-                codigo="FALTA_SEM_DESCONTO",
-                severidade=Severidade.VERMELHO,
-                valor=falta_dinheiro,
-                referencia=caixa.codigo,
-                mensagem=f"Falta de {_brl(falta_dinheiro)} sem desconto lançado",
-            ))
+            alertas.append(
+                Alerta(
+                    codigo="FALTA_SEM_DESCONTO",
+                    severidade=Severidade.VERMELHO,
+                    valor=falta_dinheiro,
+                    referencia=caixa.codigo,
+                    mensagem=f"Falta de {_brl(falta_dinheiro)} sem desconto lançado",
+                )
+            )
         elif total_vale == falta_dinheiro:
             situacao = "descontado"
         else:
             situacao = "divergente"
             diferenca = abs(falta_dinheiro - total_vale)
-            alertas.append(Alerta(
-                codigo="VALE_DIVERGENTE",
-                severidade=Severidade.LARANJA,
-                valor=diferenca,
-                referencia=caixa.codigo,
-                mensagem=(
-                    f"Falta de {_brl(falta_dinheiro)} e vale de {_brl(total_vale)} "
-                    f"(diferença de {_brl(diferenca)})"
-                ),
-            ))
+            alertas.append(
+                Alerta(
+                    codigo="VALE_DIVERGENTE",
+                    severidade=Severidade.LARANJA,
+                    valor=diferenca,
+                    referencia=caixa.codigo,
+                    mensagem=(
+                        f"Falta de {_brl(falta_dinheiro)} e vale de {_brl(total_vale)} "
+                        f"(diferença de {_brl(diferenca)})"
+                    ),
+                )
+            )
         desconto_falta = DescontoFalta(
             situacao=situacao,
             falta=falta_dinheiro,
@@ -143,34 +173,47 @@ def auditar_caixa(
                     "assumida no cofre (destino padrão)"
                 )
             else:
-                alertas.append(Alerta(
-                    codigo="SANGRIA_SEM_DESTINO",
-                    severidade=Severidade.VERMELHO,
+                alertas.append(
+                    Alerta(
+                        codigo="SANGRIA_SEM_DESTINO",
+                        severidade=Severidade.VERMELHO,
+                        valor=s.valor,
+                        referencia=s.codigo,
+                        mensagem=f"Sangria de {_brl(s.valor)} às {s.momento:%H:%M} sem conta de destino",
+                    )
+                )
+        if s.alterada:
+            alertas.append(
+                Alerta(
+                    codigo="SANGRIA_ALTERADA",
+                    severidade=Severidade.LARANJA,
                     valor=s.valor,
                     referencia=s.codigo,
-                    mensagem=f"Sangria de {_brl(s.valor)} às {s.momento:%H:%M} sem conta de destino",
-                ))
-        if s.alterada:
-            alertas.append(Alerta(codigo="SANGRIA_ALTERADA", severidade=Severidade.LARANJA, valor=s.valor,
-                                  referencia=s.codigo, mensagem=f"Sangria de {_brl(s.valor)} às {s.momento:%H:%M} alterada após o lançamento"))
+                    mensagem=f"Sangria de {_brl(s.valor)} às {s.momento:%H:%M} alterada após o lançamento",
+                )
+            )
 
     for despesa in despesas_do_caixa:
         if not despesa.plano_conta_codigo:
-            alertas.append(Alerta(
-                codigo="DESPESA_SEM_PLANO",
-                severidade=Severidade.LARANJA,
-                valor=despesa.valor,
-                referencia=despesa.codigo,
-                mensagem=f"Despesa de {_brl(despesa.valor)} sem plano de contas",
-            ))
+            alertas.append(
+                Alerta(
+                    codigo="DESPESA_SEM_PLANO",
+                    severidade=Severidade.LARANJA,
+                    valor=despesa.valor,
+                    referencia=despesa.codigo,
+                    mensagem=f"Despesa de {_brl(despesa.valor)} sem plano de contas",
+                )
+            )
         if not despesa.descricao:
-            alertas.append(Alerta(
-                codigo="DESPESA_SEM_DESCRICAO",
-                severidade=Severidade.LARANJA,
-                valor=despesa.valor,
-                referencia=despesa.codigo,
-                mensagem=f"Despesa de {_brl(despesa.valor)} sem descrição útil",
-            ))
+            alertas.append(
+                Alerta(
+                    codigo="DESPESA_SEM_DESCRICAO",
+                    severidade=Severidade.LARANJA,
+                    valor=despesa.valor,
+                    referencia=despesa.codigo,
+                    mensagem=f"Despesa de {_brl(despesa.valor)} sem descrição útil",
+                )
+            )
 
     return AuditoriaCaixa(
         caixa=caixa,
@@ -178,7 +221,8 @@ def auditar_caixa(
         sangrias=do_caixa,
         alertas=tuple(alertas),
         informativos=tuple(informativos),
-        vales_falta=vales_do_caixa,
+        vales_falta=vales_falta,
+        vales=vales_do_caixa,
         desconto_falta=desconto_falta,
         despesas=despesas_do_caixa,
     )

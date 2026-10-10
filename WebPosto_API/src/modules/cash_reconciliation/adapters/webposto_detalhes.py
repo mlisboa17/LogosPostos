@@ -1,6 +1,8 @@
 """Adapters somente leitura para vales e despesas associados ao fechamento."""
+
 from __future__ import annotations
 
+import logging
 from datetime import date
 from decimal import Decimal
 from typing import Any
@@ -9,10 +11,12 @@ import httpx
 
 from ..domain.fechamento import MovimentoDespesa, ValeFuncionario
 from ..domain.models import Unidade
-from .webposto_http import paginar
+from .webposto_http import WebPostoErro, paginar
 
 PATH_VALES = "/INTEGRACAO/V1/VALES_FUNCIONARIO"
 PATH_MOVIMENTOS = "/INTEGRACAO/V1/MOVIMENTACOES_CAIXA"
+PATH_PLANOS_CONTA = "/INTEGRACAO/V1/PLANOS_CONTA_GERENCIAL"
+logger = logging.getLogger(__name__)
 
 
 def _texto(valor: Any) -> str | None:
@@ -92,4 +96,32 @@ async def buscar_despesas(
             and str(row.get("tipo") or "").upper() == "D"
             and _decimal(row.get("valorDinheiro")) > 0
         )
-    return despesas
+    nomes_planos: dict[str, str | None] = {}
+    for codigo in sorted({d.plano_conta_codigo for d in despesas if d.plano_conta_codigo}):
+        nomes_planos[codigo] = None
+        if not codigo.isdecimal():
+            continue
+        try:
+            linhas = await paginar(
+                unidade,
+                PATH_PLANOS_CONTA,
+                {"planoContaCodigo": int(codigo)},
+                client=client,
+            )
+        except WebPostoErro as exc:
+            logger.warning(
+                "Plano de contas nao enriquecido unidade=%s tipo=%s",
+                unidade.empresa_codigo,
+                type(exc).__name__,
+            )
+            continue
+        for linha in linhas:
+            if str(linha.get("planoContaCodigo")) == codigo:
+                nomes_planos[codigo] = _texto(linha.get("descricao"))
+                break
+    return [
+        despesa.model_copy(
+            update={"plano_conta_nome": nomes_planos.get(despesa.plano_conta_codigo)}
+        )
+        for despesa in despesas
+    ]

@@ -1,4 +1,5 @@
 """Auditoria do fechamento de caixa (sem banco) — dados exclusivamente do webPosto."""
+
 from __future__ import annotations
 
 from datetime import date
@@ -80,6 +81,7 @@ class MovimentoDespesa(_Frozen):
     valor: Decimal
     plano_conta_codigo: str | None
     descricao: str | None
+    plano_conta_nome: str | None = None
 
 
 class DescontoFalta(_Frozen):
@@ -104,6 +106,7 @@ class AuditoriaCaixa(_Frozen):
     alertas: tuple[Alerta, ...]
     informativos: tuple[str, ...] = ()
     vales_falta: tuple[ValeFuncionario, ...] = ()
+    vales: tuple[ValeFuncionario, ...] = ()
     desconto_falta: DescontoFalta | None = None
     despesas: tuple[MovimentoDespesa, ...] = ()
 
@@ -117,7 +120,11 @@ class AuditoriaCaixa(_Frozen):
     @property
     def severidade(self) -> Severidade | None:
         sev = {a.severidade for a in self.alertas}
-        return Severidade.VERMELHO if Severidade.VERMELHO in sev else Severidade.LARANJA if sev else None
+        return (
+            Severidade.VERMELHO
+            if Severidade.VERMELHO in sev
+            else Severidade.LARANJA if sev else None
+        )
 
 
 class ResultadoAuditoria(_Frozen):

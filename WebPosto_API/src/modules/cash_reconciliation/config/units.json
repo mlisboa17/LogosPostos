@@ -8,6 +8,7 @@
     {
       "empresa_codigo": 74014,
       "nome": "POSTO DOZE FILIAL II",
+      "apelido": "Doze",
       "chave_env": "WEBPOSTO_API_KEY_POSTO_DOZE_FILIAL_II",
       "adquirentes": [
         {"nome": "PAGBANK", "situacao": "ativo", "modalidades": ["cartoes", "pix"]},
@@ -21,6 +22,7 @@
     {
       "empresa_codigo": 11495,
       "nome": "POSTO VIP",
+      "apelido": "VIP",
       "chave_env": "WEBPOSTO_API_KEY_POSTO_VIP",
       "adquirentes": [
         {"nome": "MAIS_PAGAMENTOS", "situacao": "pendente", "modalidades": ["pix"], "setores": ["pista", "loja"]},
@@ -36,6 +38,7 @@
     {
       "empresa_codigo": 5555,
       "nome": "AP CASA CAIADA",
+      "apelido": "Casa Caiada",
       "chave_env": "WEBPOSTO_API_KEY_CASA_CAIADA",
       "adquirentes": [
         {"nome": "PAGBANK", "situacao": "ativo", "modalidades": ["cartoes", "pix"]},
@@ -49,6 +52,7 @@
     {
       "empresa_codigo": 118508,
       "nome": "CONVENIENCIA 24 HORAS",
+      "apelido": "Conv. 24h",
       "chave_env": "WEBPOSTO_API_KEY_CONVENIENCIA_24_HORAS",
       "repasse_sangria_para": 5555,
       "adquirentes": [
