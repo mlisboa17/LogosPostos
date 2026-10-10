@@ -102,7 +102,9 @@ def client(monkeypatch, tmp_path):
     return TestClient(app)
 
 
-def autenticar(client: TestClient, perfil: str, unidade: int | None = None, usuario: str | None = None):
+def autenticar(
+    client: TestClient, perfil: str, unidade: int | None = None, usuario: str | None = None
+):
     client.cookies.clear()
     client.cookies.set(
         "access_token",
@@ -136,7 +138,8 @@ def test_alertas_criam_pendencias_com_chave_idempotente_e_historico_append_only(
 
 
 def test_sangrias_repassadas_aprovam_abertas_e_preservam_justificadas_recusadas(
-    tmp_path, monkeypatch,
+    tmp_path,
+    monkeypatch,
 ):
     banco = tmp_path / "pendencias.sqlite3"
     monkeypatch.setattr(repositorio, "BANCO_PENDENCIAS", banco)
@@ -197,7 +200,9 @@ def test_sangrias_repassadas_aprovam_abertas_e_preservam_justificadas_recusadas(
         pendencia.tipo != "fechamento_sangria_sem_destino"
         for pendencia in pendencias_do_dia(resultado)
     )
-    itens, total = repositorio.listar(unidade=118508, tipo="fechamento_sangria_sem_destino", banco=banco)
+    itens, total = repositorio.listar(
+        unidade=118508, tipo="fechamento_sangria_sem_destino", banco=banco
+    )
     assert total == 3
     por_status = {item.status: item for item in itens}
     aprovada = por_status["aprovada"]
@@ -210,8 +215,13 @@ def test_sangrias_repassadas_aprovam_abertas_e_preservam_justificadas_recusadas(
     historico_final = len(aprovada.historico)
 
     pendencias_do_dia(resultado)
-    novamente, _ = repositorio.listar(unidade=118508, tipo="fechamento_sangria_sem_destino", banco=banco)
-    assert len(next(item for item in novamente if item.status == "aprovada").historico) == historico_final
+    novamente, _ = repositorio.listar(
+        unidade=118508, tipo="fechamento_sangria_sem_destino", banco=banco
+    )
+    assert (
+        len(next(item for item in novamente if item.status == "aprovada").historico)
+        == historico_final
+    )
     assert {item.status for item in novamente} == {"aprovada", "justificada", "recusada"}
 
     antiga_casa_caiada = NovaPendencia(
@@ -273,16 +283,18 @@ def alertas_laranja(sufixo=""):
 
 
 def test_alertas_laranja_do_caixa_agrupados_e_vermelho_individual():
-    resultado = diario_com_alertas((
-        Alerta(
-            codigo="QUEBRA",
-            severidade=Severidade.VERMELHO,
-            mensagem="Dinheiro: quebra",
-            valor=Decimal("-25.00"),
-            referencia=106,
-        ),
-        *alertas_laranja(),
-    ))
+    resultado = diario_com_alertas(
+        (
+            Alerta(
+                codigo="QUEBRA",
+                severidade=Severidade.VERMELHO,
+                mensagem="Dinheiro: quebra",
+                valor=Decimal("-25.00"),
+                referencia=106,
+            ),
+            *alertas_laranja(),
+        )
+    )
 
     novas = pendencias_do_dia(resultado)
     assert [pendencia.tipo for pendencia in novas] == [
@@ -315,8 +327,7 @@ def test_laranjas_individuais_abertas_sao_substituidas_com_historico(tmp_path):
     resultado = diario_com_alertas(alertas_laranja())
     caixa = resultado.fechamento.caixas[0].caixa.codigo
     with sqlite3.connect(banco) as conexao:
-        conexao.executescript(
-            """
+        conexao.executescript("""
             CREATE TABLE pendencias (
                 id TEXT PRIMARY KEY,
                 identidade TEXT NOT NULL UNIQUE,
@@ -341,8 +352,7 @@ def test_laranjas_individuais_abertas_sao_substituidas_com_historico(tmp_path):
                 justificativa TEXT,
                 registrado_em TEXT NOT NULL
             );
-            """
-        )
+            """)
     antigas = [
         NovaPendencia(
             unidade=EMPRESA,
@@ -368,9 +378,16 @@ def test_laranjas_individuais_abertas_sao_substituidas_com_historico(tmp_path):
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'aberta', NULL, ?)
                 """,
                 (
-                    f"legada-{indice}", identidade, antiga.unidade, antiga.dia.isoformat(),
-                    antiga.tipo, antiga.severidade, str(antiga.valor), antiga.referencia,
-                    antiga.mensagem, datetime(2026, 10, 7).isoformat(),
+                    f"legada-{indice}",
+                    identidade,
+                    antiga.unidade,
+                    antiga.dia.isoformat(),
+                    antiga.tipo,
+                    antiga.severidade,
+                    str(antiga.valor),
+                    antiga.referencia,
+                    antiga.mensagem,
+                    datetime(2026, 10, 7).isoformat(),
                 ),
             )
             conexao.execute(
@@ -417,16 +434,18 @@ def test_gerente_justifica_e_diretor_decide_sem_alterar_historico(client, tmp_pa
     fila = client.get("/api/v1/cash-audit/pendencias", params={"unidade": EMPRESA})
     assert fila.status_code == 200
     pendencia_id = fila.json()["items"][0]["id"]
-    assert client.get(
-        "/api/v1/cash-audit/pendencias", params={"unidade": 654}
-    ).status_code == 403
-    assert client.post(
-        f"/api/v1/cash-audit/pendencias/{pendencia_id}/aprovar", json={}
-    ).status_code == 403
-    assert client.post(
-        f"/api/v1/cash-audit/pendencias/{pendencia_id}/justificar",
-        json={"justificativa": "   "},
-    ).status_code == 422
+    assert client.get("/api/v1/cash-audit/pendencias", params={"unidade": 654}).status_code == 403
+    assert (
+        client.post(f"/api/v1/cash-audit/pendencias/{pendencia_id}/aprovar", json={}).status_code
+        == 403
+    )
+    assert (
+        client.post(
+            f"/api/v1/cash-audit/pendencias/{pendencia_id}/justificar",
+            json={"justificativa": "   "},
+        ).status_code
+        == 422
+    )
 
     justificada = client.post(
         f"/api/v1/cash-audit/pendencias/{pendencia_id}/justificar",
@@ -442,9 +461,7 @@ def test_gerente_justifica_e_diretor_decide_sem_alterar_historico(client, tmp_pa
         json={"justificativa": "Complemento da justificativa registrado."},
     )
     assert corrigida.status_code == 200
-    assert [
-        evento["justificativa"] for evento in corrigida.json()["historico"]
-    ] == [
+    assert [evento["justificativa"] for evento in corrigida.json()["historico"]] == [
         None,
         "Conferido com o responsável da unidade.",
         "Complemento da justificativa registrado.",
@@ -458,11 +475,15 @@ def test_gerente_justifica_e_diretor_decide_sem_alterar_historico(client, tmp_pa
     assert aprovada.status_code == 200
     assert aprovada.json()["status"] == "aprovada"
     assert [evento["acao"] for evento in aprovada.json()["historico"]] == [
-        "criada", "justificada", "justificativa_corrigida", "aprovada",
+        "criada",
+        "justificada",
+        "justificativa_corrigida",
+        "aprovada",
     ]
-    assert client.post(
-        f"/api/v1/cash-audit/pendencias/{pendencia_id}/recusar", json={}
-    ).status_code == 409
+    assert (
+        client.post(f"/api/v1/cash-audit/pendencias/{pendencia_id}/recusar", json={}).status_code
+        == 409
+    )
 
 
 def test_auditor_le_mas_nao_altera_e_anonimo_nao_lista(client):
@@ -538,16 +559,18 @@ def test_idade_da_pendencia_considera_virada_de_dia_em_recife(client, monkeypatc
     agora_local = datetime.fromisoformat("2026-10-02T00:15:00-03:00")
     monkeypatch.setattr(repositorio, "agora", lambda: criada)
     monkeypatch.setattr(http, "agora", lambda: agora_local)
-    repositorio.registrar([
-        NovaPendencia(
-            unidade=EMPRESA,
-            dia=DIA,
-            tipo="virada_dia",
-            severidade="vermelho",
-            referencia="virada",
-            mensagem="Pendência de teste temporária",
-        )
-    ])
+    repositorio.registrar(
+        [
+            NovaPendencia(
+                unidade=EMPRESA,
+                dia=DIA,
+                tipo="virada_dia",
+                severidade="vermelho",
+                referencia="virada",
+                mensagem="Pendência de teste temporária",
+            )
+        ]
+    )
 
     autenticar(client, "diretor")
     resposta = client.get(
@@ -558,3 +581,50 @@ def test_idade_da_pendencia_considera_virada_de_dia_em_recife(client, monkeypatc
     pendencia = resposta.json()["items"][0]
     assert pendencia["aberta_ha_dias"] == 1
     assert pendencia["vencida"] is False
+
+
+def test_conta_pendencias_vencidas_somente_leitura(tmp_path):
+    banco = tmp_path / "pendencias.sqlite3"
+    instante = datetime.fromisoformat("2026-10-10T12:00:00-03:00")
+    novas = [
+        NovaPendencia(
+            unidade=EMPRESA,
+            dia=date(2026, 10, 6),
+            tipo="resumo_teste",
+            severidade=severidade,
+            referencia=referencia,
+            mensagem="Pendência sintética",
+        )
+        for severidade, referencia in (
+            ("vermelho", "vermelha-antiga"),
+            ("laranja", "laranja-no-prazo"),
+            ("vermelho", "justificada"),
+        )
+    ]
+    repositorio.registrar(novas, banco=banco)
+    itens, _ = repositorio.listar(unidade=EMPRESA, tipo="resumo_teste", banco=banco)
+    justificada = next(item for item in itens if item.referencia == "justificada")
+    repositorio.transicionar(
+        justificada.id,
+        status_esperado="aberta",
+        status_novo="justificada",
+        acao="justificada",
+        usuario="teste",
+        banco=banco,
+    )
+    with sqlite3.connect(banco) as conexao:
+        conexao.execute(
+            "UPDATE pendencias SET criada_em = ? WHERE tipo = ?",
+            ("2026-10-07T12:00:00-03:00", "resumo_teste"),
+        )
+        conexao.commit()
+
+    assert (
+        repositorio.contar_vencidas_somente_leitura(
+            unidade=EMPRESA,
+            prazos_dias={"vermelho": 2, "laranja": 5},
+            instante=instante,
+            banco=banco,
+        )
+        == 1
+    )

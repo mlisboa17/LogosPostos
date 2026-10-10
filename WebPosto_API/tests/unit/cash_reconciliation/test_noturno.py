@@ -3,19 +3,33 @@ import ast
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
+from src.jobs import noturno as composicao_noturna
 from src.modules.cash_reconciliation.adapters import persistencia
 from src.modules.cash_reconciliation.adapters import saude_robo
 from src.modules.cash_reconciliation.domain.execucao import ResultadoDiario
-from src.modules.cash_reconciliation.domain.models import AdquirenteConfigurada, Proveniencia, Unidade
-from src.modules.cash_reconciliation.domain.recebimentos import RecebimentoAdquirente, ResultadoRecebimentos, ResumoCasados
+from src.modules.cash_reconciliation.domain.models import (
+    AdquirenteConfigurada,
+    Proveniencia,
+    Unidade,
+)
+from src.modules.cash_reconciliation.domain.recebimentos import (
+    RecebimentoAdquirente,
+    ResultadoRecebimentos,
+    ResumoCasados,
+)
 from src.modules.cash_reconciliation.interfaces import http
 from src.modules.cash_reconciliation.jobs import noturno
 from src.infrastructure.security.jwt_utils import create_access_token
+from src.shared.notificacao.telegram import (
+    ResultadoDestinatario,
+    enviar_mensagem as telegram_enviar_mensagem,
+)
 
 from .test_http import resultado_sintetico
 
@@ -31,37 +45,59 @@ def sem_postos_comerciais_reais(monkeypatch, tmp_path):
 
 def unidade(empresa=EMPRESA):
     return Unidade(
-        empresa_codigo=empresa, nome="Sintetica", chave_env="CHAVE_SINTETICA", destinos=(),
+        empresa_codigo=empresa,
+        nome="Sintetica",
+        chave_env="CHAVE_SINTETICA",
+        destinos=(),
         adquirentes=(
             AdquirenteConfigurada(nome="PAGBANK", situacao="ativo", modalidades=("pix",)),
-            AdquirenteConfigurada(nome="MAIS_PAGAMENTOS", situacao="pendente", modalidades=("pix",)),
+            AdquirenteConfigurada(
+                nome="MAIS_PAGAMENTOS", situacao="pendente", modalidades=("pix",)
+            ),
         ),
     )
 
 
 def diario(empresa=EMPRESA, dia=DIA, erro=None):
-    fechamento = resultado_sintetico().model_copy(update={
-        "empresa_codigo": empresa, "inicio": dia, "fim": dia,
-        "caixas": resultado_sintetico().caixas if empresa == EMPRESA and dia == DIA else (),
-    })
+    fechamento = resultado_sintetico().model_copy(
+        update={
+            "empresa_codigo": empresa,
+            "inicio": dia,
+            "fim": dia,
+            "caixas": resultado_sintetico().caixas if empresa == EMPRESA and dia == DIA else (),
+        }
+    )
     return ResultadoDiario(
-        empresa_codigo=empresa, dia=dia, fechamento=fechamento if erro is None else None,
+        empresa_codigo=empresa,
+        dia=dia,
+        fechamento=fechamento if erro is None else None,
         erro_fechamento=erro,
         recebimentos=ResultadoRecebimentos(
-            empresa_codigo=empresa, dia=dia,
-            adquirentes=(RecebimentoAdquirente(
-                adquirente="PAGBANK", situacao="ok",
-                casados=ResumoCasados(quantidade=1, total="10.15"),
-                proveniencia=Proveniencia(
-                    execucao_id="recebimento-sintetico", executado_em=datetime(2026, 10, 2, 3),
-                    versao_regra="CARTOES_V1", fonte_sangrias="", extratos=(), outras_fontes=("sintetica",),
+            empresa_codigo=empresa,
+            dia=dia,
+            adquirentes=(
+                RecebimentoAdquirente(
+                    adquirente="PAGBANK",
+                    situacao="ok",
+                    casados=ResumoCasados(quantidade=1, total="10.15"),
+                    proveniencia=Proveniencia(
+                        execucao_id="recebimento-sintetico",
+                        executado_em=datetime(2026, 10, 2, 3),
+                        versao_regra="CARTOES_V1",
+                        fonte_sangrias="",
+                        extratos=(),
+                        outras_fontes=("sintetica",),
+                    ),
                 ),
-            ),),
+            ),
         ),
         proveniencia=Proveniencia(
-            execucao_id="execucao-sintetica", executado_em=datetime(2026, 10, 2, 3),
-            versao_regra=noturno.VERSAO_JOB, fonte_sangrias="sintetica",
-            extratos=(), outras_fontes=("sintetica",),
+            execucao_id="execucao-sintetica",
+            executado_em=datetime(2026, 10, 2, 3),
+            versao_regra=noturno.VERSAO_JOB,
+            fonte_sangrias="sintetica",
+            extratos=(),
+            outras_fontes=("sintetica",),
         ),
         versoes_regras=("FECHAMENTO_V3", "CARTOES_V1"),
     )
@@ -76,7 +112,9 @@ def client(monkeypatch, tmp_path):
     with TestClient(app) as client:
         client.cookies.set(
             "access_token",
-            create_access_token("director@example.invalid", extra={"role": "diretor", "token_type": "access"}),
+            create_access_token(
+                "director@example.invalid", extra={"role": "diretor", "token_type": "access"}
+            ),
         )
         yield client
 
@@ -147,7 +185,9 @@ def test_rotas_usam_persistido_sem_rede(client, monkeypatch, tmp_path):
     receb = client.get("/api/v1/cash-audit/recebimentos", params={"unidade": EMPRESA, "dia": DIA})
     assert receb.status_code == 200
     assert receb.json()["adquirentes"][0]["casados"]["quantidade"] == 1
-    fechamento = client.get("/api/v1/cash-audit/fechamento", params={"unidade": EMPRESA, "inicio": DIA, "fim": DIA})
+    fechamento = client.get(
+        "/api/v1/cash-audit/fechamento", params={"unidade": EMPRESA, "inicio": DIA, "fim": DIA}
+    )
     assert fechamento.status_code == 200
     assert fechamento.json()["quebra_total"] == "2.50"
     assert fechamento.json()["caixas"][0]["severidade"] == "vermelho"
@@ -175,7 +215,9 @@ def test_periodo_misto_consulta_so_dia_ausente(client, monkeypatch, tmp_path):
 
 def test_erro_persistido_nao_consulta_ao_vivo(client, tmp_path):
     persistencia.salvar_dia(diario(erro="falha ao consultar fechamento"), diretorio=tmp_path)
-    response = client.get("/api/v1/cash-audit/fechamento", params={"unidade": EMPRESA, "inicio": DIA, "fim": DIA})
+    response = client.get(
+        "/api/v1/cash-audit/fechamento", params={"unidade": EMPRESA, "inicio": DIA, "fim": DIA}
+    )
     assert response.status_code == 502
 
 
@@ -184,7 +226,11 @@ def test_rota_cache_corrompido_retorna_500(client, tmp_path, rota):
     caminho = persistencia.caminho_dia(EMPRESA, DIA, tmp_path)
     caminho.parent.mkdir()
     caminho.write_text("segredo arquivo corrompido", encoding="utf-8")
-    params = {"unidade": EMPRESA, "dia": DIA} if rota == "recebimentos" else {"unidade": EMPRESA, "inicio": DIA, "fim": DIA}
+    params = (
+        {"unidade": EMPRESA, "dia": DIA}
+        if rota == "recebimentos"
+        else {"unidade": EMPRESA, "inicio": DIA, "fim": DIA}
+    )
     response = client.get(f"/api/v1/cash-audit/{rota}", params=params)
     assert response.status_code == 500 and "segredo" not in response.text
 
@@ -217,15 +263,17 @@ async def test_credencial_invalida_e_aviso_persistido_sem_falha(monkeypatch, tmp
     monkeypatch.setenv("WEBPOSTO_WRITES", "0")
     monkeypatch.setattr(noturno, "carregar_unidades", lambda: {EMPRESA: unidade()})
     resultado = diario()
-    recebimentos = resultado.recebimentos.model_copy(update={
-        "adquirentes": (
-            RecebimentoAdquirente(
-                adquirente="PAGBANK",
-                situacao="credencial inválida",
-                erro="credencial inválida",
+    recebimentos = resultado.recebimentos.model_copy(
+        update={
+            "adquirentes": (
+                RecebimentoAdquirente(
+                    adquirente="PAGBANK",
+                    situacao="credencial inválida",
+                    erro="credencial inválida",
+                ),
             ),
-        ),
-    })
+        }
+    )
 
     async def coletar(*args, **kwargs):
         return resultado.model_copy(update={"recebimentos": recebimentos})
@@ -267,16 +315,22 @@ async def test_job_registra_alertas_sem_duplicar_pendencias(monkeypatch, tmp_pat
     monkeypatch.setattr(noturno, "coletar_unidade", coletar)
     banco = tmp_path / "pendencias.sqlite3"
 
-    assert await noturno.executar(
-        DIA,
-        diretorio=tmp_path / "snapshots",
-        diretorio_pendencias=banco,
-    ) == 0
-    assert await noturno.executar(
-        DIA,
-        diretorio=tmp_path / "snapshots",
-        diretorio_pendencias=banco,
-    ) == 0
+    assert (
+        await noturno.executar(
+            DIA,
+            diretorio=tmp_path / "snapshots",
+            diretorio_pendencias=banco,
+        )
+        == 0
+    )
+    assert (
+        await noturno.executar(
+            DIA,
+            diretorio=tmp_path / "snapshots",
+            diretorio_pendencias=banco,
+        )
+        == 0
+    )
 
     from src.modules.cash_reconciliation.adapters import pendencias as repositorio_pendencias
 
@@ -301,7 +355,9 @@ async def test_job_timeout_nao_impede_recebimentos(monkeypatch, tmp_path):
         await asyncio.sleep(1)
 
     async def recebimento(empresa, dia, conf, *, timeout):
-        return RecebimentoAdquirente(adquirente=conf.nome, situacao="credencial inválida", erro="credencial inválida")
+        return RecebimentoAdquirente(
+            adquirente=conf.nome, situacao="credencial inválida", erro="credencial inválida"
+        )
 
     monkeypatch.setattr(noturno, "auditar_unidade", lento)
     monkeypatch.setattr(noturno, "conciliar_adquirente", recebimento)
@@ -313,7 +369,9 @@ async def test_job_timeout_nao_impede_recebimentos(monkeypatch, tmp_path):
 
 async def test_job_falha_de_unidade_nao_interrompe_outra(monkeypatch, tmp_path):
     monkeypatch.setenv("WEBPOSTO_WRITES", "0")
-    monkeypatch.setattr(noturno, "carregar_unidades", lambda: {321: unidade(321), 999: unidade(999)})
+    monkeypatch.setattr(
+        noturno, "carregar_unidades", lambda: {321: unidade(321), 999: unidade(999)}
+    )
 
     async def coletar(unit, dia, execucao_id, *, timeout):
         if unit.empresa_codigo == 321:
@@ -340,6 +398,99 @@ def test_dia_cli_formato_estrito():
             noturno._dia(valor)
 
 
+def test_envio_telegram_nao_duplica_data(monkeypatch, tmp_path):
+    monkeypatch.setenv("TELEGRAM_ENVIO", "1")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "token-sintetico")
+    monkeypatch.setenv("TELEGRAM_CHAT_IDS", "123")
+    monkeypatch.setattr(composicao_noturna, "_mensagens_telegram", lambda dia: ["resumo sintético"])
+    chamadas = []
+
+    def enviar(texto, *, token, chat_ids):
+        chamadas.append((texto, token, chat_ids))
+        return [ResultadoDestinatario(chat_id="123", sucesso=True, status_http=200)]
+
+    monkeypatch.setattr(composicao_noturna, "enviar_mensagem", enviar)
+    registro = tmp_path / "envios_telegram.json"
+    for _ in range(2):
+        composicao_noturna._tentar_envio_telegram(
+            DIA,
+            dia_manual=True,
+            enviar_manual=True,
+            reenviar=False,
+            caminho_registro=registro,
+        )
+
+    assert len(chamadas) == 1
+    assert "2026-10-01" in registro.read_text(encoding="utf-8")
+
+
+def test_envio_telegram_desligado_nao_chama_api(monkeypatch, tmp_path):
+    monkeypatch.setenv("TELEGRAM_ENVIO", "0")
+    monkeypatch.setattr(
+        composicao_noturna,
+        "enviar_mensagem",
+        lambda *args, **kwargs: pytest.fail("Telegram não deve ser chamado."),
+    )
+
+    composicao_noturna._tentar_envio_telegram(
+        DIA,
+        dia_manual=True,
+        enviar_manual=True,
+        reenviar=False,
+        caminho_registro=tmp_path / "envios.json",
+    )
+
+
+def test_envio_telegram_401_nao_registra_token_no_log(monkeypatch, tmp_path, caplog):
+    monkeypatch.setenv("TELEGRAM_ENVIO", "1")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "token-sintetico-secreto")
+    monkeypatch.setenv("TELEGRAM_CHAT_IDS", "123")
+    monkeypatch.setattr(composicao_noturna, "_mensagens_telegram", lambda dia: ["resumo sintético"])
+    with httpx.Client(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(401, json={"ok": False, "description": "unauthorized"})
+        )
+    ) as cliente:
+        monkeypatch.setattr(
+            composicao_noturna,
+            "enviar_mensagem",
+            lambda texto, *, token, chat_ids: telegram_enviar_mensagem(
+                texto,
+                token=token,
+                chat_ids=chat_ids,
+                cliente=cliente,
+            ),
+        )
+
+        composicao_noturna._tentar_envio_telegram(
+            DIA,
+            dia_manual=True,
+            enviar_manual=True,
+            reenviar=False,
+            caminho_registro=tmp_path / "envios.json",
+        )
+
+    assert "HTTP 401" in caplog.text
+    assert "token-sintetico-secreto" not in caplog.text
+
+
+def test_reprocessamento_manual_nao_envia_sem_opcao(monkeypatch, tmp_path):
+    monkeypatch.setenv("TELEGRAM_ENVIO", "1")
+    monkeypatch.setattr(
+        composicao_noturna,
+        "enviar_mensagem",
+        lambda *args, **kwargs: pytest.fail("Reprocessamento manual não deve enviar."),
+    )
+
+    composicao_noturna._tentar_envio_telegram(
+        DIA,
+        dia_manual=True,
+        enviar_manual=False,
+        reenviar=False,
+        caminho_registro=tmp_path / "envios.json",
+    )
+
+
 def test_modulos_nao_importam_uns_aos_outros():
     raiz = Path(__file__).resolve().parents[3] / "src" / "modules"
     dependencias_proibidas = (
@@ -357,6 +508,9 @@ def test_modulos_nao_importam_uns_aos_outros():
                     nomes = [no.module or ""]
                 else:
                     continue
-                if any(nome == f"src.modules.{destino}" or nome.startswith(f"src.modules.{destino}.") for nome in nomes):
+                if any(
+                    nome == f"src.modules.{destino}" or nome.startswith(f"src.modules.{destino}.")
+                    for nome in nomes
+                ):
                     violacoes.append(f"{caminho}:{no.lineno}")
     assert violacoes == []

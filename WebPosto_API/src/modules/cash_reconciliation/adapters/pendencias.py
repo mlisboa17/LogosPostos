@@ -1,4 +1,5 @@
 """Repositorio SQLite append-only da fila de pendências."""
+
 from __future__ import annotations
 
 import hashlib
@@ -11,7 +12,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Iterable, Iterator, Literal
 
-from ..domain.pendencias import EventoPendencia, NovaPendencia, Pendencia
+from ..domain.pendencias import EventoPendencia, NovaPendencia, Pendencia, calcular_prazo_pendencia
 from ..domain.tempo import agora
 
 DIRETORIO_PENDENCIAS = Path(__file__).resolve().parents[4] / "data" / "pendencias"
@@ -43,8 +44,7 @@ def _conectar(banco: Path | None = None) -> Iterator[sqlite3.Connection]:
     try:
         conexao.row_factory = sqlite3.Row
         conexao.execute("PRAGMA foreign_keys = ON")
-        conexao.executescript(
-            """
+        conexao.executescript("""
             CREATE TABLE IF NOT EXISTS pendencias (
                 id TEXT PRIMARY KEY,
                 identidade TEXT NOT NULL UNIQUE,
@@ -79,8 +79,7 @@ def _conectar(banco: Path | None = None) -> Iterator[sqlite3.Connection]:
             CREATE TRIGGER IF NOT EXISTS historico_pendencias_nao_apaga
                 BEFORE DELETE ON historico_pendencias
                 BEGIN SELECT RAISE(ABORT, 'historico imutavel'); END;
-            """
-        )
+            """)
         schema = conexao.execute(
             "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'pendencias'"
         ).fetchone()
@@ -88,8 +87,7 @@ def _conectar(banco: Path | None = None) -> Iterator[sqlite3.Connection]:
             conexao.execute("PRAGMA foreign_keys = OFF")
             try:
                 conexao.execute("BEGIN IMMEDIATE")
-                conexao.execute(
-                    """
+                conexao.execute("""
                     CREATE TABLE pendencias_nova (
                         id TEXT PRIMARY KEY,
                         identidade TEXT NOT NULL UNIQUE,
@@ -106,24 +104,19 @@ def _conectar(banco: Path | None = None) -> Iterator[sqlite3.Connection]:
                         responsavel TEXT,
                         criada_em TEXT NOT NULL
                     )
-                    """
-                )
-                conexao.execute(
-                    """
+                    """)
+                conexao.execute("""
                     INSERT INTO pendencias_nova
                     SELECT id, identidade, unidade, dia, tipo, severidade, valor, referencia,
                            mensagem, status, responsavel, criada_em
                     FROM pendencias
-                    """
-                )
+                    """)
                 conexao.execute("DROP TABLE pendencias")
                 conexao.execute("ALTER TABLE pendencias_nova RENAME TO pendencias")
-                conexao.execute(
-                    """
+                conexao.execute("""
                     CREATE INDEX idx_pendencias_unidade_status_dia
                     ON pendencias (unidade, status, dia DESC)
-                    """
-                )
+                    """)
                 conexao.commit()
             except sqlite3.Error:
                 conexao.rollback()
@@ -194,9 +187,16 @@ def registrar(
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'aberta', NULL, ?)
                     """,
                     (
-                        pendencia_id, identidade, nova.unidade, nova.dia.isoformat(), nova.tipo,
-                        nova.severidade, str(nova.valor) if nova.valor is not None else None,
-                        nova.referencia, nova.mensagem, criada_em,
+                        pendencia_id,
+                        identidade,
+                        nova.unidade,
+                        nova.dia.isoformat(),
+                        nova.tipo,
+                        nova.severidade,
+                        str(nova.valor) if nova.valor is not None else None,
+                        nova.referencia,
+                        nova.mensagem,
+                        criada_em,
                     ),
                 )
                 if cursor.rowcount == 1:
@@ -223,7 +223,8 @@ def registrar(
                         pendencia_id = existente["id"]
                         if existente["status"] == "aberta" and (
                             existente["mensagem"] != nova.mensagem
-                            or existente["valor"] != (str(nova.valor) if nova.valor is not None else None)
+                            or existente["valor"]
+                            != (str(nova.valor) if nova.valor is not None else None)
                         ):
                             registrado_em = agora().isoformat()
                             conexao.execute(
@@ -333,15 +334,14 @@ def listar(
     where = f" WHERE {' AND '.join(filtros)}" if filtros else ""
     try:
         with _conectar(banco) as conexao:
-            total = conexao.execute(f"SELECT COUNT(*) FROM pendencias{where}", valores).fetchone()[0]
+            total = conexao.execute(f"SELECT COUNT(*) FROM pendencias{where}", valores).fetchone()[
+                0
+            ]
             rows = conexao.execute(
                 f"SELECT * FROM pendencias{where} ORDER BY dia DESC, criada_em DESC LIMIT ? OFFSET ?",
                 (*valores, limite, deslocamento),
             ).fetchall()
-            itens = [
-                _pendencia(row, _carregar_historico(conexao, row["id"]))
-                for row in rows
-            ]
+            itens = [_pendencia(row, _carregar_historico(conexao, row["id"])) for row in rows]
             return itens, total
     except sqlite3.Error as exc:
         logger.error("Falha ao listar pendências tipo=%s", type(exc).__name__)
@@ -351,7 +351,9 @@ def listar(
 def obter(pendencia_id: str, *, banco: Path | None = None) -> Pendencia | None:
     try:
         with _conectar(banco) as conexao:
-            row = conexao.execute("SELECT * FROM pendencias WHERE id = ?", (pendencia_id,)).fetchone()
+            row = conexao.execute(
+                "SELECT * FROM pendencias WHERE id = ?", (pendencia_id,)
+            ).fetchone()
             if row is None:
                 return None
             return _pendencia(row, _carregar_historico(conexao, pendencia_id))
@@ -364,7 +366,9 @@ def contar_abertas(*, unidade: int | None = None, banco: Path | None = None) -> 
     try:
         with _conectar(banco) as conexao:
             if unidade is None:
-                row = conexao.execute("SELECT COUNT(*) FROM pendencias WHERE status = 'aberta'").fetchone()
+                row = conexao.execute(
+                    "SELECT COUNT(*) FROM pendencias WHERE status = 'aberta'"
+                ).fetchone()
             else:
                 row = conexao.execute(
                     "SELECT COUNT(*) FROM pendencias WHERE status = 'aberta' AND unidade = ?",
@@ -377,7 +381,9 @@ def contar_abertas(*, unidade: int | None = None, banco: Path | None = None) -> 
 
 
 def contar_abertas_somente_leitura(
-    *, unidade: int, banco: Path | None = None,
+    *,
+    unidade: int,
+    banco: Path | None = None,
 ) -> int | None:
     """Conta pendências sem criar diretório, arquivo, tabelas ou índices."""
     caminho = banco or BANCO_PENDENCIAS
@@ -411,6 +417,48 @@ def contar_abertas_somente_leitura(
     except sqlite3.Error as exc:
         logger.error("Falha ao contar pendencias somente leitura tipo=%s", type(exc).__name__)
         raise ErroPersistenciaPendencias("Falha ao ler pendências abertas.") from None
+
+
+def contar_vencidas_somente_leitura(
+    *,
+    unidade: int,
+    prazos_dias: dict[str, int],
+    instante: datetime | None = None,
+    banco: Path | None = None,
+) -> int | None:
+    """Conta pendências vencidas usando o banco existente, sem criar ou alterar arquivos."""
+    caminho = banco or BANCO_PENDENCIAS
+    try:
+        caminho.stat()
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        logger.error("Falha ao verificar banco de pendencias tipo=%s", type(exc).__name__)
+        raise ErroPersistenciaPendencias("Falha ao ler pendências vencidas.") from None
+    try:
+        conexao = sqlite3.connect(f"{caminho.resolve().as_uri()}?mode=ro", uri=True, timeout=10)
+        conexao.row_factory = sqlite3.Row
+        try:
+            conexao.execute("PRAGMA query_only = ON")
+            tabelas = conexao.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'pendencias'"
+            ).fetchone()
+            if tabelas is None:
+                raise sqlite3.DatabaseError("Tabela de pendências ausente.")
+            rows = conexao.execute(
+                "SELECT * FROM pendencias WHERE status = 'aberta' AND unidade = ?",
+                (unidade,),
+            ).fetchall()
+            agora_local = instante or agora()
+            return sum(
+                bool(calcular_prazo_pendencia(_pendencia(row), agora_local, prazos_dias)["vencida"])
+                for row in rows
+            )
+        finally:
+            conexao.close()
+    except sqlite3.Error as exc:
+        logger.error("Falha ao contar pendencias vencidas tipo=%s", type(exc).__name__)
+        raise ErroPersistenciaPendencias("Falha ao ler pendências vencidas.") from None
 
 
 def transicionar(
@@ -447,7 +495,15 @@ def transicionar(
                     (pendencia_id, acao, status_anterior, status_novo, usuario, justificativa, registrado_em)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (pendencia_id, acao, status_esperado, status_novo, usuario, justificativa, registrado_em),
+                (
+                    pendencia_id,
+                    acao,
+                    status_esperado,
+                    status_novo,
+                    usuario,
+                    justificativa,
+                    registrado_em,
+                ),
             )
             updated = conexao.execute(
                 "SELECT * FROM pendencias WHERE id = ?", (pendencia_id,)
