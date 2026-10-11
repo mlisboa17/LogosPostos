@@ -29,14 +29,14 @@ Regras e mapas: `docs/regras-negocio/REGRAS_DE_NEGOCIO.md` RN-ERP-003 (inteira: 
 
 1. O bot passa a aceitar **foto ou PDF** enviado **só pelo chat do diretor** (chat id já configurado). Arquivo salvo em `data/despesas_avulsas/comprovantes/`.
 2. Leitura do comprovante com o **Gemini** (chave já no `.env`; autorizado pelo diretor; nomes e valores liberados): valor, data/hora, favorecido, CPF/CNPJ ou chave PIX, banco/conta de origem, descrição. Resultado validado com Pydantic; campo ilegível fica vazio (não inventar).
-3. O diretor pode responder ao comprovante com uma palavra ("pedreiro", "gelo", "manutenção bomba") → vira a descrição/categoria sugerida.
+3. O diretor pode responder ao comprovante com uma palavra **ou um áudio** do Telegram ("paguei 350 ao seu Antônio pedreiro pelo piso da pista") → o Gemini (que lê áudio direto, sem Whisper) extrai valor, favorecido, categoria e histórico. Áudio sozinho, sem comprovante, também entra na fila (casado depois pelo extrato). Apelidos falados → entidades do webPosto em configuração ("pedreiro" → plano PEDREIRO 198595; "BB" → conta da unidade em `V1/CONTAS`).
 4. Casar o comprovante com o débito do extrato da Parte A (valor + data + nome). Unidade = dona da conta que pagou.
 5. Fila `data/despesas_avulsas/fila.json`: cada item com comprovante, débito casado (ou "aguardando extrato"), unidade, sugestão de fornecedor/plano/centro e status ("pronto para lançar", "a classificar", "sem extrato ainda").
 6. Resposta do bot: "Recebi: R$ 650,00 · Leticia Malta Farias · 17/09/2026 · PagBank Doze · sugestão: PEDREIRO (198595). Vou deixar pronto para lançar." Nada é gravado no webPosto.
 
 ## Fora desta sprint (próxima: DESPESAS_01, com barreira)
 
-Gravar no webPosto: `POST /V1/TITULOS_PAGAR` + `PATCH /V1/TITULOS_PAGAR/PAGAR` + anexo `POST /V1/ARQUIVOS/...`, cadastro de fornecedor (`POST /V1/FORNECEDORES`) para pessoa nova — com travas no `.env`, prévia, "ok" do diretor e auditoria (mesma barreira da BAIXA_00 Parte B).
+Gravar no webPosto. **Avulso (sem título)** → `POST /V1/MOVIMENTOS_CONTA` (`ParametrosIncluirMovimentoConta`: `descricao`, `data`, `valor`, `conta`, `filial`, `contaMovimentoTipo`="DEBITO", `planoConta`, `centroCusto`, `documento`, `tipoPessoa` — "NAO_IDENTIFICADO" para pessoa sem cadastro —, `pessoa`) + anexo `POST /V1/ARQUIVOS/MOVIMENTO_CONTA_MANUAL/{id}`. É o mesmo tipo "Débito MANUAL" que o webPosto já usa. **Com título em aberto** → baixa (`PATCH /V1/TITULOS_PAGAR/PAGAR`), nunca movimento (senão conta em dobro). **Não há rota para excluir movimento** → correção só pela tela: por isso, no início, tudo passa pelo "Confirma? [Sim] [Editar]" do diretor; lançamento direto só para favorecido já aprendido + débito casado no extrato (regra objetiva, não "confiança da IA"). Travas no `.env`, prévia, auditoria (mesma barreira da BAIXA_00 Parte B).
 
 Registrar no `REGRAS_DE_NEGOCIO.md` (RN-ERP-003: o que já existe) e no `STATUS.md`.
 Commits: `feat(despesas): pagamentos sem lançamento pelo extrato` e `feat(despesas): comprovante pelo Telegram com leitura pela IA (fila local)`. Depois `git push`.
