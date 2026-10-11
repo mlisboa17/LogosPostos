@@ -617,6 +617,10 @@ No teste autorizado de 10/10/2026, 507 lançamentos foram enviados e o webPosto 
 | Status | **proposta** — condições de casamento a verificar com dados reais (somente leitura) |
 | Vigência | 11/10/2026 — decisão do diretor |
 
+**Respostas do diretor (11/10/2026):** ~95% dos pagamentos são feitos pelo diretor; existem pagamentos avulsos (sem título prévio); a conta de saída depende da empresa (ex.: Conveniência 24h 118508 paga pelo Bradesco).
+
+**Leitura real (somente leitura, Doze 74014, títulos de 01/09 a 10/10/2026):** 196 títulos, todos `tipoLancamento` "Boleto"; 160 vêm de nota de entrada e 36 são avulsos; `linhaDigitavel` **nunca preenchida** → o casamento será por CNPJ/CPF do fornecedor + valor + vencimento; plano de contas gerencial e centro de custo sempre preenchidos (base para a IA aprender); a baixa fica registrada em `pagamento[]` com a conta usada. 128 em aberto, **81 já vencidos e ainda "Aberto"** (a investigar: pagos sem baixa ou realmente não pagos).
+
 **Condições a verificar (somente leitura, antes de qualquer sprint de escrita):** como a linha digitável aparece em `TITULOS_PAGAR`; se títulos de NF (DUPLICATAS) e títulos avulsos são distinguíveis; tolerância quando o valor pago difere do título (juros, multa, desconto); janela de vencimento; o que fazer com pagamento parcial; se existe (ou precisa ser criado pelo diretor) um plano de contas/centro de custo "A CLASSIFICAR" por unidade.
 
 ---
