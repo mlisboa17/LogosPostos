@@ -37,6 +37,7 @@ Abrir o relatório (e cada unidade no Telegram e no Painel) com um bloco de stat
 3. **Resultado:** "✅ CONFERÊNCIA REALIZADA — tudo bate" só se não houver ❌ nem ⏳; "❌ DIFERENÇAS ENCONTRADAS" se houver ❌ (somar as diferenças em R$); "⚠ CONFERÊNCIA PARCIAL" se só houver ⏳.
 4. Exemplos que o teste tem de reproduzir (10/10/2026): **Casa Caiada** — PagBank ✅ 109 · R$ 8.983,98; Premmia ✅ 14 · R$ 1.032,57; Mais Pagamentos ⏳ R$ 3.702,54; Dinheiro ❌ falta R$ 11,71 → "1 diferença (R$ 11,71) e 1 fonte sem conferência". **Doze** — PagBank ❌ R$ 36.541,86 × R$ 36.291,79 → R$ 250,07 (duplicidade); Premmia ✅ 32 · R$ 2.570,17; Mais Pagamentos ⏳ R$ 23.881,93; Dinheiro ❌ falta R$ 84,80.
 5. Painel: selo por unidade/dia (✅ / ❌ / ⚠) com link para o relatório.
+6. **Totais por adquirente usam o mapa de administradoras por unidade** (config, não código): no Doze (74014) e no Casa Caiada (5555), "**AMERICAN EXPRESS**" faz parte do **PagBank** (decisão do diretor 11/10/2026), além de "PAGSEGURO" e "PIX PAGBANK". Hoje `ADMINISTRADORAS` em `application/conciliar_cartoes.py` só tem PAGSEGURO/PIX PAGBANK: o casamento já usa todos os cartões, mas o total "webPosto" e o "a menor" precisam do mapa completo. Teste: Doze 09/10 PagBank EDI 402 · R$ 31.591,35 = webPosto 402 · R$ 31.591,35 (com o Amex de R$ 100,00).
 
 ## PARTE A3 — Direção da diferença, sincronização manual e validação de valores altos (diretor, 11/10/2026)
 
