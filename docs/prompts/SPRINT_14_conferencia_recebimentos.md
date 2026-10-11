@@ -94,6 +94,16 @@ Leitura: o dinheiro do dia fecha, mas foi lançado na adquirente errada (02/out:
 4. **Datas exibidas e digitadas em `dd/mm/aaaa`** (RN-REDE-001). A tela mostrou "10/01/2026" para 01/10/2026 (formato americano do navegador): não usar o formato do `<input type="date">` do navegador; usar campo `dd/mm/aaaa` ou forçar `lang="pt-BR"` e conferir na tela.
 5. Testes: hoje → recusado; ontem → recusado; 8 dias → recusado; padrão = [hoje−8, hoje−2]; exibição dd/mm/aaaa.
 
+## PARTE B4 — Data no formato brasileiro em TODO o sistema (decisão do diretor, 11/10/2026 — RN-REDE-001)
+
+Não só nesta tela: **toda data exibida ou digitada** no frontend, no Telegram, nas planilhas e nos relatórios fica em **`dd/mm/aaaa`** e **`dd/mm/aaaa HH:mm`** (fuso America/Recife). ISO (`aaaa-mm-dd`) só no transporte técnico (API, JSON, nomes de arquivo).
+
+1. Criar **um helper único** no frontend (ex.: `frontend/utils/datas.js`): `formatarData`, `formatarDataHora`, `lerDataBR` (aceita `dd/mm/aaaa`, devolve ISO para a API) e um componente de campo de data `dd/mm/aaaa` com máscara. **Não usar `<input type="date">`** (o navegador exibe no formato do sistema, ex.: "10/01/2026" para 01/10/2026).
+2. Varrer e corrigir todos os pontos que hoje formatam ou pedem data — encontrados pelo arquiteto: `frontend/app.js`, `components/filters.js`, `pages/accountsPayable.js`, `pages/cashAudit.js`, `pages/conferenciaRecebimentos.js`, `pages/directorDashboard.js`, `pages/executiveDashboard.js`, `pages/expenses.js`, `pages/sales.js`, `pages/stock.js`, `services/export.js`, `services/snapshotService.js` (há 5 `type="date"`). Trocar `toLocaleDateString()`/`toLocaleString()` sem `pt-BR` e exibições de `toISOString()` pelo helper. Alteração cirúrgica em cada ponto; não reescrever as páginas.
+3. Backend: conferir que mensagens de erro, Telegram e planilhas usam `domain/tempo.py` (`formatar_*`); planilhas com datas como data real do Excel e formato `dd/mm/aaaa` / `dd/mm/aaaa hh:mm`.
+4. Teste frontend: helper (ida e volta, 01/10/2026 ↔ 2026-10-01, data inválida recusada) e um teste por página alterada garantindo que nenhuma data sai em ISO ou mm/dd. Grep final sem `type="date"` no frontend.
+5. Conferir no navegador local a Conferência de Recebimentos, o Painel e o Fechamento (somente leitura).
+
 ## PARTE C — Testes e dados reais
 
 1. Testes sintéticos de cada grupo, da busca cruzada (lançado como PagBank, pago no Premmia → grupo 2), da troca de forma, do grupo provável, da reincidência e da conferência manual (Não encontrado → grupo 3). Nenhum acesso ao portal.
