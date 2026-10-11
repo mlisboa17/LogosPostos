@@ -25,7 +25,16 @@ Histórico de sprints: um prompt por sprint em docs/prompts/ (SPRINT_05 ... SPRI
   Reincidente: frentista 277311 (Casa Caiada), 3 trocas · R$ 163,90.
 - Mais Pagamentos usada em Doze, Casa Caiada e VIP (aparece como "Transferência Bancária"): R$ 278 mil em 9 dias
   SEM conferência. Bloqueio: client_id/secret de integração (ver MAIS_01 no backlog).
-- Próximo: MAIS_01 (quando chegar a credencial) · Sprint 15 (dossiê + medir acerto das propostas) · EXTRATOS_01.
+- Sprint 14.1 CONCLUÍDA (e6d0190, fa7e677): Telegram sem KeyError; Premmia abre o login no modo invisível
+  (validado 11/10 03:52, Doze e Casa Caiada); falha do portal = aviso. Robô 10/10: falha=0, aviso=1. 321 testes verdes.
+- CIELO_01 (novo, 11/10/2026): diretor homologou o Extrato Eletrônico EDI da Cielo, conciliação própria.
+  EC matriz 1050633722 (VIP loja EC 1003946779 aparece no portal). Arquivos: CIELO03 (vendas cartões),
+  CIELO16 (Pix na maquininha), CIELO04 (pagamentos/liquidação). Acesso por API: OAuth2 client_credentials
+  (client_id/client_secret) + assinatura HMAC no header X-Signature + certificado mTLS;
+  POST https://api-internet.cielo.com.br/cielo-extc-serv-edi-link-exp-external/extc-serv-edi-link-external/v1/link/generate
+  (merchantCode, fileType 3=vendas 4=pagamentos, processType D/R/M, startDate/endDate) → links temporários de download.
+  Pendente do diretor: gerar a chave no portal Cielo, colocar no .env, certificado mTLS, manual de layout e de links.
+- Próximo: CIELO_01 · MAIS_01 (quando chegar a credencial) · Sprint 15 (dossiê + medir acerto das propostas) · EXTRATOS_01.
 
 ## Em andamento
 - SPRINT_12 CARTOES_V3 (prompt pronto, não executado): mesmo NSU com valor diferente; cancelamentos do EDI
