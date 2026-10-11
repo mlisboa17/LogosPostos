@@ -6,6 +6,7 @@ const UNIDADES_URL = "/api/v1/cash-audit/unidades";
 const FECHAMENTO_URL = "/api/v1/cash-audit/fechamento";
 const RECEBIMENTOS_URL = "/api/v1/cash-audit/recebimentos";
 const REINCIDENCIA_URL = "/api/v1/cash-audit/reincidencia";
+const RELATORIO_URL = "/api/v1/cash-audit/relatorio-caixa";
 let unidadesCarregadas = null;
 const consultas = new WeakMap();
 const consultasRecebimentos = new WeakMap();
@@ -17,6 +18,94 @@ export function consultarFechamento(unidade, inicio, fim) {
 
 export function consultarReincidencia(unidade, mes) {
   return apiClient.get(REINCIDENCIA_URL, { params: { unidade, mes }, timeout: 200000 });
+}
+
+export function consultarRelatorioCaixa(unidade, dia) {
+  return apiClient.get(RELATORIO_URL, { params: { unidade, dia }, timeout: 200000 });
+}
+
+function renderMarkdownSeguro(texto) {
+  return escapeHtml(texto).replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
+}
+
+function renderTabelaMarkdown(linhas) {
+  const celulas = linhas
+    .filter((linha) => !/^\|[\s|:-]+\|$/.test(linha.trim()))
+    .map((linha) => linha.trim().replace(/^\||\|$/g, "").split("|").map((item) => item.trim()));
+  if (!celulas.length) return "";
+  const [cabecalho, ...corpo] = celulas;
+  return `<div class="ca-table-wrap"><table class="table-compact"><thead><tr>${cabecalho.map((celula) => `<th>${renderMarkdownSeguro(celula)}</th>`).join("")}</tr></thead><tbody>${corpo.map((linha) =>
+    `<tr>${linha.map((celula) => `<td>${renderMarkdownSeguro(celula)}</td>`).join("")}</tr>`
+  ).join("")}</tbody></table></div>`;
+}
+
+export function renderRelatorioCaixa(markdown) {
+  const secoes = [];
+  let atual = { titulo: "Relatório do dia", linhas: [] };
+  markdown.split(/\r?\n/).forEach((linha) => {
+    if (linha.startsWith("# ")) {
+      atual.titulo = linha.slice(2).trim();
+    } else if (linha.startsWith("## ")) {
+      secoes.push(atual);
+      atual = { titulo: linha.slice(3).trim(), linhas: [] };
+    } else if (!linha.startsWith("# ")) {
+      atual.linhas.push(linha);
+    }
+  });
+  secoes.push(atual);
+  return secoes.map(({ titulo, linhas }) => {
+    const conteudo = [];
+    for (let indice = 0; indice < linhas.length;) {
+      const linha = linhas[indice].trim();
+      if (!linha) { indice += 1; continue; }
+      if (linha.startsWith("|")) {
+        const tabela = [];
+        while (indice < linhas.length && linhas[indice].trim().startsWith("|")) {
+          tabela.push(linhas[indice++]);
+        }
+        conteudo.push(renderTabelaMarkdown(tabela));
+      } else if (linha.startsWith("### ")) {
+        conteudo.push(`<h4>${renderMarkdownSeguro(linha.slice(4))}</h4>`);
+        indice += 1;
+      } else if (linha.startsWith("- ")) {
+        const itens = [];
+        while (indice < linhas.length && linhas[indice].trim().startsWith("- ")) {
+          itens.push(`<li>${renderMarkdownSeguro(linhas[indice++].trim().slice(2))}</li>`);
+        }
+        conteudo.push(`<ul>${itens.join("")}</ul>`);
+      } else {
+        conteudo.push(`<p>${renderMarkdownSeguro(linha)}</p>`);
+        indice += 1;
+      }
+    }
+    return `<details class="ca-panel ca-report-block"><summary>${renderMarkdownSeguro(titulo)}</summary>${conteudo.join("")}</details>`;
+  }).join("");
+}
+
+export async function carregarRelatorioCaixa(container) {
+  const unidade = container.querySelector("#caUnidade").value;
+  const botao = container.querySelector("#caReportButton");
+  const destino = container.querySelector("#caReportResults");
+  let dia;
+  try {
+    dia = lerDataBR(container.querySelector("#caFim").value);
+  } catch (error) {
+    showError(container, error);
+    return;
+  }
+  botao.disabled = true;
+  destino.hidden = false;
+  destino.innerHTML = '<p class="ca-empty">Carregando relatório local…</p>';
+  try {
+    const resposta = await consultarRelatorioCaixa(unidade, dia);
+    const relatorio = resposta.relatorios.find((item) => String(item.unidade) === String(unidade));
+    if (!relatorio) throw new Error("Relatório indisponível para esta unidade.");
+    destino.innerHTML = `${renderRelatorioCaixa(relatorio.markdown)}<a class="ca-report-download" href="${RELATORIO_URL}.xlsx?unidade=${encodeURIComponent(unidade)}&dia=${encodeURIComponent(dia)}">Baixar planilha</a>`;
+  } catch (error) {
+    destino.innerHTML = `<p class="ca-error" role="alert">${escapeHtml(error?.message || "Falha ao carregar o relatório.")}</p>`;
+  } finally {
+    botao.disabled = false;
+  }
 }
 
 // Centros de custo da rede (V1/CENTROS_CUSTO, 2026-10-06)
@@ -523,9 +612,11 @@ export async function renderCashAudit(container, { load = false } = {}) {
           <label>Data fim${campoDataBR({ nome: "caFim", valor: fim })}</label>
           <label>Mês da reincidência<input id="caMes" type="text" inputmode="numeric" placeholder="mm/aaaa" maxlength="7" pattern="\\d{2}/\\d{4}" value="${fim.slice(5, 7)}/${fim.slice(0, 4)}" required></label>
           <button type="submit">Consultar</button>
+          <button id="caReportButton" type="button">Relatório do dia</button>
         </form>
         <p id="caError" class="ca-error hidden" role="alert"></p>
         <div id="caResults"><p class="ca-empty">Selecione uma unidade para consultar.</p></div>
+        <section id="caReportResults" class="ca-report" hidden aria-live="polite"></section>
         <section id="caRecebimentos" class="ca-receipts" aria-live="polite"></section>
         <section class="ca-panel ca-reincidencia" aria-live="polite">
           <h3>Reincidência do mês</h3>
@@ -537,6 +628,9 @@ export async function renderCashAudit(container, { load = false } = {}) {
     container.querySelector("#caFilters").addEventListener("submit", (event) => {
       event.preventDefault();
       void carregarAuditoria(container);
+    });
+    container.querySelector("#caReportButton").addEventListener("click", () => {
+      void carregarRelatorioCaixa(container);
     });
   }
   const unidadeSelect = container.querySelector("#caUnidade");

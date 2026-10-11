@@ -20,7 +20,9 @@ from ..application.auditar_fechamento import auditar_unidade
 from ..application.reincidencia import agregar_reincidencia
 from ..application.recebimentos import conciliar_recebimentos
 from ..application.recebimentos import conferencia_gravada
+from ..application.relatorio_caixa_dia import gerar_relatorio_caixa_dia, planilha_relatorio_caixa_dia
 from ..application.painel_diretor import PainelDiretorErro, obter_unidades_painel
+from ..application.resumo_diario import conferencia_para_registro
 from ..application.serializacao import serializar_fechamento
 from ..config import ARQUIVO as ARQUIVO_CONFIG_UNIDADES, carregar_unidades
 from ..domain.fechamento import ResultadoAuditoria
@@ -243,6 +245,94 @@ async def _auditar_com_limite(unidade: int, inicio: date, fim: date, prazo: floa
     except TimeoutError:
         logger.warning("Tempo limite do fechamento unidade=%s", unidade)
         raise HTTPException(status_code=504, detail="Tempo limite ao consultar fechamento. Reduza o período e tente novamente.") from None
+
+
+def _compor_relatorio_caixa_dia(unidade: int, dia: date) -> tuple[str, str]:
+    try:
+        registro = carregar_dia(unidade, dia)
+    except PersistenciaErro:
+        raise HTTPException(status_code=500, detail="Falha ao ler auditoria persistida.") from None
+    if registro is None:
+        raise HTTPException(status_code=404, detail="Não há resultado persistido para a unidade e o dia.")
+    configuracao = carregar_unidades()[unidade]
+    estado = saude_robo.carregar_estado()
+    if estado is None or estado.dia_processado != dia or unidade not in estado.unidades_processadas:
+        situacao = "não processado / estado não persistido"
+    elif unidade in estado.unidades_com_falha:
+        situacao = "falha"
+    elif unidade in estado.unidades_com_aviso:
+        situacao = "aviso"
+    else:
+        situacao = "ok"
+    try:
+        conferencia = conferencia_para_registro(registro)
+    except (PersistenciaErro, repositorio_pendencias.ErroPersistenciaPendencias):
+        conferencia = None
+    pendencias = _listar_pendencias_com_prazo(
+        unidade=unidade,
+        status="aberta",
+        tipo=None,
+        instante=agora(),
+        prazos=_carregar_prazos_pendencia(),
+    )
+    texto = gerar_relatorio_caixa_dia(
+        registro,
+        configuracao,
+        situacao_robo=situacao,
+        pendencias=[item for item in pendencias if item["dia"] == dia.isoformat()],
+        conferencia=conferencia,
+    )
+    return texto, configuracao.apelido or configuracao.nome
+
+
+@router.get("/relatorio-caixa")
+def obter_relatorio_caixa_dia(
+    dia: date,
+    unidade: int | None = Query(default=None),
+    current_user: dict = Depends(get_current_user),
+) -> dict:
+    unidades = carregar_unidades()
+    papel = current_user.get("role")
+    if unidade is not None:
+        if unidade not in unidades:
+            raise HTTPException(status_code=404, detail="Unidade não encontrada.")
+        require_unit_access(current_user, unidade)
+        codigos = [unidade]
+    elif papel == "gerente":
+        propria = current_user.get("company_id")
+        if isinstance(propria, bool) or not isinstance(propria, int) or propria not in unidades:
+            raise HTTPException(status_code=403, detail="Unidade do gerente inválida.")
+        codigos = [propria]
+    elif papel in {"diretor", "auditor"}:
+        codigos = sorted(unidades)
+    else:
+        raise HTTPException(status_code=403, detail="Perfil sem acesso ao relatório.")
+
+    relatorios = []
+    for codigo in codigos:
+        markdown, nome = _compor_relatorio_caixa_dia(codigo, dia)
+        relatorios.append({"unidade": codigo, "nome": nome, "markdown": markdown})
+    return {"dia": dia.isoformat(), "relatorios": relatorios}
+
+
+@router.get("/relatorio-caixa.xlsx")
+def exportar_relatorio_caixa_dia(
+    unidade: int,
+    dia: date,
+    current_user: dict = Depends(get_current_user),
+) -> Response:
+    unidades = carregar_unidades()
+    if unidade not in unidades:
+        raise HTTPException(status_code=404, detail="Unidade não encontrada.")
+    require_unit_access(current_user, unidade)
+    markdown, _ = _compor_relatorio_caixa_dia(unidade, dia)
+    return Response(
+        planilha_relatorio_caixa_dia(markdown),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="caixa_{dia.isoformat()}_{unidade}.xlsx"'
+        },
+    )
 
 
 @router.get("/recebimentos", response_model=ResultadoRecebimentos,

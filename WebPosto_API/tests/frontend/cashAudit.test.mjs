@@ -9,9 +9,11 @@ const {
   renderDetalhes,
   renderTabela,
   renderReincidencia,
+  renderRelatorioCaixa,
   periodoPadrao,
   consultarFechamento,
   consultarReincidencia,
+  consultarRelatorioCaixa,
   carregarRecebimentos,
   carregarReincidencia,
 } = await import("../../frontend/pages/cashAudit.js");
@@ -66,6 +68,23 @@ test("fechamento aguarda o prazo do backend em vez do timeout padrao de 30s", as
     "/api/v1/cash-audit/fechamento",
     { params: { unidade: 321, inicio: "2026-01-01", fim: "2026-01-02" }, timeout: 200000 },
   ]);
+});
+
+test("relatório do dia usa a API protegida e renderiza blocos seguros recolhíveis", async (t) => {
+  const resultado = { dia: "2026-10-10", relatorios: [{ unidade: 321, markdown: "# Caixa\n\n## Resumo\n\n- **Atenção**\n\n## Caixas\n\n| Operador |\n|---|\n| Nome (7) |\n\n<script>inseguro</script>" }] };
+  const get = t.mock.method(apiClient, "get", async () => resultado);
+
+  assert.deepEqual(await consultarRelatorioCaixa(321, "2026-10-10"), resultado);
+  assert.deepEqual(get.mock.calls[0].arguments, [
+    "/api/v1/cash-audit/relatorio-caixa",
+    { params: { unidade: 321, dia: "2026-10-10" }, timeout: 200000 },
+  ]);
+  const html = renderRelatorioCaixa(resultado.relatorios[0].markdown);
+  assert.match(html, /<details class="ca-panel ca-report-block">/);
+  assert.match(html, /<strong>Atenção<\/strong>/);
+  assert.match(html, /<th>Operador<\/th>/);
+  assert.match(html, /&lt;script&gt;inseguro&lt;\/script&gt;/);
+  assert.doesNotMatch(html, /<script>/);
 });
 
 test("Premmia tem bloco proprio, desconto, divergencia e aviso humano", () => {

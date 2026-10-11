@@ -1323,6 +1323,44 @@ label.empresa-ms__row {
   cursor: pointer;
 }
 
+.ca-report {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.ca-report-block {
+  margin: 0;
+}
+
+.ca-report-block > summary {
+  cursor: pointer;
+  font-weight: 650;
+}
+
+.ca-report-block[open] > summary {
+  margin-bottom: 0.9rem;
+}
+
+.ca-report-block p,
+.ca-report-block ul {
+  color: var(--ca-muted);
+  overflow-wrap: anywhere;
+}
+
+.ca-report-download {
+  justify-self: start;
+  padding: 0.55rem 0.8rem;
+  border: 1px solid #5eead4;
+  border-radius: 6px;
+  color: #99f6e4;
+  text-decoration: none;
+}
+
+.ca-report-download:hover,
+.ca-report-download:focus-visible {
+  background: rgba(94, 234, 212, 0.12);
+}
+
 .ca-kpi strong small {
   font-size: 0.8rem;
   font-weight: 400;
