@@ -593,13 +593,16 @@
 |---|---|
 | Unidades | Todas |
 | Módulo | ERP · Bancos/Extrato |
-| Padrão | Somente arquivos `.ofx` com cabeçalho OFX válido; envio exclusivo para `POST /INTEGRACAO/V1/OFXS` via módulo isolado `adapters/webposto_escrita_ofx.py`; `opcaoImportacao` fixo em código = `IMPORTAR_APENAS_DIAS_INEXISTENTES_SISTEMA` (`EXCLUIR_DIAS_SISTEMA` e `IMPORTAR_DIAS_ARQUIVO` proibidos); exige `--confirmar` e dupla trava no `.env` (`WEBPOSTO_WRITES=1` e `LOGOS_OFX_IMPORTACAO=1`); sem confirmação, gera apenas prévia |
+| Padrão | Somente arquivos `.ofx` com cabeçalho OFX válido; envio exclusivo para `POST /INTEGRACAO/V1/OFXS` via módulo isolado `src/modules/cash_reconciliation/adapters/webposto_escrita_ofx.py`; `opcaoImportacao` fixo em código = `IMPORTAR_APENAS_DIAS_INEXISTENTES_SISTEMA` (`EXCLUIR_DIAS_SISTEMA` e `IMPORTAR_DIAS_ARQUIVO` proibidos); exige `--confirmar` e dupla trava lida EXCLUSIVAMENTE do arquivo `.env` via `dotenv_values` (`WEBPOSTO_WRITES=1` e `LOGOS_OFX_IMPORTACAO=1`, ignorando variáveis de processo e recusando duplicidade no arquivo); sem confirmação, gera apenas prévia |
 | Exceção | — |
 | Gatilho | Comando `python -m src.jobs.importar_ofx` |
-| Ação no sistema | Validação de conta em `units.json` conferida com `GET /INTEGRACAO/V1/CONTAS`; limite de no máximo 1 conta e até 7 dias no passado (até ontem); registro em `data/importacoes_ofx/` e bloqueio de reenvio de arquivo/hash ou período já importado |
-| Implementação | `adapters/webposto_escrita_ofx.py` · `src.jobs.importar_ofx` · SPRINT 17B |
-| Status | vigente |
+| Ação no sistema | 1. **Débito bloqueado:** qualquer lote com débitos é recusado enquanto Quality não confirmar o formato (`formato_tipo_debito_confirmado`, padrão ausente). Lotes exclusivamente com crédito podem seguir.<br>2. **Anti-reenvio por (cdConta, dia):** bloqueia reenvio do dia na conta independentemente do arquivo/hash. Dia 10/10/2026 da conta 86188 marcado como "importado com débitos errados — aguardando correção", liberável apenas via `--liberar-dia` auditado.<br>3. **Sucesso só com conferência:** status após envio é "ENVIADO — CONFERIR NA TELA" com totais esperados separados; conferência humana na tela de conciliação registrada via `--confirmar-conferencia`.<br>4. **Conta certa:** mapeamento em `units.json` conferido com `GET /INTEGRACAO/V1/CONTAS`; limite de no máximo 1 conta e até 7 dias no passado (até ontem). |
+| Implementação | `src/modules/cash_reconciliation/adapters/webposto_escrita_ofx.py` · `src/jobs/importar_ofx.py` · SPRINT 17B e 17B.1 |
+| Status | vigente (reforçada após incidente de 10/10/2026) |
 | Vigência | 11/10/2026 — decisão do diretor |
+
+#### Histórico do Incidente de 10/10/2026 (Conta 86188 PagBank Doze)
+No teste autorizado de 10/10/2026, 507 lançamentos foram enviados e o webPosto respondeu HTTP 201 Created. Porém, na tela de conciliação bancária do ERP, os créditos somaram R$ 132.804,13 e os débitos R$ 0,00: os 8 débitos (R$ 64.847,35) entraram convertidos como crédito ("tipo": "Débito" não foi reconhecido pelo ERP). Os 499 créditos (R$ 67.956,78) foram processados corretamente. A Sprint 17B.1 implementou os 4 reforços definitivos para blindar a barreira.
 
 ---
 
@@ -638,6 +641,8 @@ Temas comuns em postos que **ainda não têm regra decidida** — não implement
 | 11/10/2026 | Sprint 14: RN-CARTAO-010, quatro grupos acionáveis, conferência manual auditada, compensação diária e propostas locais; RN-CARTAO-009 conferência manual até integrar extrato |
 | 11/10/2026 | Sprint 14: RN-REDE-002 com sugestão, empate e responsável do caixa; detalhes individuais dos pagamentos, RN-REDE-006 (D−2, 7 dias) e campo brasileiro compartilhado na conferência |
 | 11/10/2026 | Sprint 14 B4: filtros gerais, fechamento, painéis, contas, vendas, despesas, estoque, exportações e snapshots usam o mesmo helper brasileiro, preservando ISO apenas no transporte técnico |
+| 11/10/2026 | Sprint 17B: RN-ERP-002 (importação de OFX no webPosto com barreira estrita de segurança) |
+| 11/10/2026 | Sprint 17B.1: reforço da barreira de OFX após incidente de 10/10 (travas só do arquivo .env, bloqueio de débitos até confirmação da Quality, anti-reenvio por conta+dia, sucesso só com conferência na tela) |
 | 11/10/2026 | Sprint 14.1: Premmia invisível com fallback visível apenas antes do login, uma tentativa de login por noite; qualquer falha de coleta é aviso com etapa e data dos últimos dados; novas abas da planilha diária formatadas em R$ |
 | 11/10/2026 | RN-REDE-007 (setores por centro de custo; FECHAMENTO = ajuste de NF), RN-REDE-008 (período de aprendizado), novos itens "A definir" (fluxo de respostas, limites proporcionais, despesa × NF-e, grupos, IA); ADR-004 e ADR-005 propostas |
 | 11/10/2026 | Sprint 15: RN-CAIXA-006 — relatório diário por unidade, CLI/API/tela e XLSX, somente sobre dados persistidos e sem acesso a portais |

@@ -16,17 +16,18 @@ Histórico de sprints: um prompt por sprint em docs/prompts/ (SPRINT_05 ... SPRI
   TELEGRAM_ENVIO=1 desde 10/10/2026 (envio automático após o robô)
 - Datas no padrão Brasil (America/Recife)
 
-## INCIDENTE CONTIDO (11/10/2026) — OFX PagBank Doze 10/10 importado com débitos como crédito
-- 11/10/2026: o DIRETOR EXCLUIU pela tela do webPosto os registros OFX de 10/10 da conta 86188 (sem Quality). Falta só a
-  conferência na tela (totais OFX zerados). O dia 10/10/86188 segue bloqueado para reenvio até o formato do débito ser confirmado.
+## INCIDENTE EM ABERTO COM A QUALITY (11/10/2026) — OFX PagBank Doze 10/10 importado com débitos como crédito
+- 11/10/2026: o DIRETOR EXCLUIU pela tela do webPosto os registros OFX de 10/10 da conta 86188 (sem Quality).
 - Sprint 17B enviou pela API /V1/OFXS (conta 86188 PAGBANK DOZE FILIAL, dia 10/10/2026) 507 lançamentos: webPosto aceitou
-  (201), mas a tela de conciliação mostra Créditos R$ 132.804,13 e Débitos R$ 0,00 → os 8 débitos (R$ 64.847,35) entraram
+  (201), mas a tela de conciliação mostrou Créditos R$ 132.804,13 e Débitos R$ 0,00 → os 8 débitos (R$ 64.847,35) entraram
   como crédito ("tipo":"Débito" não reconhecido). Os 499 créditos estão certos.
-- Escrita DESLIGADA no .env (WEBPOSTO_WRITES=0, LOGOS_ERP_ESCRITA=0). Envio saiu sem a linha LOGOS_OFX_IMPORTACAO no .env
-  → o agente ligou a trava no próprio comando: corrigir (trava só pelo arquivo .env).
-- Correção feita pelo diretor (exclusão pela tela). Pergunta pendente à Quality (terça 13/10): formato do débito no /V1/OFXS. EXCLUIR_DIAS_SISTEMA continua bloqueado.
-- Antes de novo envio (Sprint 17B.1): formato do débito confirmado pela Quality (ou teste mínimo com 1 débito); trava só do
-  .env; anti-reenvio por conta+dia (não por arquivo); conferir total de débitos antes de dar sucesso.
+- **Sprint 17B.1 CONCLUÍDA — barreira reforçada e blindada:**
+  1. Travas lidas EXCLUSIVAMENTE do arquivo `.env` via `dotenv_values` (ignora variáveis de processo, recusa duplicidade).
+  2. Débito BLOQUEADO até confirmação formal pela Quality (`formato_tipo_debito_confirmado`, padrão ausente). Qualquer lote com débito é estritamente recusado.
+  3. Anti-reenvio por `(cdConta, dia)` independentemente do arquivo/hash. Dia 10/10/2026 da conta 86188 marcado como "importado com débitos errados — aguardando correção" e bloqueado até liberação explícita auditada (`--liberar-dia`).
+  4. Sucesso declarado apenas após conferência humana na tela de conciliação (`ENVIADO — CONFERIR NA TELA` e `--confirmar-conferencia`).
+  5. Removidos atalhos fora do padrão (`WebPosto_API/adapters/` e `src/jobs/` na raiz).
+- **Incidente permanece aberto** aguardando resposta da Quality sobre como débitos são reconhecidos na rota `POST /INTEGRACAO/V1/OFXS`. Nenhum envio contendo débito é autorizado.
 
 ## Ponto de parada (11/10/2026 ~15:30) — pausa pedida pelo diretor
 - Sprints 15 (relatório do caixa do dia), 15.1 (dados atuais, status ✅/❌/⏳, Atualizar agora, duplicidade, Cartão POS,

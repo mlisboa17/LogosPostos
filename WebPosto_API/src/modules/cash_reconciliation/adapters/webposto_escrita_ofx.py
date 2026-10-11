@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+from dotenv import dotenv_values
 
 from ..domain.models import Unidade
 from ..domain.tempo import agora, formatar_data, ontem, para_local
@@ -82,15 +83,68 @@ def _mascarar_descricao(desc: str) -> str:
     return d
 
 
-def verificar_travas_ambiente() -> tuple[bool, str]:
-    """Valida as duas travas de ambiente requeridas para escrita."""
-    writes = os.getenv("WEBPOSTO_WRITES", "").strip()
-    ofx_imp = os.getenv("LOGOS_OFX_IMPORTACAO", "").strip() or os.getenv("LOGOS_ERP_ESCRITA", "").strip()
-    if writes != "1":
-        return False, "Trava WEBPOSTO_WRITES != 1 (escrita bloqueada no ERP)."
-    if ofx_imp != "1":
-        return False, "Trava LOGOS_OFX_IMPORTACAO (ou LOGOS_ERP_ESCRITA) != 1 (importação de OFX bloqueada)."
-    return True, "Travas de escrita liberadas."
+def resolver_caminho_env(caminho_env: Path | str | None = None) -> Path:
+    """Resolve o arquivo .env a ser lido para conferência das travas."""
+    if caminho_env is not None:
+        return Path(caminho_env)
+    p1 = Path(".env")
+    if p1.is_file():
+        return p1
+    p2 = Path("WebPosto_API/.env")
+    if p2.is_file():
+        return p2
+    return p1
+
+
+def verificar_travas_ambiente(caminho_env: Path | str | None = None) -> tuple[bool, str]:
+    """Valida as duas travas de ambiente LENDO EXCLUSIVAMENTE o arquivo .env.
+
+    Regra SPRINT 17B.1:
+    - Lê exclusivamente o arquivo .env via dotenv_values.
+    - Ignora variáveis de ambiente de processo (os.environ).
+    - Se WEBPOSTO_WRITES ou LOGOS_OFX_IMPORTACAO aparecer duplicado no arquivo,
+      recusa indicando as linhas exatas.
+    - Ambas as travas devem ser estritamente '1' no arquivo .env.
+    """
+    arquivo = resolver_caminho_env(caminho_env)
+    if not arquivo.is_file():
+        return False, f"Arquivo .env não encontrado em: {arquivo}"
+
+    linhas_chave: dict[str, list[int]] = {
+        "WEBPOSTO_WRITES": [],
+        "LOGOS_OFX_IMPORTACAO": [],
+    }
+
+    try:
+        conteudo = arquivo.read_text(encoding="utf-8", errors="replace")
+    except Exception as exc:
+        return False, f"Falha ao ler arquivo .env ({exc})."
+
+    for num_linha, linha in enumerate(conteudo.splitlines(), start=1):
+        linha_limpa = linha.strip()
+        if not linha_limpa or linha_limpa.startswith("#"):
+            continue
+        if "=" not in linha_limpa:
+            continue
+        k = linha_limpa.split("=", 1)[0].strip()
+        if k in linhas_chave:
+            linhas_chave[k].append(num_linha)
+
+    for k, linhas in linhas_chave.items():
+        if len(linhas) > 1:
+            return False, f"trava duplicada no .env, linha {linhas[0]} e {linhas[1]}"
+
+    # Lê exclusivamente valores do arquivo .env (ignora os.environ)
+    valores = dotenv_values(arquivo)
+    val_writes = (valores.get("WEBPOSTO_WRITES") or "").strip()
+    val_ofx = (valores.get("LOGOS_OFX_IMPORTACAO") or "").strip()
+
+    if "WEBPOSTO_WRITES" not in valores or val_writes != "1":
+        return False, "Trava WEBPOSTO_WRITES != 1 no arquivo .env (escrita bloqueada no ERP)."
+    if "LOGOS_OFX_IMPORTACAO" not in valores or val_ofx != "1":
+        return False, "Trava LOGOS_OFX_IMPORTACAO != 1 no arquivo .env (importação de OFX bloqueada)."
+
+    return True, "Travas de escrita liberadas no arquivo .env."
 
 
 def resolver_cd_conta_unidade(
@@ -176,54 +230,175 @@ def registrar_envio_historico(
 def verificar_duplicidade_historico(
     diretorio: Path,
     empresa_codigo: int,
-    sha256: str,
     cd_conta: int,
     data_inicial: date,
     data_final: date,
+    sha256: str | None = None,
 ) -> None:
-    """Barreira: o mesmo arquivo/período nunca é enviado duas vezes."""
+    """Barreira anti-reenvio por (cdConta, dia).
+
+    Bloqueia qualquer dia do intervalo que já tenha sido importado na conta,
+    independentemente do arquivo/hash.
+    Trata status especial 'importado com débitos errados — aguardando correção'
+    e respeita registros de liberação explícita ('liberacao_dia').
+    """
     historico = carregar_historico_envios(diretorio, empresa_codigo)
-    for h in historico:
-        if h.get("sha256") == sha256:
-            raise BarreiraOfxErro(
-                f"Arquivo com hash SHA-256 {sha256[:12]}... já foi importado anteriormente em {h.get('data_envio')}."
-            )
-        if (
-            h.get("cd_conta") == cd_conta
-            and h.get("data_inicial") == str(data_inicial)
-            and h.get("data_final") == str(data_final)
-            and h.get("status") == "sucesso"
-        ):
-            raise BarreiraOfxErro(
-                f"Período {formatar_data(data_inicial)} a {formatar_data(data_final)} na conta {cd_conta} "
-                f"já foi importado com sucesso em {h.get('data_envio')}."
-            )
+    if not historico:
+        return
+
+    cur = data_inicial
+    while cur <= data_final:
+        str_dia = str(cur)
+
+        # Coleta todos os eventos cronológicos para este dia e conta
+        eventos_dia: list[tuple[str, dict[str, Any]]] = []
+        for h in historico:
+            if h.get("cd_conta") != cd_conta:
+                continue
+
+            tipo_ev = h.get("tipo")
+            if tipo_ev == "liberacao_dia":
+                if h.get("dia") == str_dia:
+                    eventos_dia.append(("liberacao", h))
+            elif tipo_ev == "conferencia_confirmada":
+                continue
+            else:
+                # Registro de importação de extrato
+                ini = h.get("data_inicial")
+                fim = h.get("data_final") or ini
+                if ini and fim and (ini <= str_dia <= fim):
+                    eventos_dia.append(("importacao", h))
+
+        if eventos_dia:
+            ultimo_tipo, ultimo_h = eventos_dia[-1]
+            if ultimo_tipo == "importacao":
+                status = ultimo_h.get("status")
+                if status == "importado com débitos errados — aguardando correção":
+                    raise BarreiraOfxErro(
+                        f"Conta {cd_conta} no dia {formatar_data(cur)} está marcada como 'importado com débitos errados — aguardando correção'. "
+                        f"Envio bloqueado até liberação explícita (--liberar-dia)."
+                    )
+                else:
+                    raise BarreiraOfxErro(
+                        f"Conta {cd_conta} no dia {formatar_data(cur)} já foi importada anteriormente em {ultimo_h.get('data_envio')}."
+                    )
+
+        cur += timedelta(days=1)
+
+
+def liberar_dia_historico(
+    diretorio: Path,
+    empresa_codigo: int,
+    cd_conta: int,
+    dia: date,
+    motivo: str,
+) -> dict[str, Any]:
+    """Registra a liberação explícita de um dia bloqueado no histórico."""
+    registro = {
+        "tipo": "liberacao_dia",
+        "empresa_codigo": empresa_codigo,
+        "cd_conta": cd_conta,
+        "dia": str(dia),
+        "data_liberacao": agora().isoformat(),
+        "motivo": motivo,
+        "status": "dia_liberado",
+    }
+    registrar_envio_historico(diretorio, empresa_codigo, registro)
+    return registro
+
+
+def confirmar_conferencia_historico(
+    diretorio: Path,
+    empresa_codigo: int,
+    cd_conta: int,
+    dia: date,
+    usuario: str = "diretor",
+) -> dict[str, Any]:
+    """Registra a confirmação de conferência realizada pelo diretor na tela do ERP."""
+    registro = {
+        "tipo": "conferencia_confirmada",
+        "empresa_codigo": empresa_codigo,
+        "cd_conta": cd_conta,
+        "dia": str(dia),
+        "data_conferencia": agora().isoformat(),
+        "usuario": usuario,
+        "status": "conferencia_confirmada",
+    }
+    registrar_envio_historico(diretorio, empresa_codigo, registro)
+    return registro
+
+
+VARIANTES_FORMATO_DEBITO = (
+    "DEBITO_PORTUGUES",      # "tipo": "Débito", valor positivo
+    "D",                     # "tipo": "D", valor positivo
+    "DEBIT",                 # "tipo": "DEBIT", valor positivo
+    "VALOR_NEGATIVO",        # "tipo": null, valor negativo
+    "VALOR_NEGATIVO_DEBITO", # "tipo": "Débito", valor negativo
+    "VALOR_NEGATIVO_D",      # "tipo": "D", valor negativo
+    "VALOR_NEGATIVO_DEBIT",  # "tipo": "DEBIT", valor negativo
+)
+
+
+def obter_formato_tipo_debito_configurado(
+    unidade: Unidade | None = None,
+    caminho_units: Path | None = None,
+) -> str | None:
+    """Obtém formato_tipo_debito_confirmado da configuração (padrão None = ausente)."""
+    if unidade is not None and hasattr(unidade, "formato_tipo_debito_confirmado"):
+        val = getattr(unidade, "formato_tipo_debito_confirmado", None)
+        if val:
+            return str(val)
+
+    from src.modules.cash_reconciliation.config import ARQUIVO
+    p = caminho_units or ARQUIVO
+    if p.is_file():
+        try:
+            dados = json.loads(p.read_text(encoding="utf-8"))
+            val = dados.get("formato_tipo_debito_confirmado")
+            if val:
+                return str(val)
+        except Exception:
+            pass
+    return None
 
 
 def formatar_transacao_webposto(
     l: LancamentoBancario,
-    formato_tipo: str = "CREDITO_DEBITO",
-    formato_sinal: str = "sempre_positivo",
+    formato_debito: str | None = None,
     incluir_tipo_transacao: bool = False,
+    **kwargs: Any,
 ) -> dict[str, Any]:
-    """Formata TransacaoBancaria respeitando a spec oficial e o padrão de MOVIMENTOS_CONTA."""
+    """Formata TransacaoBancaria respeitando a spec oficial e variantes de débito."""
     # Data em ISO-8601 com milissegundos e offset -03:00 exigidos pelo parser Java/Spring do webPosto
     dt_ref = l.momento or datetime.combine(l.data, datetime.min.time())
     dt_iso = dt_ref.strftime("%Y-%m-%dT%H:%M:%S.000-03:00")
 
-    # Tratamento do tipo e sinal conforme configuração
-    if formato_tipo == "CREDITO_DEBITO":
-        tipo_str = "Crédito" if l.eh_credito else "Débito"
-    elif formato_tipo == "C_D":
-        tipo_str = "C" if l.eh_credito else "D"
-    else:
-        tipo_str = "CREDIT" if l.eh_credito else "DEBIT"
-
-    if formato_sinal == "sempre_positivo":
+    if l.eh_credito:
+        tipo_str: str | None = "Crédito"
         val_float = float(abs(l.valor))
     else:
-        # Padrão OFX: créditos positivos, débitos negativos
-        val_float = float(l.valor if l.eh_credito else -abs(l.valor))
+        # Lançamento é débito: aplica variante configurada se presente
+        if formato_debito == "D":
+            tipo_str = "D"
+            val_float = float(abs(l.valor))
+        elif formato_debito == "DEBIT":
+            tipo_str = "DEBIT"
+            val_float = float(abs(l.valor))
+        elif formato_debito == "VALOR_NEGATIVO":
+            tipo_str = None
+            val_float = float(-abs(l.valor))
+        elif formato_debito == "VALOR_NEGATIVO_DEBITO":
+            tipo_str = "Débito"
+            val_float = float(-abs(l.valor))
+        elif formato_debito == "VALOR_NEGATIVO_D":
+            tipo_str = "D"
+            val_float = float(-abs(l.valor))
+        elif formato_debito == "VALOR_NEGATIVO_DEBIT":
+            tipo_str = "DEBIT"
+            val_float = float(-abs(l.valor))
+        else:
+            tipo_str = "Débito"
+            val_float = float(abs(l.valor))
 
     return {
         "tipo": tipo_str,
@@ -244,9 +419,9 @@ def montar_payload_ofx(
     data_inicial: date,
     data_final: date,
     lancamentos: tuple[LancamentoBancario, ...],
-    formato_tipo: str = "CREDITO_DEBITO",
-    formato_sinal: str = "sempre_positivo",
+    formato_debito: str | None = None,
     incluir_tipo_transacao: bool = False,
+    **kwargs: Any,
 ) -> dict[str, Any]:
     """Monta o payload estrito ParamIncluirOfx."""
     # Verificação rígida contra opções proibidas
@@ -258,8 +433,7 @@ def montar_payload_ofx(
     transacoes = [
         formatar_transacao_webposto(
             l,
-            formato_tipo=formato_tipo,
-            formato_sinal=formato_sinal,
+            formato_debito=formato_debito,
             incluir_tipo_transacao=incluir_tipo_transacao,
         )
         for l in lancamentos
@@ -292,9 +466,11 @@ async def enviar_ofx_webposto(
     confirmar: bool = False,
     client: httpx.AsyncClient | None = None,
     diretorio_historico: Path | None = None,
-    formato_tipo: str = "CREDITO_DEBITO",
-    formato_sinal: str = "sempre_positivo",
+    caminho_env: Path | str | None = None,
+    caminho_units: Path | None = None,
+    formato_tipo_debito_confirmado: str | None = None,
     incluir_tipo_transacao: bool = False,
+    **kwargs: Any,
 ) -> ResultadoImportacaoOfx:
     """ÚNICA função de envio de OFX para /INTEGRACAO/V1/OFXS com barreira total."""
     caminho = Path(caminho_arquivo)
@@ -335,13 +511,19 @@ async def enviar_ofx_webposto(
     if not lancamentos_periodo:
         raise BarreiraOfxErro(f"Nenhum lançamento no extrato entre {formatar_data(dt_ini)} e {formatar_data(dt_fim)}.")
 
+    # Barreira SPRINT 17B.1: Débito bloqueado até confirmação formal pela Quality
+    formato_debito = formato_tipo_debito_confirmado or obter_formato_tipo_debito_configurado(unidade, caminho_units=caminho_units)
+    tem_debitos = any(not l.eh_credito for l in lancamentos_periodo)
+    if tem_debitos and not formato_debito:
+        raise BarreiraOfxErro("formato de débito não confirmado pela Quality")
+
     # 4. Resolução da conta e conferência com GET /INTEGRACAO/V1/CONTAS (somente leitura)
     contas_cadastradas = await paginar(unidade, "/INTEGRACAO/V1/CONTAS", {"empresaCodigo": unidade.empresa_codigo}, client=client)
     cd_conta = resolver_cd_conta_unidade(unidade, extrato.banco, extrato.conta_sufixo, contas_cadastradas)
 
-    # 5. Barreira: Sem duplicar
+    # 5. Barreira: Sem duplicar (anti-reenvio por conta + dia)
     dir_hist = diretorio_historico or DIRETORIO_HISTORICO_PADRAO
-    verificar_duplicidade_historico(dir_hist, unidade.empresa_codigo, extrato.sha256, cd_conta, dt_ini, dt_fim)
+    verificar_duplicidade_historico(dir_hist, unidade.empresa_codigo, cd_conta, dt_ini, dt_fim, sha256=extrato.sha256)
 
     # 6. Montagem da prévia
     amostra_primeiros = tuple(
@@ -390,13 +572,12 @@ async def enviar_ofx_webposto(
         data_inicial=dt_ini,
         data_final=dt_fim,
         lancamentos=lancamentos_periodo,
-        formato_tipo=formato_tipo,
-        formato_sinal=formato_sinal,
+        formato_debito=formato_debito,
         incluir_tipo_transacao=incluir_tipo_transacao,
     )
 
-    # 8. Verificação das travas para envio
-    travas_ok, motivo_trava = verificar_travas_ambiente()
+    # 8. Verificação das travas para envio exclusivamente no arquivo .env
+    travas_ok, motivo_trava = verificar_travas_ambiente(caminho_env=caminho_env)
     if not confirmar:
         return ResultadoImportacaoOfx(
             sucesso=True,
@@ -457,7 +638,7 @@ async def enviar_ofx_webposto(
             "total_creditos": str(tot_cred),
             "total_debitos": str(tot_deb),
             "data_envio": agora().isoformat(),
-            "status": "sucesso",
+            "status": "enviado_aguardando_conferencia",
             "resposta": resp_data,
         }
         registrar_envio_historico(dir_hist, unidade.empresa_codigo, registro_envio)
@@ -465,7 +646,7 @@ async def enviar_ofx_webposto(
         return ResultadoImportacaoOfx(
             sucesso=True,
             modo="enviado",
-            mensagem=f"OFX importado com sucesso no webPosto ({len(lancamentos_periodo)} lançamentos).",
+            mensagem="ENVIADO — CONFERIR NA TELA",
             previa=previa,
             payload_enviado=payload,
             resposta_erp=resp_data,
