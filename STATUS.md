@@ -52,6 +52,19 @@ Histórico de sprints: um prompt por sprint em docs/prompts/ (SPRINT_05 ... SPRI
   FECHAMENTO = ajuste de NF fora das despesas) e ADR-005 (aprendizado por unidade/setor, período de aprendizado,
   IA só como assistente) — ambas Proposed. Regras RN-REDE-007/008 e novos "A definir" (fluxo de respostas dos
   responsáveis, limites proporcionais de despesa, despesa × NF-e/DF-e). Nada implementado ainda.
+- 11/10 tarde — caso Doze 10/10 investigado à mão: falta caiu de R$ 884,80 para R$ 84,80 (PIX CNPJ R$ 800 manual às 16:00,
+  conferir no extrato); PagBank EDI 495 · R$ 36.541,86 × webPosto 494 · R$ 36.291,79 → diferença R$ 250,07 = COBRANÇA
+  EM DUPLICIDADE (Visa 19:12:26 aut 018845 + 19:13:21 do cupom 10294, mesma maquininha, 1 venda; sem estorno até 11/10).
+  Premmia 32 · R$ 2.570,17 = 100%. Relatório da Sprint 15 usou dados de 03:54 (falta 884,80, "lançar" 250,07) — corrigir na 15.1.
+- SPRINT 15.1 (a escrever): relatório busca dados ATUAIS; regras novas: cobrança em duplicidade (mesmo valor, mesma
+  maquininha, segundos, 1 venda → "estornar"), venda "Cartão POS" sem cartão detalhado, PIX CNPJ lançado depois → grupo 4,
+  abastecimentos/litros e centro de custo das despesas no relatório; vale fora de caixa (ex.: R$ 1.000 em 10/10) sinalizado.
+- SPRINT 16 (Investigador IA) — diretor AUTORIZOU usar IA e enviar nomes e valores (11/10). Começar com o GEMINI já
+  contratado (GEMINI_API_KEY no .env; ping 11/10 OK: gemini-2.5-flash, 2.5-pro, 3-flash-preview, 3.1-pro-preview), outro
+  provedor depois. Já existe no repo ANTIGO (OneDrive, WebPosto_API/src/services/ai/): GeminiProvider (endpoint OpenAI-
+  compatível, Bearer), fallback OpenRouter, router por alias de modelo, tools (function calling), RAG, e
+  services/executive_copilot (llm_port, action_proposals). NÃO existe no repo canônico. Avaliar porte só do provedor+router
+  (sem I/O de escrita), com guarda-corpos da ADR-005 e medição da ADR-003; IA sugere, não decide.
 - Próximo: FECHAMENTO DE CAIXA (decisão do diretor 11/10) · CIELO_01 e MAIS_01 quando houver credencial · Sprint 15 (dossiê + medir acerto das propostas) · EXTRATOS_01.
 
 ## Em andamento
