@@ -16,6 +16,13 @@ Histórico de sprints: um prompt por sprint em docs/prompts/ (SPRINT_05 ... SPRI
   TELEGRAM_ENVIO=1 desde 10/10/2026 (envio automático após o robô)
 - Datas no padrão Brasil (America/Recife)
 
+## Ponto de parada (11/10/2026 00:30)
+- Sprint 13 (Premmia Casa Caiada + Doze) CONCLUÍDA: commits dfaf474 e 3cb082e; 255 testes verdes; coleta 01–09/10 feita.
+- Achado: "Desconto" do portal tem código de cupom diferente do NSU do ERP (PREMMIA DESCONTO CUPOM) → hoje cai como
+  a maior/a menor com o MESMO valor. Precisa casar pelo pagamento "pai" (mesmo segundo no portal / mesma venda no ERP).
+- Doze: parte do desconto Premmia foi lançada no webPosto como HIPERCARD; o diretor vai corrigir e REFAZER o Doze.
+- Próximo: Sprint 13.1 (casamento do desconto e POS PREMMIA) → Sprint 14 (dossiê + Fase 0 sombra + IDs RN).
+
 ## Em andamento
 - SPRINT_12 CARTOES_V3 (prompt pronto, não executado): mesmo NSU com valor diferente; cancelamentos do EDI
 - PREMMIA_00 (VIP, 01 a 09/10/2026): login OK sem CAPTCHA (3 vezes); filtro de datas pela URL OK; tentativa 3 parou
