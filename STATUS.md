@@ -16,57 +16,18 @@ Histórico de sprints: um prompt por sprint em docs/prompts/ (SPRINT_05 ... SPRI
   TELEGRAM_ENVIO=1 desde 10/10/2026 (envio automático após o robô)
 - Datas no padrão Brasil (America/Recife)
 
-## Ponto de parada (11/10/2026 03:00)
-- Sprint 14 CONCLUÍDA (50cdc21, 97c6bd3, 0255950): tela "Conferência de Recebimentos" com 4 grupos
-  (Lançar/Alterar/Apurar/Conferir à mão), visão diária por adquirente, 17 correções prontas (status "proposta",
-  ADR-003 Fase 0), conferência manual auditada, período até D-2 e máx. 7 dias, datas dd/mm/aaaa em todo o frontend.
-  308 testes backend + 56 frontend verdes.
-- 01–09/10: Casa Caiada 1.280 · R$ 115.016,23 conferidos; Doze 2.955 · R$ 203.167,01; grupo 3 (sem lastro) = 0.
-  Reincidente: frentista 277311 (Casa Caiada), 3 trocas · R$ 163,90.
-- Mais Pagamentos usada em Doze, Casa Caiada e VIP (aparece como "Transferência Bancária"): R$ 278 mil em 9 dias
-  SEM conferência. Bloqueio: client_id/secret de integração (ver MAIS_01 no backlog).
-- Sprint 14.1 CONCLUÍDA (e6d0190, fa7e677): Telegram sem KeyError; Premmia abre o login no modo invisível
-  (validado 11/10 03:52, Doze e Casa Caiada); falha do portal = aviso. Robô 10/10: falha=0, aviso=1. 321 testes verdes.
-- CIELO_01 (novo, 11/10/2026): diretor homologou o Extrato Eletrônico EDI da Cielo, conciliação própria.
-  EC matriz 1050633722 (VIP loja EC 1003946779 aparece no portal). Arquivos: CIELO03 (vendas cartões),
-  CIELO16 (Pix na maquininha), CIELO04 (pagamentos/liquidação). Acesso por API: OAuth2 client_credentials
-  (client_id/client_secret) + assinatura HMAC no header X-Signature + certificado mTLS;
-  POST https://api-internet.cielo.com.br/cielo-extc-serv-edi-link-exp-external/extc-serv-edi-link-external/v1/link/generate
-  (merchantCode, fileType 3=vendas 4=pagamentos, processType D/R/M, startDate/endDate) → links temporários de download.
-  Docs oficiais em docs/external/cielo/ (manual de links + collection Postman). Token: POST
-  https://api-internet.cielo.com.br/cielo-security-sys-web/oauth/v2/MulesoftPRD/protocol/openid-connect/token
-  (form: client_id, client_secret, grant_type=client_credentials; expira em 600 s). X-Signature = Base64(HMAC-SHA256(chave,
-  corpo JSON exato)). merchantCode = código da MATRIZ EDI. fileType 3/4/9/15/16. Links valem "duration" minutos.
-  .env (11/10): CIELO_CHAVE_API_POSTOVIP e CIELO_CHAVE_API_CONVENIENCIA_24_HORAS (44 caracteres = provável chave HMAC),
-  EC do VIP conveniência e da Conv. 24h. FALTAM client_id e client_secret (e confirmar se exige certificado mTLS).
-  Ainda falta o manual de LAYOUT do Extrato Eletrônico (posições do CIELO03/04/16).
-  11/10 05:28: teste do token (EC como client_id + chave como secret) → 401 {"error":"missing"} = FALTA CERTIFICADO mTLS
-  (manual docs/external/cielo/integracao_apis_extc.pdf, p.7). Gerados FORA do repo, em C:\Projetos\LOGOS\certificados\cielo\:
-  logosauditoria-extc-prd-mulesoft-mtls.key (PRIVADA, nunca compartilhar/versionar) e .csr (enviar no portal Cielo →
-  Extrato Eletrônico → Integrar via API → "Envie o certificado para assinatura"). Cielo devolve o .cer em até 5 dias úteis;
-  depois, client_id/client_secret em desenvolvedores.cielo.com.br → Perfil → Client-IDs Cadastrados.
-- CIELO_01 PAUSADA pelo diretor (11/10): falta achar no portal Cielo onde enviar o .csr (Integrar via API →
-  "Certificado de segurança (MTLS)" / "Envie o certificado para assinatura"; senão "Agendar suporte técnico").
-  Matriz 1003946779 (VIP) é do webPosto/Quality desde 28/09 — NÃO alterar. A nossa é a 1050633722.
-- 11/10 (debate com o diretor): ADR-004 (grupos → unidades → setores por centro de custo; VIP = PISTA | CONVENIÊNCIA → FOOD;
-  FECHAMENTO = ajuste de NF fora das despesas) e ADR-005 (aprendizado por unidade/setor, período de aprendizado,
-  IA só como assistente) — ambas Proposed. Regras RN-REDE-007/008 e novos "A definir" (fluxo de respostas dos
-  responsáveis, limites proporcionais de despesa, despesa × NF-e/DF-e). Nada implementado ainda.
-- 11/10 tarde — caso Doze 10/10 investigado à mão: falta caiu de R$ 884,80 para R$ 84,80 (PIX CNPJ R$ 800 manual às 16:00,
-  conferir no extrato); PagBank EDI 495 · R$ 36.541,86 × webPosto 494 · R$ 36.291,79 → diferença R$ 250,07 = COBRANÇA
-  EM DUPLICIDADE (Visa 19:12:26 aut 018845 + 19:13:21 do cupom 10294, mesma maquininha, 1 venda; sem estorno até 11/10).
-  Premmia 32 · R$ 2.570,17 = 100%. Relatório da Sprint 15 usou dados de 03:54 (falta 884,80, "lançar" 250,07) — corrigir na 15.1.
-- SPRINT 15.1 (a escrever): relatório busca dados ATUAIS; regras novas: cobrança em duplicidade (mesmo valor, mesma
-  maquininha, segundos, 1 venda → "estornar"), venda "Cartão POS" sem cartão detalhado, PIX CNPJ lançado depois → grupo 4,
-  abastecimentos/litros e centro de custo das despesas no relatório; vale fora de caixa (ex.: R$ 1.000 em 10/10) sinalizado.
-- SPRINT 16 (Investigador IA) — diretor AUTORIZOU usar IA e enviar nomes e valores (11/10). Começar com o GEMINI já
-  contratado (GEMINI_API_KEY no .env; ping 11/10 OK: gemini-2.5-flash, 2.5-pro, 3-flash-preview, 3.1-pro-preview), outro
-  provedor depois. Já existe no repo ANTIGO (OneDrive, WebPosto_API/src/services/ai/): GeminiProvider (endpoint OpenAI-
-  compatível, Bearer), fallback OpenRouter, router por alias de modelo, tools (function calling), RAG, e
-  services/executive_copilot (llm_port, action_proposals). NÃO existe no repo canônico. Avaliar porte só do provedor+router
-  (sem I/O de escrita), com guarda-corpos da ADR-005 e medição da ADR-003; IA sugere, não decide.
-- Próximo: FECHAMENTO DE CAIXA (decisão do diretor 11/10) · CIELO_01 e MAIS_01 quando houver credencial · Sprint 15 (dossiê + medir acerto das propostas) · EXTRATOS_01.
-
+## Ponto de parada (11/10/2026 ~15:30) — pausa pedida pelo diretor
+- Sprints 15 (relatório do caixa do dia), 15.1 (dados atuais, status ✅/❌/⏳, Atualizar agora, duplicidade, Cartão POS,
+  Amex = PagBank) e 15.2 (total do status sem dupla contagem) CONCLUÍDAS: 395e061, 4ff7673, 52f3b5e.
+- Casos reais 10/10: Doze — cobrança em duplicidade Visa R$ 250,07 (19:12, sem estorno), falta R$ 34,80 (consolidado);
+  Casa Caiada — tudo bate, falta R$ 14,71. 09/10: diretor lançou 4 cartões à mão no Casa Caiada → dinheiro esperado caiu
+  R$ 128,75 (incluir cartão NÃO conta em dobro); falta final R$ 6,59, consolidado.
+- Sangria Alberis 05/10 R$ 267,00 "Banco 24h": ficou no cofre (resposta do diretor) → corrigir a conta; regra nova de
+  valor impossível no Banco 24h (cédulas 20/50/100/200) na Sprint 17.
+- Prévia da tela nova (local, com nomes): WebPosto_API/data/previas/conferencia_do_dia.html — aguardando ajustes do diretor.
+- PRÓXIMO: Sprint 18 dividida em 18a (porta de escrita com travas, sem lançar) e 18b (1º lançamento com o diretor);
+  depois 16 (Investigador IA, Gemini autorizado), 17 (extratos + PIX CNPJ + sangria × depósito), tela nova.
+  Sprints menores (~20–30 min) e testes focados durante o trabalho.
 ## Em andamento
 - SPRINT_12 CARTOES_V3 (prompt pronto, não executado): mesmo NSU com valor diferente; cancelamentos do EDI
 - PREMMIA_00 (VIP, 01 a 09/10/2026): login OK sem CAPTCHA (3 vezes); filtro de datas pela URL OK; tentativa 3 parou
