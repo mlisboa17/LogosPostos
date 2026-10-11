@@ -25,6 +25,10 @@
       "destinos": [
         {"conta_codigo": 86248, "tipo": "deposito_direto", "banco": "BB", "terminais": ["POSTO REAL FOSFATO ATMR"]},
         {"conta_codigo": 86081, "tipo": "cofre", "banco": "BB", "prazo_dias": 1}
+      ],
+      "contas_extrato": [
+        {"banco": "PAGBANK", "conta_sufixo": "9048-8", "cd_conta": 86188},
+        {"banco": "BB", "conta_sufixo": "4068-X", "cd_conta": 86248}
       ]
     },
     {

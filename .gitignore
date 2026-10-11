@@ -21,3 +21,6 @@ WebPosto_API/data/
 # snapshots gerados pela app contem dados operacionais reais (os 28 ja versionados ficam ate decisao de limpeza)
 WebPosto_API/snapshots/
 .venv/
+data/
+data/importacoes_ofx/
+WebPosto_API/data/importacoes_ofx/

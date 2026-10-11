@@ -588,6 +588,19 @@
 | Status | proposta (Fase 0 a implementar) |
 | Vigência | 10/10/2026 — decisão do diretor |
 
+### RN-ERP-002 — Importação de OFX no webPosto (barreira)
+| Campo | Valor |
+|---|---|
+| Unidades | Todas |
+| Módulo | ERP · Bancos/Extrato |
+| Padrão | Somente arquivos `.ofx` com cabeçalho OFX válido; envio exclusivo para `POST /INTEGRACAO/V1/OFXS` via módulo isolado `adapters/webposto_escrita_ofx.py`; `opcaoImportacao` fixo em código = `IMPORTAR_APENAS_DIAS_INEXISTENTES_SISTEMA` (`EXCLUIR_DIAS_SISTEMA` e `IMPORTAR_DIAS_ARQUIVO` proibidos); exige `--confirmar` e dupla trava no `.env` (`WEBPOSTO_WRITES=1` e `LOGOS_OFX_IMPORTACAO=1`); sem confirmação, gera apenas prévia |
+| Exceção | — |
+| Gatilho | Comando `python -m src.jobs.importar_ofx` |
+| Ação no sistema | Validação de conta em `units.json` conferida com `GET /INTEGRACAO/V1/CONTAS`; limite de no máximo 1 conta e até 7 dias no passado (até ontem); registro em `data/importacoes_ofx/` e bloqueio de reenvio de arquivo/hash ou período já importado |
+| Implementação | `adapters/webposto_escrita_ofx.py` · `src.jobs.importar_ofx` · SPRINT 17B |
+| Status | vigente |
+| Vigência | 11/10/2026 — decisão do diretor |
+
 ---
 
 ## 12. A definir
@@ -629,3 +642,4 @@ Temas comuns em postos que **ainda não têm regra decidida** — não implement
 | 11/10/2026 | RN-REDE-007 (setores por centro de custo; FECHAMENTO = ajuste de NF), RN-REDE-008 (período de aprendizado), novos itens "A definir" (fluxo de respostas, limites proporcionais, despesa × NF-e, grupos, IA); ADR-004 e ADR-005 propostas |
 | 11/10/2026 | Sprint 15: RN-CAIXA-006 — relatório diário por unidade, CLI/API/tela e XLSX, somente sobre dados persistidos e sem acesso a portais |
 | 11/10/2026 | Sprint 15.1: relatório atualizável com status por fonte, CARTOES_V3_4, RN-CARTAO-011/012 e RN-CAIXA-007; sem envio ao Telegram |
+| 11/10/2026 | RN-ERP-002: importação de OFX no webPosto com barreira estrita (somente OFX, dias inexistentes, dupla trava no .env, prévia obrigatória, deduplicação e limite de 7 dias no passado) · SPRINT 17B |
