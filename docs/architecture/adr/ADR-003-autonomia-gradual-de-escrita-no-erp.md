@@ -50,3 +50,7 @@ Até a Fase 2 ser liberada formalmente, a regra vigente continua: **somente leit
 - **Lançar direto com limiar fixo (85/90) desde já:** rejeitado — a nota ainda não é medida; um erro em lote no ERP é pior do que nenhum lançamento.
 - **Nunca escrever no ERP:** mantém o problema dos lançamentos manuais e agregados, que prejudica a conciliação.
 - **Escrever só com aprovação humana para sempre:** seguro, mas não reduz o trabalho dos gerentes; fica como Fase 1.
+
+## Registro de decisões
+
+- **11/10/2026 — diretor:** autorizado o tipo **"cartão recebido na adquirente e ausente no webPosto, com venda identificada"** a ir direto para a **Fase 2 (automático com limite)**, depois de um teste controlado com o diretor acompanhando (Sprint 18). Limites iniciais: nota ≥ 90 com candidato único, caixa não consolidado, até R$ 300,00 por lançamento e R$ 1.000,00 por dia por unidade, interruptor `LOGOS_ERP_ESCRITA`, auditoria e desfazer. Observação real que embasa: incluir cartão no caixa reduziu o dinheiro esperado no mesmo valor (Casa Caiada 09/10, R$ 128,75).
