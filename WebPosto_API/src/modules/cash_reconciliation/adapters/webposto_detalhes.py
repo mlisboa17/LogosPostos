@@ -90,6 +90,7 @@ async def buscar_despesas(
                 valor=_decimal(row.get("valorDinheiro")),
                 plano_conta_codigo=_texto(row.get("planoContaCodigo")),
                 descricao=_descricao(row),
+                centro_custo=row.get("centroCusto"),
             )
             for row in linhas
             if row.get("empresaCodigo") == unidade.empresa_codigo

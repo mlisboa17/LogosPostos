@@ -65,6 +65,7 @@ async def test_busca_somente_despesas_d_do_caixa(monkeypatch):
             "valorDinheiro": "12.30",
             "planoContaCodigo": "",
             "descricaoHistorico": "Lanche",
+            "centroCusto": 7295,
         },
         {
             "empresaCodigo": 321,
@@ -110,6 +111,7 @@ async def test_busca_somente_despesas_d_do_caixa(monkeypatch):
     assert despesas[0].codigo == 1
     assert despesas[0].plano_conta_codigo is None
     assert despesas[0].descricao == "Lanche"
+    assert despesas[0].centro_custo == 7295
 
 
 async def test_busca_nome_de_plano_uma_vez_por_codigo(monkeypatch):

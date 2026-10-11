@@ -235,6 +235,19 @@
 | Status | proposta |
 | Vigência | 06/10/2026 — informado pelo diretor |
 
+### RN-CAIXA-006 — Relatório do caixa do dia
+| Campo | Valor |
+|---|---|
+| Unidades | Todas |
+| Módulo | Caixa · Conciliação |
+| Padrão | Relatório por unidade/dia com caixas, modalidades, quebra, faltas, sangrias, despesas, vales, frentistas, recebimentos e pendências; valores em R$ e datas `dd/mm/aaaa HH:mm` (Recife). Toda ocorrência identificável usa nome + código; NSU mostra somente os 4 últimos dígitos |
+| Exceção | O relatório interativo/CLI consome resultados gravados. Nome ausente é “nome indisponível (código)”; abastecimentos, litros, hora/centro de custo de despesa ausentes na persistência são indicados como não persistidos, sem estimativa nem consulta ao ERP/portais |
+| Gatilho | Solicitação de relatório por dia e unidade |
+| Ação no sistema | Markdown por CLI/API e tela de Fechamento; planilha XLSX com abas por bloco. API exige autenticação e respeita escopo do gerente. Nenhuma escrita no ERP ou notificação |
+| Implementação | `application/relatorio_caixa_dia.py` · `src/jobs/relatorio_caixa.py` · `interfaces/http.py` · `frontend/pages/cashAudit.js` |
+| Status | vigente |
+| Vigência | 11/10/2026 — Sprint 15 |
+
 ---
 
 ## 6. Sangria e destino do dinheiro (RN-SANGRIA)
@@ -575,3 +588,4 @@ Temas comuns em postos que **ainda não têm regra decidida** — não implement
 | 11/10/2026 | Sprint 14 B4: filtros gerais, fechamento, painéis, contas, vendas, despesas, estoque, exportações e snapshots usam o mesmo helper brasileiro, preservando ISO apenas no transporte técnico |
 | 11/10/2026 | Sprint 14.1: Premmia invisível com fallback visível apenas antes do login, uma tentativa de login por noite; qualquer falha de coleta é aviso com etapa e data dos últimos dados; novas abas da planilha diária formatadas em R$ |
 | 11/10/2026 | RN-REDE-007 (setores por centro de custo; FECHAMENTO = ajuste de NF), RN-REDE-008 (período de aprendizado), novos itens "A definir" (fluxo de respostas, limites proporcionais, despesa × NF-e, grupos, IA); ADR-004 e ADR-005 propostas |
+| 11/10/2026 | Sprint 15: RN-CAIXA-006 — relatório diário por unidade, CLI/API/tela e XLSX, somente sobre dados persistidos e sem acesso a portais |

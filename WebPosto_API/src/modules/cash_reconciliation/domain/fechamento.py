@@ -82,6 +82,7 @@ class MovimentoDespesa(_Frozen):
     plano_conta_codigo: str | None
     descricao: str | None
     plano_conta_nome: str | None = None
+    centro_custo: int | None = None
 
 
 class DescontoFalta(_Frozen):
