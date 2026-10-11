@@ -31,6 +31,15 @@ Todo item, em qualquer grupo, mostra **todas** as colunas disponíveis (as que n
 **ação:** grupo, De → Para, ID da regra, selo REINCIDENTE.
 Para grupo provável (1 lançamento × vários pagamentos): uma linha por pagamento com o mesmo detalhe.
 
+**Sempre mostrar o provável frentista (decisão do diretor, 11/10/2026)** — nunca deixar só "sugestão" ou "sem abastecimento":
+1. **Atribuído** (nota ≥ 80, candidato único): nome + código.
+2. **Sugestão** (50–79): mostrar o **melhor candidato** com nome + código + nota + motivos ("provável: Funcionário A (158924) · nota 77 · valor igual, 4 min antes, venda em dinheiro").
+3. **Empate:** listar os candidatos empatados, cada um com nome + código + nota.
+4. **Sem abastecimento compatível:** usar o **responsável pelo caixa/turno aberto naquele horário** (operador do caixa) — "provável: Funcionário A (158924) · responsável pelo caixa 4460052 no horário"; se houver mais de um caixa aberto, listar todos.
+5. Só "frentista não identificado" quando nem o caixa do horário existir, com o motivo.
+Caso real de teste (Casa Caiada 07/10, grupo R$ 179,45): os 4 pagamentos têm de sair como frentista 158924 — dois atribuídos (notas 96 e 97), um por sugestão (nota 77) e um pelo caixa 4460052 (aberto 00:00–23:58).
+Atualizar RN-REDE-002 no `REGRAS_DE_NEGOCIO.md` com essa ordem.
+
 ## PARTE A — Classificação
 
 @WebPosto_API/src/modules/cash_reconciliation/application/conciliar_cartoes.py
