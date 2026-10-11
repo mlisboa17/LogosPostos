@@ -777,7 +777,8 @@ def test_legada_ausente_arquivada_sem_inventar_detalhe(tmp_path, monkeypatch):
     assert next(p for p in itens if p.tipo == "caixa_alertas_laranja").status == "aprovada"
 
 
-def test_v32_encerra_so_vermelhas_abertas_conferidas_e_grupo_resolvido(tmp_path, monkeypatch):
+@pytest.mark.parametrize("versao", ["CARTOES_V3_2", "CARTOES_V3_3"])
+def test_v32_encerra_so_vermelhas_abertas_conferidas_e_grupo_resolvido(tmp_path, monkeypatch, versao):
     from src.modules.cash_reconciliation.domain.recebimentos import RecebimentoAdquirente
 
     monkeypatch.setattr(repositorio, "BANCO_PENDENCIAS", tmp_path / "pendencias.sqlite3")
@@ -805,7 +806,7 @@ def test_v32_encerra_so_vermelhas_abertas_conferidas_e_grupo_resolvido(tmp_path,
         "recebimentos": ResultadoRecebimentos(
             empresa_codigo=EMPRESA, dia=DIA, adquirentes=(RecebimentoAdquirente(
                 adquirente="PREMMIA", situacao="ok", codigos_conferidos=(1, 2),
-                proveniencia=diario.proveniencia.model_copy(update={"versao_regra": "CARTOES_V3_2"}),
+                proveniencia=diario.proveniencia.model_copy(update={"versao_regra": versao}),
             ),),
         ),
     })
@@ -817,6 +818,11 @@ def test_v32_encerra_so_vermelhas_abertas_conferidas_e_grupo_resolvido(tmp_path,
     assert por_ref["PREMMIA:cartao:2"].status == "justificada"
     assert por_ref["PREMMIA:cartao:3"].status == "aberta"
     assert por_ref["caixa:106:laranja"].status == "aprovada"
+    if versao == "CARTOES_V3_3":
+        for referencia in ("PREMMIA:cartao:1", "caixa:106:laranja"):
+            historico = por_ref[referencia].historico[-1]
+            assert historico.usuario == "robo"
+            assert historico.justificativa == "CARTOES_V3_3: cupom repetido estava sendo deduplicado indevidamente"
 
 def test_laranjas_individuais_abertas_sao_substituidas_com_historico(tmp_path):
     banco = tmp_path / "pendencias.sqlite3"

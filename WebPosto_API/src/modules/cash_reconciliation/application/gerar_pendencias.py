@@ -346,7 +346,7 @@ def pendencias_do_dia(resultado: ResultadoDiario) -> list[NovaPendencia]:
         item.adquirente
         for item in resultado.recebimentos.adquirentes
         if item.proveniencia
-        and item.proveniencia.versao_regra in {"CARTOES_V3_1", "CARTOES_V3_2"}
+        and item.proveniencia.versao_regra in {"CARTOES_V3_1", "CARTOES_V3_2", "CARTOES_V3_3"}
         and item.situacao in {"ok", "pendente"}
     }
     if adquirentes_verificados and repositorio_pendencias.contar_abertas_somente_leitura(
@@ -389,7 +389,7 @@ def pendencias_do_dia(resultado: ResultadoDiario) -> list[NovaPendencia]:
     verificados_v32 = [
         a for a in resultado.recebimentos.adquirentes
         if a.situacao == "ok" and a.proveniencia
-        and a.proveniencia.versao_regra == "CARTOES_V3_2"
+        and a.proveniencia.versao_regra in {"CARTOES_V3_2", "CARTOES_V3_3"}
     ]
     if verificados_v32:
         referencias_conferidas = {
@@ -428,14 +428,21 @@ def pendencias_do_dia(resultado: ResultadoDiario) -> list[NovaPendencia]:
                     else p.referencia not in grupos_ativos
                 )
                 if resolvida:
+                    usa_v33 = any(
+                        a.proveniencia.versao_regra == "CARTOES_V3_3"
+                        and (tipo != "recebimento_a_menor" or p.referencia.partition(":")[0] == a.adquirente)
+                        for a in verificados_v32
+                    )
+                    if usa_v33:
+                        justificativa = "CARTOES_V3_3: cupom repetido estava sendo deduplicado indevidamente"
+                    elif tipo == "recebimento_a_menor":
+                        justificativa = "Regra CARTOES_V3_2: lançamento conferido por NSU/cupom/POS."
+                    else:
+                        justificativa = "Regra CARTOES_V3_2: grupo sem alertas laranja ativos no reprocessamento completo."
                     repositorio_pendencias.transicionar(
                         p.id, status_esperado="aberta", status_novo="aprovada",
                         acao="aprovada", usuario="robo",
-                        justificativa=(
-                            "Regra CARTOES_V3_2: lançamento conferido por NSU/cupom/POS."
-                            if tipo == "recebimento_a_menor"
-                            else "Regra CARTOES_V3_2: grupo sem alertas laranja ativos no reprocessamento completo."
-                        ),
+                        justificativa=justificativa,
                     )
     return novas
 

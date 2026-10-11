@@ -58,10 +58,14 @@ def conciliar(
     """transacoes e cartoes podem cobrir D-1..D+1 (virada do dia); o relatorio e so do dia D."""
     transacoes, cartoes = list(transacoes), list(cartoes)
     cancelados = [t for t in transacoes if t.situacao is not None]
+    casados, sobra_t, sobra_c = casar(transacoes, cartoes)
+    codigos_casados = {c.cartao.codigo for c in casados}
     alertas = []
     motivos_repetidos = {}
-    for grupo in grupos_nsu_repetido(cartoes):
-        excedentes = [c for c in grupo[1:] if c.momento.date() == dia]
+    for grupo in grupos_nsu_repetido(cartoes, transacoes):
+        excedentes = [
+            c for c in grupo[1:] if c.momento.date() == dia and c.codigo not in codigos_casados
+        ]
         if not excedentes:
             continue
         primeiro = grupo[0]
@@ -79,7 +83,7 @@ def conciliar(
                 cartoes=tuple(grupo),
             )
         )
-        for c in grupo[1:]:
+        for c in excedentes:
             motivos_repetidos[c.codigo] = f"NSU já usado na venda {primeiro.venda_codigo}"
     for cartao in cartoes:
         if (
@@ -100,7 +104,6 @@ def conciliar(
                     ),
                 )
             )
-    casados, sobra_t, sobra_c = casar(transacoes, cartoes)
     for casamento in casados:
         if not casamento.valor_divergente or casamento.transacao.momento.date() != dia:
             continue

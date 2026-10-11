@@ -128,6 +128,9 @@ async def executar(
                 except premmia_portal.PremmiaVerificacaoHumana:
                     aviso_premmia = premmia_portal.AVISO_HUMANO
                     unidades_com_aviso.add(unidade.empresa_codigo)
+                except premmia_portal.PremmiaIntegridadeAviso as exc:
+                    aviso_premmia = str(exc)
+                    unidades_com_aviso.add(unidade.empresa_codigo)
                 except (premmia_portal.PremmiaErro, OSError) as exc:
                     logger.error(
                         "Premmia coleta unidade=%s tipo=%s",

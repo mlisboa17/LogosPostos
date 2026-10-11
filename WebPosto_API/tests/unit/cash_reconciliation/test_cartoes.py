@@ -65,16 +65,70 @@ def test_cupom_ambiguo_nao_casa():
         [C(i, "10", "10:00", nsu=f"{i}-CUPOM001") for i in (1, 2)],
     )[0]
     t = T("10", "10:00", nsu="CUPOM001")
-    assert not casar([t, t.model_copy(update={"identificador": "outro"})], [
+    assert len(casar([t, t.model_copy(update={"identificador": "outro"})], [
         C(1, "10", "10:00", nsu="uuid-CUPOM001"),
-    ])[0]
+    ])[0]) == 1
 
 
-def test_pos_premmia_unico_casa_e_ambiguo_fica_provavel():
+@pytest.mark.parametrize("sufixo", [True, False])
+def test_v33_tres_usos_cupom_casam_por_dia_valor_e_horario_mais_proximo(sufixo):
+    ts = [
+        T("7", hora, nsu="CUPOM777", dia=dia, ident=str(i))
+        for i, (dia, hora) in enumerate([
+            ("2026-10-04", "14:28:35"), ("2026-10-04", "14:55:41"),
+            ("2026-10-07", "14:17:33"),
+        ])
+    ]
+    cs = [
+        C(i, "7", hora, nsu=f"prefixo-{i}-CUPOM777" if sufixo else "CUPOM777",
+          adm="PREMMIA DESCONTO CUPOM", dia=dia)
+        for i, (dia, hora) in enumerate([
+            ("2026-10-04", "14:30:08"), ("2026-10-04", "16:01:22"),
+            ("2026-10-07", "14:18:00"),
+        ])
+    ]
+    casados, maior, menor = casar(ts, list(reversed(cs)))
+    assert len(casados) == 3 and not maior and not menor
+    assert [(c.transacao.identificador, c.cartao.codigo) for c in casados] == [("0", 0), ("1", 1), ("2", 2)]
+    assert all(c.chave == ("cupom" if sufixo else "nsu") for c in casados)
+    resultado = conciliar(74014, "PREMMIA", date(2026, 10, 4), ts, cs, [], set())
+    assert not any(a.codigo == "CARTAO_NSU_REPETIDO" for a in resultado.alertas)
+
+
+def test_v33_codigo_repetido_nao_casa_outro_dia_ou_valor():
+    ts = [
+        T("7", "10:00", nsu="CUPOM777", ident="a"),
+        T("7", "12:00", nsu="CUPOM777", ident="b"),
+    ]
+    cs = [C(1, "8", "10:00", nsu="CUPOM777"), C(2, "7", "12:00", nsu="x-CUPOM777", dia="2026-10-06")]
+    casados, maior, menor = casar(ts, cs)
+    assert not casados and len(maior) == len(menor) == 2
+
+
+def test_v33_repetido_nao_reutiliza_erp_nem_casa_por_autorizacao_fora_do_dia():
+    ts = [T("7", hora, nsu="CUPOM777", aut="AUT", ident=str(i)) for i, hora in enumerate(["10:00", "11:00"])]
+    cs = [C(1, "7", "10:00", nsu="CUPOM777"), C(2, "7", "11:00", aut="AUT", dia="2026-10-06")]
+    casados, maior, menor = casar(ts, cs)
+    assert len(casados) == 1 and casados[0].cartao.codigo == 1
+    assert len(maior) == len(menor) == 1
+
+
+def test_v33_dois_usos_com_tres_lancamentos_casam_dois_e_preservam_sobra():
+    ts = [T("7", hora, nsu="CUPOM777", ident=str(i)) for i, hora in enumerate(["10:00", "11:00"])]
+    cs = [C(i, "7", hora, nsu="CUPOM777") for i, hora in enumerate(["10:00", "11:00", "12:00"])]
+    casados, maior, menor = casar(ts, cs)
+    assert [c.cartao.codigo for c in casados] == [0, 1]
+    assert not maior and [c.codigo for c in menor] == [2]
+    resultado = conciliar(74014, "PREMMIA", DIA, ts, cs, [], set())
+    assert next(a.valor for a in resultado.alertas if a.codigo == "CARTAO_NSU_REPETIDO") == Decimal("7")
+
+
+@pytest.mark.parametrize("administradora", ["POS PREMMIA", "PREMMIA PIX"])
+def test_pos_premmia_unico_casa_e_ambiguo_fica_provavel(administradora):
     from src.modules.cash_reconciliation.domain.recebimentos import RecebimentoAdquirente
 
-    t = T("200.02", "10:00", nsu="portal-sintetico").model_copy(update={"adquirente": "PREMMIA"})
-    cartoes = [C(i, "200.02", "10:05", nsu=f"erp-{i}", adm="POS PREMMIA") for i in (1, 2)]
+    t = T("200.02", "10:00", nsu="portal-sintetico").model_copy(update={"adquirente": "PREMMIA", "bandeira": "Pix"})
+    cartoes = [C(i, "200.02", "10:05", nsu=f"erp-{i}", adm=administradora) for i in (1, 2)]
     unico = conciliar(74014, "PREMMIA", DIA, [t], cartoes[:1], [], set())
     assert unico.casados[0].chave == "valor_hora"
     ambiguo = conciliar(74014, "PREMMIA", DIA, [t], cartoes, [], set())
@@ -86,13 +140,16 @@ def test_pos_premmia_unico_casa_e_ambiguo_fica_provavel():
     assert sum(f.webposto.quantidade for f in formas) == 2
 
 
-def test_pos_exige_janela_dia_adquirente_e_unicidade_reversa():
-    t = T("10", "10:00", nsu="portal").model_copy(update={"adquirente": "PREMMIA"})
-    for c in [C(1, "10", "10:11", nsu="erp", adm="POS PREMMIA"),
-              C(1, "10", "10:00", nsu="erp", adm="POS PREMMIA", dia="2026-10-06"),
-              C(1, "10", "10:00", nsu="erp", adm="PREMMIA PIX")]:
+@pytest.mark.parametrize("administradora", ["POS PREMMIA", "PREMMIA PIX"])
+def test_pos_exige_janela_dia_adquirente_e_unicidade_reversa(administradora):
+    t = T("10", "10:00", nsu="portal").model_copy(update={"adquirente": "PREMMIA", "bandeira": "Pix"})
+    for c in [C(1, "10", "10:11", nsu="erp", adm=administradora),
+              C(1, "10", "10:00", nsu="erp", adm=administradora, dia="2026-10-06")]:
         assert not casar([t], [c])[0]
-    c = C(1, "10", "10:00", nsu="erp", adm="POS PREMMIA")
+    c = C(1, "10", "10:00", nsu="erp", adm=administradora)
+    assert not casar([t.model_copy(update={"adquirente": "PAGBANK"})], [c])[0]
+    if administradora == "PREMMIA PIX":
+        assert not casar([t.model_copy(update={"bandeira": "Desconto"})], [c])[0]
     assert not casar([t, t.model_copy(update={"identificador": "segundo", "nsu": "outro"})], [c])[0]
     limite = c.model_copy(update={"momento": t.momento + timedelta(minutes=10)})
     assert casar([t], [limite])[0][0].chave == "valor_hora"
@@ -237,7 +294,7 @@ def test_conciliar_retorna_grupo_provavel_e_versao_cartoes_v3():
     resultado = conciliar(74014, "PAGBANK", DIA, transacoes, [C(1, "179.45", "10:05")], [], set())
     assert len(resultado.grupos_provaveis) == 1
     assert not resultado.a_maior and not resultado.a_menor
-    assert resultado.proveniencia.versao_regra == "CARTOES_V3_2"
+    assert resultado.proveniencia.versao_regra == "CARTOES_V3_3"
 
 
 # ---------- adapters ----------

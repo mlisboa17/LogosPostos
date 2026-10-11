@@ -92,6 +92,48 @@ def test_mensal_dedup_dias_vazios_e_resultado_sem_dados_cliente(tmp_path):
         portal.buscar_transacoes(u, date(2026, 10, 7), tmp_path)
 
 
+def test_v33_mensal_preserva_tres_usos_e_deduplica_linha_identica(tmp_path):
+    u = unidade()
+    registros = []
+    for dia, hora in [(date(2026, 10, 4), "14:28:35"), (date(2026, 10, 4), "14:55:41"), (date(2026, 10, 7), "14:17:33")]:
+        r = registro("CUPOM777", dia)
+        r["Data/Hora da transação"] = f"{dia}T{hora}-03:00"
+        r["Valor líquido"] = "7,00"
+        registros.append(r)
+    dias = [date(2026, 10, 4), date(2026, 10, 7)]
+    portal.acrescentar_coleta(u, registros + [registros[0]], dias, tmp_path)
+    linhas, coletas = portal.ler_mensal(portal.caminho_mensal(u, dias[0], tmp_path))
+    assert len(linhas) == 3
+    assert [c["Quantidade"] for c in coletas] == [2, 1]
+    ts = [t for d in dias for t in portal.buscar_transacoes(u, d, tmp_path)]
+    assert len({t.identificador for t in ts}) == 3
+    assert {t.nsu for t in ts} == {"CUPOM777"}
+    antes = portal.caminho_mensal(u, dias[0], tmp_path).read_bytes()
+    portal.acrescentar_coleta(u, registros, dias, tmp_path)
+    assert portal.caminho_mensal(u, dias[0], tmp_path).read_bytes() == antes
+
+
+def test_v33_integridade_detecta_linha_ausente_em_dia_ja_coletado(tmp_path, caplog):
+    u = unidade()
+    portal.acrescentar_coleta(u, [registro()], [DIA], tmp_path)
+    r = registro()
+    r["Data/Hora da transação"] = f"{DIA}T11:00:00-03:00"
+    with pytest.raises(portal.PremmiaIntegridadeAviso, match="1 linhas do portal não entraram"):
+        portal.acrescentar_coleta(u, [registro(), r], [DIA], tmp_path)
+    assert "1 linhas do portal não entraram" in caplog.text
+
+
+@pytest.mark.parametrize("coluna,valor", [
+    ("Valor líquido", "8,00"), ("Forma de Pagamento", "Pix"),
+])
+def test_v33_mesmo_codigo_e_horario_com_valor_ou_forma_distintos_permanece(tmp_path, coluna, valor):
+    primeiro = registro()
+    segundo = {**primeiro, coluna: valor}
+    portal.acrescentar_coleta(unidade(), [primeiro, segundo], [DIA], tmp_path)
+    linhas, _ = portal.ler_mensal(portal.caminho_mensal(unidade(), DIA, tmp_path))
+    assert len(linhas) == 2
+
+
 def test_dias_faltantes_e_virada_mes(tmp_path):
     u = unidade()
     assert portal.dias_faltantes(u, date(2026, 10, 3), tmp_path) == [
@@ -263,7 +305,8 @@ def test_um_login_fallback_timeout_um_dia_mesma_sessao(monkeypatch, tmp_path):
     assert len(list((tmp_path / "originais").glob("*.xlsx"))) == 1
 
 
-async def test_job_captcha_aviso_nao_falha_nem_repete(monkeypatch, tmp_path):
+@pytest.mark.parametrize("integridade", [False, True])
+async def test_job_captcha_aviso_nao_falha_nem_repete(monkeypatch, tmp_path, integridade):
     u = unidade()
     monkeypatch.setenv("WEBPOSTO_WRITES", "0")
     monkeypatch.setattr(noturno, "carregar_unidades", lambda: {321: u})
@@ -271,6 +314,8 @@ async def test_job_captcha_aviso_nao_falha_nem_repete(monkeypatch, tmp_path):
 
     async def coletar(*args):
         chamadas.append(1)
+        if integridade:
+            raise portal.PremmiaIntegridadeAviso("Premmia: 2 linhas do portal não entraram na planilha")
         raise portal.PremmiaVerificacaoHumana()
 
     monkeypatch.setattr(portal, "coletar", coletar)
@@ -292,8 +337,21 @@ async def test_job_captcha_aviso_nao_falha_nem_repete(monkeypatch, tmp_path):
     item = persistencia.carregar_dia(
         321, DIA, diretorio=tmp_path / "dados"
     ).recebimentos.adquirentes[0]
-    assert item.situacao == "pendente" and item.erro == portal.AVISO_HUMANO
+    assert item.situacao == "pendente"
+    assert item.erro == (
+        "Premmia: 2 linhas do portal não entraram na planilha" if integridade else portal.AVISO_HUMANO
+    )
     assert saude_robo.carregar_estado().unidades_com_aviso == (321,)
+    if integridade:
+        from src.modules.cash_reconciliation.application import resumo_diario
+
+        monkeypatch.setattr(resumo_diario, "carregar_unidades", lambda: {321: u})
+        mensagem = "\n".join(resumo_diario.gerar_mensagem_curta(
+            DIA, [persistencia.carregar_dia(321, DIA, diretorio=tmp_path / "dados")],
+            [321], set(), {321: 0},
+        ))
+        assert "Premmia: 2 linhas do portal não entraram na planilha" in mensagem
+        assert "Robô ok" in mensagem
 
 
 async def test_verificacao_humana_bloqueia_novo_login_no_mesmo_dia_alvo(monkeypatch, tmp_path):

@@ -1,4 +1,4 @@
-"""Conciliacao adquirente x webPosto e investigacao por abastecimento — CARTOES_V3_2.
+"""Conciliacao adquirente x webPosto e investigacao por abastecimento — CARTOES_V3_3.
 
 1. Chave exata: NSU ou autorizacao (cartao). Evidencia Doze 05/10/2026: 255/255.
 2. Sem NSU (PIX via adquirente): mesmo valor e |dt| <= 10 min.
@@ -15,8 +15,8 @@
    formam um "grupo provavel" se houver uma unica combinacao (ate 4 recebimentos).
 Mudou alguma regra? Crie nova VERSAO.
 7. Mesmo NSU/autorizacao exige conferir valor; cancelamentos nao casam.
-8. NSU repetido ou autorizacao com mesmo valor/dia: so o primeiro pode casar.
-   Autorizacao isolada com valor/dia diferentes nao indica duplicidade.
+8. Codigo repetido no portal: valor/dia e horario mais proximo, sem reutilizar ERP.
+   Duplicidade sem usos correspondentes no portal conserva o alerta legado.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ from ..domain.cartoes import (
     TransacaoAdquirente,
 )
 
-VERSAO = "CARTOES_V3_2"
+VERSAO = "CARTOES_V3_3"
 logger = logging.getLogger(__name__)
 CORTE_AUTOMATICO = 80
 CORTE_SUGESTAO = 50
@@ -46,17 +46,31 @@ def _chave(v: str | None) -> str:
     return str(v or "").strip().lstrip("0").upper()
 
 
+def _codigo_corresponde(t: TransacaoAdquirente, c: CartaoErp) -> bool:
+    codigo = str(t.nsu or "").strip().upper()
+    return bool(codigo) and (
+        _chave(codigo) in {_chave(c.nsu), _chave(c.nsu_tef)}
+        or bool(c.nsu and "-" in c.nsu and c.nsu.rsplit("-", 1)[1].strip().upper() == codigo)
+    )
+
+
 def candidato_pos(t: TransacaoAdquirente, c: CartaoErp) -> bool:
     return (
         t.adquirente.upper() == "PREMMIA"
-        and c.administradora.strip().upper() == "POS PREMMIA"
+        and (
+            c.administradora.strip().upper() == "POS PREMMIA"
+            or (c.administradora.strip().upper() == "PREMMIA PIX" and (t.bandeira or "").strip().upper() == "PIX")
+        )
         and c.valor == t.valor
         and c.momento.date() == t.momento.date()
         and abs(c.momento - t.momento) <= JANELA_SEM_NSU
     )
 
 
-def grupos_nsu_repetido(cartoes: Iterable[CartaoErp]) -> list[list[CartaoErp]]:
+def grupos_nsu_repetido(
+    cartoes: Iterable[CartaoErp], transacoes: Iterable[TransacaoAdquirente] = (),
+) -> list[list[CartaoErp]]:
+    transacoes = [t for t in transacoes if t.situacao is None]
     grupos: list[tuple[set[tuple], list[CartaoErp]]] = []
     autorizacoes: dict[str, set[tuple[Decimal, date]]] = {}
     for cartao in sorted(cartoes, key=lambda c: (c.momento, c.codigo)):
@@ -81,19 +95,45 @@ def grupos_nsu_repetido(cartoes: Iterable[CartaoErp]) -> list[list[CartaoErp]]:
             membros.extend(grupo[1])
             grupos.remove(grupo)
         grupos.append((chaves, membros))
-    return [
+    repetidos = [
         sorted(membros, key=lambda c: (c.momento, c.codigo))
         for _, membros in grupos
         if len(membros) > 1
     ]
+    saida = []
+    for grupo in repetidos:
+        livres = list(transacoes)
+        validos = True
+        for c in grupo:
+            candidatos = [
+                t for t in livres
+                if _codigo_corresponde(t, c)
+                and t.valor == c.valor and t.momento.date() == c.momento.date()
+            ]
+            if not candidatos:
+                validos = False
+                break
+            livres.remove(min(candidatos, key=lambda t: abs(t.momento - c.momento)))
+        if not validos:
+            saida.append(grupo)
+    return saida
 
 
 def casar(
     transacoes: Iterable[TransacaoAdquirente], cartoes: Iterable[CartaoErp]
 ) -> tuple[list[Casamento], list[TransacaoAdquirente], list[CartaoErp]]:
+    transacoes = list(transacoes)
     livres_t = [t for t in transacoes if t.situacao is None]
     cartoes = list(cartoes)
-    repetidos = [c for grupo in grupos_nsu_repetido(cartoes) for c in grupo[1:]]
+    repetidos = [
+        c for grupo in grupos_nsu_repetido(cartoes, livres_t)
+        if not any(
+            sum(_chave(outro.nsu) == _chave(t.nsu) for outro in livres_t) > 1
+            and any(_codigo_corresponde(t, membro) for membro in grupo)
+            for t in livres_t if _chave(t.nsu)
+        )
+        for c in grupo[1:]
+    ]
     livres_c = [c for c in cartoes if c not in repetidos]
     casados: list[Casamento] = []
 
@@ -103,6 +143,23 @@ def casar(
             if _chave(k):
                 indice.setdefault(_chave(k), c)
     for t in list(livres_t):
+        codigo_repetido = _chave(t.nsu) and sum(
+            _chave(outro.nsu) == _chave(t.nsu)
+            for outro in transacoes if outro.situacao is None
+        ) > 1
+        if codigo_repetido:
+            candidatos = [
+                c for c in livres_c
+                if _codigo_corresponde(t, c) and c.valor == t.valor
+                and c.momento.date() == t.momento.date()
+            ]
+            if candidatos:
+                c = min(candidatos, key=lambda c: (abs(c.momento - t.momento), c.codigo))
+                livres_t.remove(t)
+                livres_c.remove(c)
+                chave = "nsu" if _chave(t.nsu) in {_chave(c.nsu), _chave(c.nsu_tef)} else "cupom"
+                casados.append(Casamento(transacao=t, cartao=c, chave=chave))
+            continue
         for nome, k in (("nsu", t.nsu), ("autorizacao", t.autorizacao)):
             c = indice.get(_chave(k)) if _chave(k) else None
             if c is not None and c in livres_c:
@@ -128,12 +185,16 @@ def casar(
             and c.nsu.rsplit("-", 1)[1].strip().upper() == codigo
             and c.valor == t.valor and c.momento.date() == t.momento.date()
         ]
-        if len(cands) == 1 and sum(
+        repetido = sum(
+            str(outro.nsu or "").strip().upper() == codigo
+            for outro in transacoes if outro.situacao is None
+        ) > 1
+        if cands and (repetido or (len(cands) == 1 and sum(
             str(outro.nsu or "").strip().upper() == codigo
             and outro.valor == t.valor and outro.momento.date() == t.momento.date()
             for outro in livres_t
-        ) == 1:
-            c = cands[0]
+        ) == 1)):
+            c = min(cands, key=lambda candidato: (abs(candidato.momento - t.momento), candidato.codigo))
             livres_t.remove(t)
             livres_c.remove(c)
             casados.append(Casamento(transacao=t, cartao=c, chave="cupom"))
@@ -153,10 +214,10 @@ def casar(
         livres_c.remove(c)
         casados.append(Casamento(transacao=t, cartao=c, chave="valor_hora"))
 
-    # Preserve o casamento legado de PIX sem NSU, exceto POS ambiguo.
+    # Preserve o casamento legado de PIX sem NSU, exceto Premmia ambiguo.
     for t in sorted((t for t in livres_t if not _chave(t.nsu) and not _chave(t.autorizacao)), key=lambda t: t.momento):
         cands = [c for c in livres_c
-                 if c.administradora.strip().upper() != "POS PREMMIA"
+                 if c.administradora.strip().upper() not in {"POS PREMMIA", "PREMMIA PIX"}
                  and abs(c.valor - t.valor) < CENTAVO and abs(c.momento - t.momento) <= JANELA_SEM_NSU]
         if cands:
             c = min(cands, key=lambda c: abs(c.momento - t.momento))

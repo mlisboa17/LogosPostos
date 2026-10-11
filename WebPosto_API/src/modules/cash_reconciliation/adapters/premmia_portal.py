@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import asyncio
 import json
 import logging
@@ -16,6 +17,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from tempfile import NamedTemporaryFile
+from typing import Iterable
 from urllib.parse import parse_qs, unquote_plus, urlencode, urlsplit, urlunsplit
 
 from openpyxl import Workbook, load_workbook
@@ -57,6 +59,33 @@ class PremmiaVerificacaoHumana(PremmiaErro):
 
 class PremmiaDiaNaoColetado(PremmiaErro):
     pass
+
+
+class PremmiaIntegridadeAviso(PremmiaErro):
+    pass
+
+
+def chave_linha(registro: dict) -> tuple[str, str, Decimal, str]:
+    return (
+        str(registro["Código Transação"]).strip(),
+        data_hora(registro["Data/Hora da transação"]).isoformat(),
+        dinheiro(registro["Valor líquido"]),
+        str(registro["Forma de Pagamento"]).strip(),
+    )
+
+
+def verificar_integridade(
+    registros: list[dict], gravadas: list[dict], dias: Iterable[date],
+) -> None:
+    faltantes = 0
+    for dia in set(dias):
+        esperadas = {chave_linha(r) for r in registros if data_hora(r["Data/Hora da transação"]).date() == dia}
+        atuais = {chave_linha(r) for r in gravadas if data_hora(r["Data/Hora da transação"]).date() == dia}
+        faltantes += len(esperadas ^ atuais)
+    if faltantes:
+        mensagem = f"Premmia: {faltantes} linhas do portal não entraram na planilha"
+        logger.warning("%s", mensagem)
+        raise PremmiaIntegridadeAviso(mensagem)
 
 
 def normalizar(texto: str) -> str:
@@ -201,15 +230,17 @@ def acrescentar_coleta(
         coletados = {date.fromisoformat(str(c["Dia"])) for c in coletas}
         novos_dias = set(dias_mes) - coletados
         if not novos_dias:
+            verificar_integridade(registros, antigas, dias_mes)
             continue
-        vistos = {str(r["Código Transação"]).strip() for r in antigas}
+        vistos = {chave_linha(r) for r in antigas}
         novas = []
         for registro in registros:
             momento = data_hora(registro["Data/Hora da transação"])
             codigo = str(registro["Código Transação"] or "").strip()
             if not codigo:
                 raise PremmiaErro("Código Transação ausente na coleta.")
-            if momento.date() in novos_dias and codigo not in vistos:
+            chave = chave_linha(registro)
+            if momento.date() in novos_dias and chave not in vistos:
                 novas.append(
                     {
                         **registro,
@@ -219,7 +250,7 @@ def acrescentar_coleta(
                         "Coletado em": instante,
                     }
                 )
-                vistos.add(codigo)
+                vistos.add(chave)
         for dia in sorted(novos_dias):
             diario = [r for r in novas if r["Dia"] == dia.isoformat()]
             coletas.append(
@@ -254,6 +285,8 @@ def acrescentar_coleta(
             workbook.close()
             if temporario is not None:
                 temporario.unlink(missing_ok=True)
+        gravadas, _ = ler_mensal(caminho)
+        verificar_integridade(registros, gravadas, dias_mes)
 
 
 def buscar_transacoes(
@@ -268,7 +301,7 @@ def buscar_transacoes(
     return [
         TransacaoAdquirente(
             adquirente="PREMMIA",
-            identificador=str(r["Código Transação"]),
+            identificador=hashlib.sha256(repr(chave_linha(r)).encode("utf-8")).hexdigest(),
             nsu=str(r["Código Transação"]),
             autorizacao=None,
             valor=dinheiro(r["Valor líquido"]),
@@ -466,6 +499,9 @@ def coletar_sync(
             "Premmia unidade=%s etapa=%s: %s", unidade.empresa_codigo, etapa, AVISO_HUMANO
         )
         raise
+    except PremmiaIntegridadeAviso as exc:
+        logger.warning("Premmia unidade=%s etapa=%s: %s", unidade.empresa_codigo, etapa, exc)
+        raise
     except PremmiaErro:
         logger.error("Premmia unidade=%s falha etapa=%s", unidade.empresa_codigo, etapa)
         raise
@@ -545,6 +581,9 @@ def main() -> int:
         asyncio.run(coletar(unidade, visivel=args.visivel))
     except PremmiaVerificacaoHumana:
         print(AVISO_HUMANO)
+        return 0
+    except PremmiaIntegridadeAviso as exc:
+        logger.warning("Premmia unidade=%s: %s", args.unidade, exc)
         return 0
     except (PremmiaErro, OSError) as exc:
         logger.error("Coleta não concluída unidade=%s tipo=%s", args.unidade, type(exc).__name__)

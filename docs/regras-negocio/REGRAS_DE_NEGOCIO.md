@@ -287,11 +287,11 @@
 |---|---|
 | Unidades | Unidades com adquirente ativo |
 | Módulo | TEF/Cartões |
-| Padrão | Chave exata NSU (ou NSU TEF) ou autorização. Cupom: NSU ERP termina em `-<código portal>`, sem diferenciar maiúsculas, mesmo valor e dia; chave `cupom`. POS PREMMIA: mesmo valor/dia e até 10 min, candidato único nos dois lados; chave `valor_hora`. Ambiguidade POS fica provável, nunca conferida automaticamente. PIX sem NSU mantém regra existente |
+| Padrão | Chave exata NSU (ou NSU TEF) ou autorização. Cupom: NSU ERP termina em `-<código portal>`, sem diferenciar maiúsculas, mesmo valor e dia; chave `cupom`. POS PREMMIA ou Pix do portal × PREMMIA PIX: mesmo valor/dia e até 10 min, candidato único nos dois lados; chave `valor_hora`. Ambiguidade fica provável, nunca conferida automaticamente. Outros PIX sem NSU mantêm regra existente |
 | Exceção | — |
 | Gatilho | Robô noturno |
-| Ação no sistema | Casado / a maior (na adquirente, não no ERP) / a menor (no ERP, não na adquirente) |
-| Implementação | `rules/cartoes.py` · CARTOES_V3_2 |
+| Ação no sistema | Casado / a maior (na adquirente, não no ERP) / a menor (no ERP, não na adquirente). Código repetido no portal (NSU exato ou cupom): casar código + valor + dia, horário ERP mais próximo, um para um sem reutilizar |
+| Implementação | `rules/cartoes.py` · CARTOES_V3_3 |
 | Status | vigente |
 | Vigência | 11/10/2026 |
 
@@ -411,7 +411,7 @@
 | Padrão | Coleta do dia 01 do mês até ontem, só dias faltantes; uma planilha por posto e mês (`data/premmia/posto<apelido>_<MM>_<AAAA>.xlsx`), acrescentando os dias |
 | Exceção | CAPTCHA/2FA/termos/senha recusada → para e avisa; não tenta de novo na noite |
 | Gatilho | Robô noturno |
-| Ação no sistema | Planilha mensal; originais em `data/premmia/originais/` |
+| Ação no sistema | Planilha mensal; originais em `data/premmia/originais/`. Deduplicar somente código + data/hora + valor + forma; mesmo código em horários distintos permanece. A cada coleta, conferir as linhas por dia original × mensal; ausência gera aviso na unidade/Telegram e log, sem falha do robô |
 | Implementação | Sprint 13 (PREMMIA_01) |
 | Status | vigente |
 | Vigência | 10/10/2026 — decisão do diretor |
@@ -505,4 +505,6 @@ Temas comuns em postos que **ainda não têm regra decidida** — não implement
 |---|---|
 | 10/10/2026 | Criação do documento com as regras vigentes do projeto (Sprints 01 a 13) e ADR-003 |
 | 11/10/2026 | CARTOES_V3_2: cupom no sufixo do NSU, POS PREMMIA com unicidade, forma PREMMIA DESCONTO CUPOM e valores junto às quantidades |
+| 11/10/2026 | CARTOES_V3_3: preservar usos distintos de cupom repetido, casar por código/valor/dia e horário mais próximo; integridade original × mensal e encerramento de falsas pendências com histórico |
+| 11/10/2026 | Ajuste autorizado: Pix do portal × PREMMIA PIX usa valor exato, mesmo dia, até 10 minutos e unicidade nos dois lados, como POS PREMMIA; ambiguidade permanece para conferência |
 | 11/10/2026 | RN-CARTAO-009 (PIX CNPJ do Doze, pela chave do posto) — proposta, depende de EXTRATOS_01 |
