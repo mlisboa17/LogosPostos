@@ -85,11 +85,11 @@ def _mascarar_descricao(desc: str) -> str:
 def verificar_travas_ambiente() -> tuple[bool, str]:
     """Valida as duas travas de ambiente requeridas para escrita."""
     writes = os.getenv("WEBPOSTO_WRITES", "").strip()
-    ofx_imp = os.getenv("LOGOS_OFX_IMPORTACAO", "").strip()
+    ofx_imp = os.getenv("LOGOS_OFX_IMPORTACAO", "").strip() or os.getenv("LOGOS_ERP_ESCRITA", "").strip()
     if writes != "1":
         return False, "Trava WEBPOSTO_WRITES != 1 (escrita bloqueada no ERP)."
     if ofx_imp != "1":
-        return False, "Trava LOGOS_OFX_IMPORTACAO != 1 (importação de OFX bloqueada)."
+        return False, "Trava LOGOS_OFX_IMPORTACAO (ou LOGOS_ERP_ESCRITA) != 1 (importação de OFX bloqueada)."
     return True, "Travas de escrita liberadas."
 
 
@@ -207,9 +207,9 @@ def formatar_transacao_webposto(
     incluir_tipo_transacao: bool = False,
 ) -> dict[str, Any]:
     """Formata TransacaoBancaria respeitando a spec oficial e o padrão de MOVIMENTOS_CONTA."""
-    # Data em ISO-8601
+    # Data em ISO-8601 com milissegundos e offset -03:00 exigidos pelo parser Java/Spring do webPosto
     dt_ref = l.momento or datetime.combine(l.data, datetime.min.time())
-    dt_iso = dt_ref.strftime("%Y-%m-%dT%H:%M:%S")
+    dt_iso = dt_ref.strftime("%Y-%m-%dT%H:%M:%S.000-03:00")
 
     # Tratamento do tipo e sinal conforme configuração
     if formato_tipo == "CREDITO_DEBITO":
@@ -231,10 +231,10 @@ def formatar_transacao_webposto(
         "dataMovimento": dt_iso,
         "dataCredito": dt_iso,
         "descricao": l.descricao[:255],
-        "numeroDocumento": (l.documento or l.fitid)[:50],
+        "numeroDocumento": (l.documento or l.fitid)[:30],
         "nomePagador": None,
-        "tipoTransacao": (l.tipo_original[:50] if l.tipo_original else None) if incluir_tipo_transacao else None,
-        "extratoExterno": l.fitid[:50],
+        "tipoTransacao": (l.tipo_original[:30] if l.tipo_original else None) if incluir_tipo_transacao else None,
+        "extratoExterno": l.fitid[:30],
     }
 
 

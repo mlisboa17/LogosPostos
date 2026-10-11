@@ -65,6 +65,8 @@ def imprimir_relatorio_previa(resultado) -> None:
     print("-" * 70)
     print(f"Modo:           {resultado.modo.upper()}")
     print(f"Mensagem:       {resultado.mensagem}")
+    if resultado.resposta_erp is not None:
+        print(f"Resposta ERP:   {resultado.resposta_erp}")
     print("=" * 70 + "\n")
 
 
