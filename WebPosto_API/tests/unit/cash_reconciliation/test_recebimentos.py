@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 import httpx
@@ -87,6 +87,140 @@ def test_rota_resumo_casados_e_detalhes_com_proveniencia(client, monkeypatch):
     assert item["a_maior"][0]["candidatos"][0]["motivos"]
     assert item["proveniencia"]["versao_regra"] == "CARTOES_V3_4"
     assert "t1" not in response.text
+
+
+def test_totais_pagbank_deduplicam_por_nsu_e_batem_109_transacoes():
+    from src.modules.cash_reconciliation.domain.cartoes import AlertaCartao
+    from src.modules.cash_reconciliation.application.relatorio_caixa_dia import gerar_relatorio_caixa_dia
+    from src.modules.cash_reconciliation.domain.models import Unidade
+    from .test_resumo_diario import _registro
+
+    transacoes = []
+    cartoes = []
+    for indice in range(109):
+        valor = Decimal("82.62") if indice == 108 else Decimal("82.42")
+        momento = datetime(2026, 1, 2, 8) + timedelta(minutes=indice)
+        nsu = f"NSU-{indice:04d}"
+        transacoes.append(TransacaoAdquirente(
+            adquirente="PAGBANK",
+            identificador=f"transacao-{indice}",
+            nsu=nsu,
+            autorizacao=None,
+            valor=valor,
+            momento=momento,
+            bandeira="VISA",
+            tipo_evento="1",
+            status_pagamento="1",
+        ))
+        cartoes.append(CartaoErp(
+            codigo=indice + 1,
+            empresa_codigo=74014,
+            venda_codigo=indice + 1,
+            valor=valor,
+            momento=momento,
+            administradora="VISA PAGSEGURO",
+            nsu=nsu,
+            nsu_tef=None,
+            autorizacao=None,
+        ))
+
+    conciliado = conciliar(74014, "PAGBANK", DIA, transacoes, cartoes, [], set())
+    duplicata = transacoes[0].model_copy(update={"identificador": "transacao-repetida"})
+    conciliado = conciliado.model_copy(update={
+        "alertas": (*conciliado.alertas, AlertaCartao(
+            codigo="ALERTA_SINTETICO",
+            severidade="informativo",
+            mensagem="Mesmo NSU repetido numa evidência secundária.",
+            valor=duplicata.valor,
+            transacoes=(duplicata,),
+        )),
+    })
+    recebimento = RecebimentoAdquirente.de_resultado(conciliado)
+
+    assert recebimento.casados.quantidade == 109
+    assert recebimento.casados.total == Decimal("8983.98")
+    assert sum(f.portal.quantidade for f in recebimento.formas) == 109
+    assert sum((f.portal.total for f in recebimento.formas), Decimal(0)) == Decimal("8983.98")
+    assert sum(f.webposto.quantidade for f in recebimento.formas) == 109
+    assert sum((f.webposto.total for f in recebimento.formas), Decimal(0)) == Decimal("8983.98")
+    registro = _registro(alertas=()).model_copy(update={
+        "recebimentos": ResultadoRecebimentos(
+            empresa_codigo=EMPRESA,
+            dia=DIA,
+            adquirentes=(recebimento,),
+        ),
+    })
+    relatorio = gerar_relatorio_caixa_dia(
+        registro,
+        Unidade(
+            empresa_codigo=EMPRESA,
+            nome="Unidade sintética",
+            chave_env="NAO_USADA",
+            destinos=(),
+        ),
+    )
+    assert "- ✅ **PagBank (EDI):** 109 · R$ 8.983,98" in relatorio
+
+
+def test_cartao_pos_nao_duplica_cartao_detalhado_da_mesma_venda():
+    from src.modules.cash_reconciliation.domain.cartoes import AlertaCartao
+
+    momento = datetime(2026, 1, 2, 10)
+    transacao = TransacaoAdquirente(
+        adquirente="PAGBANK",
+        identificador="pagbank-150",
+        nsu="NSU-150",
+        autorizacao=None,
+        valor=Decimal("150.00"),
+        momento=momento,
+        bandeira="VISA",
+        tipo_evento="1",
+        status_pagamento="1",
+    )
+    cartao_detalhado = CartaoErp(
+        codigo=1,
+        empresa_codigo=74014,
+        venda_codigo=9001,
+        valor=Decimal("150.00"),
+        momento=momento,
+        administradora="VISA PAGSEGURO",
+        nsu="NSU-150",
+        nsu_tef=None,
+        autorizacao=None,
+    )
+    cartao_pos = cartao_detalhado.model_copy(update={
+        "codigo": 2,
+        "administradora": "CARTÃO POS SEM DETALHE",
+    })
+    pix_venda = cartao_detalhado.model_copy(update={
+        "codigo": 3,
+        "administradora": "PIX (venda) PIX PAGBANK",
+    })
+    cheque_a_vista = cartao_detalhado.model_copy(update={
+        "codigo": 4,
+        "venda_codigo": 9002,
+        "administradora": "CARTÃO POS SEM DETALHE CHEQUE A-VISTA",
+    })
+    conciliado = conciliar(
+        74014, "PAGBANK", DIA, [transacao], [cartao_detalhado], [], set()
+    )
+    conciliado = conciliado.model_copy(update={
+        "alertas": (*conciliado.alertas, AlertaCartao(
+            codigo="CARTAO_POS_SEM_DETALHE",
+            severidade="laranja",
+            mensagem="Pagamento Cartão POS da venda 9001.",
+            valor=cartao_pos.valor,
+            cartoes=(cartao_pos,),
+            transacoes=(transacao,),
+        )),
+        "a_menor": (*conciliado.a_menor, pix_venda, cheque_a_vista),
+    })
+
+    recebimento = RecebimentoAdquirente.de_resultado(conciliado)
+
+    assert recebimento.casados.quantidade == 1
+    assert sum(f.webposto.quantidade for f in recebimento.formas) == 1
+    assert sum((f.webposto.total for f in recebimento.formas), Decimal(0)) == Decimal("150.00")
 
 
 @pytest.mark.parametrize(

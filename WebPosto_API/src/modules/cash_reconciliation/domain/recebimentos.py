@@ -76,21 +76,35 @@ class RecebimentoAdquirente(_Frozen):
     def de_resultado(cls, resultado: ResultadoCartoes) -> RecebimentoAdquirente:
         from ..config import carregar_unidades
 
-        transacoes = {
-            t.identificador: t for t in (
-                *(c.transacao for c in resultado.casados),
-                *(i.transacao for i in resultado.a_maior),
-                *(p.investigacao.transacao for p in resultado.pares_provaveis),
-                *(i.transacao for g in resultado.grupos_provaveis for i in g.investigacoes),
-                *(
-                    t
-                    for alerta in resultado.alertas
-                    if alerta.codigo != "CARTAO_COBRANCA_DUPLICADA_ESTORNADA"
-                    for t in alerta.transacoes
-                    if t.situacao is None
-                ),
-            )
-        }
+        candidatas_transacoes = (
+            *(c.transacao for c in resultado.casados),
+            *(i.transacao for i in resultado.a_maior),
+            *(p.investigacao.transacao for p in resultado.pares_provaveis),
+            *(i.transacao for g in resultado.grupos_provaveis for i in g.investigacoes),
+            *(
+                t
+                for alerta in resultado.alertas
+                if alerta.codigo != "CARTAO_COBRANCA_DUPLICADA_ESTORNADA"
+                for t in alerta.transacoes
+            ),
+        )
+        transacoes = {}
+        ids_transacoes = set()
+        nsus_transacoes = set()
+        for transacao in candidatas_transacoes:
+            if (
+                transacao.momento.date() != resultado.dia
+                or transacao.situacao is not None
+                or (transacao.tipo_evento is not None and transacao.tipo_evento != "1")
+            ):
+                continue
+            nsu = transacao.nsu.strip().upper() if transacao.nsu else None
+            if transacao.identificador in ids_transacoes or (nsu and nsu in nsus_transacoes):
+                continue
+            transacoes[transacao.identificador] = transacao
+            ids_transacoes.add(transacao.identificador)
+            if nsu:
+                nsus_transacoes.add(nsu)
         cartoes = {
             c.codigo: c for c in (
                 *(c.cartao for c in resultado.casados), *resultado.a_menor,
@@ -117,6 +131,27 @@ class RecebimentoAdquirente(_Frozen):
                 if "CARTÃO POS SEM DETALHE" in cartao.administradora.upper()
                 or any(nome in cartao.administradora.upper() for nome in administradoras)
             }
+        cartoes_detalhados_por_venda = {
+            cartao.venda_codigo
+            for cartao in cartoes.values()
+            if cartao.venda_codigo is not None
+            and "CARTÃO POS SEM DETALHE" not in cartao.administradora.upper()
+            and "PIX (VENDA)" not in cartao.administradora.upper()
+        }
+        cartoes = {
+            codigo: cartao
+            for codigo, cartao in cartoes.items()
+            if (
+                "CHEQUE" not in cartao.administradora.upper()
+                and (
+                    not any(
+                        marcador in cartao.administradora.upper()
+                        for marcador in ("CARTÃO POS SEM DETALHE", "PIX (VENDA)")
+                    )
+                    or cartao.venda_codigo not in cartoes_detalhados_por_venda
+                )
+            )
+        }
         formas = sorted({
             *(forma_recebimento(t.bandeira) for t in transacoes.values()),
             *(forma_recebimento(c.administradora) for c in cartoes.values()),
