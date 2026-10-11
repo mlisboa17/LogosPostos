@@ -4,7 +4,7 @@ Repositório `C:\Projetos\LOGOS\LogosPostos`, branch `feature/cash-audit-fechame
 
 ## Decisão do diretor (11/10/2026)
 
-O arquiteto cruzou (somente leitura) os títulos a pagar do Doze 74014 com os extratos OFX: **11 títulos "Aberto" já foram pagos no BB (R$ 179.520,76)** — mesmo valor, nome do fornecedor no extrato, data perto do vencimento. O diretor pediu que **o Logos** dê a baixa. Regra: RN-ERP-003 em `docs/regras-negocio/REGRAS_DE_NEGOCIO.md` (ler inteira, inclusive "pagamento agrupado" e "mapa de contas do Doze").
+O arquiteto cruzou (somente leitura) os títulos a pagar do Doze 74014 com os extratos OFX: **12 títulos "Aberto" já foram pagos no BB (R$ 181.365,28)** — mesmo valor, nome do fornecedor no extrato, data perto do vencimento. O diretor pediu que **o Logos** dê a baixa. Regra: RN-ERP-003 em `docs/regras-negocio/REGRAS_DE_NEGOCIO.md` (ler inteira, inclusive "pagamento agrupado" e "mapa de contas do Doze").
 
 @WebPosto_API/src/modules/cash_reconciliation/adapters/webposto_escrita_ofx.py
 @WebPosto_API/src/modules/cash_reconciliation/adapters/extrato_reader.py
@@ -36,7 +36,7 @@ O arquiteto cruzou (somente leitura) os títulos a pagar do Doze 74014 com os ex
 
 ## PARTE C — Teste com o diretor
 
-1. Rodar a prévia real do Doze com os extratos `C:\Projetos\LOGOS\extratos\BB\bancoBrasil_DozeFilial_Setembro_2026.ofx`, `...\BB\BB_Doze_Outubro2026.ofx.ofx` e `...\PAGBANK\PagBank_Doze_Outubro2026.ofx.ofx` e mostrar no chat. (Referência do arquiteto: 11 prontos, R$ 179.520,76.)
+1. Rodar a prévia real do Doze com os extratos `C:\Projetos\LOGOS\extratos\BB\BB_Doze_Agosto_2026.ofx`, `...\BB\bancoBrasil_DozeFilial_Setembro_2026.ofx`, `...\BB\BB_Doze_Outubro2026.ofx.ofx` e `...\PAGBANK\PagBank_Doze_Outubro2026.ofx.ofx` e mostrar no chat. (Referência do arquiteto com agosto incluído: 12 prontos, R$ 181.365,28. Dois casos de mesmo valor com outro destinatário — frete Vibra R$ 300 × PIX para o Casa Caiada e SulAmérica R$ 3.500 × transferência — **não** podem ficar como prontos.)
 2. **Parar e pedir ao diretor** para ligar `WEBPOSTO_WRITES=1` e `LOGOS_BAIXA_TITULOS=1` no `.env` e dizer **qual título** baixar primeiro (sugerir o de menor valor). Só enviar depois do "ok" dele no chat.
 3. Baixar **1 título**, reler e mostrar o antes/depois. Se a resposta for 401/403 → parar e informar (pedir permissão à Quality).
 4. Só com novo "ok" do diretor: `--todos` para os demais prontos.
