@@ -104,6 +104,9 @@ def _quebrar_linha(texto: str, limite: int) -> list[str]:
         corte = restante.rfind(" · ", 0, limite)
         if corte <= 0:
             corte = limite
+        entidade = restante.rfind("&", 0, corte)
+        if entidade > restante.rfind(";", 0, corte) and entidade > 0:
+            corte = entidade
         partes.append(restante[:corte])
         restante = restante[corte:].lstrip(" ·")
     if restante:
@@ -196,7 +199,15 @@ def gerar_mensagem_curta(
         nao_consolidados = {
             alerta.referencia for alerta in alertas if alerta.codigo == "NAO_CONSOLIDADO"
         }
-        problemas = bool(faltas or quebras or unidade in unidades_com_falha)
+        problemas = bool(
+            faltas
+            or quebras
+            or unidade in unidades_com_falha
+            or any(
+                item.alertas or item.a_menor or item.a_maior
+                for item in registro.recebimentos.adquirentes
+            )
+        )
         linhas_unidade = [f"<b>{'⚠' if problemas else '✓'} {apelido_html}</b>"]
         if faltas:
             for falta in faltas:
@@ -220,6 +231,46 @@ def gerar_mensagem_curta(
             linhas_unidade.append(f"Quebra acima de R$ 100: {moeda_br(total_quebras)}")
         else:
             linhas_unidade.append("Sem falta")
+
+        divergencias = [
+            casamento
+            for adquirente in registro.recebimentos.adquirentes
+            for casamento in adquirente.divergencias_valor
+            if casamento.diferenca > 0
+        ]
+        cancelados = [
+            transacao
+            for adquirente in registro.recebimentos.adquirentes
+            for transacao in adquirente.transacoes_canceladas
+            if transacao.situacao in {"cancelada", "estornada"}
+        ]
+        outros_eventos = sum(
+            transacao.situacao not in {"cancelada", "estornada"}
+            for adquirente in registro.recebimentos.adquirentes
+            for transacao in adquirente.transacoes_canceladas
+        )
+        if divergencias:
+            total = sum((c.diferenca for c in divergencias), Decimal(0))
+            linhas_unidade.append(
+                f"Cartões: {len(divergencias)} com valor menor que o recebido (faltam {moeda_br(total)})"
+            )
+        if cancelados:
+            linhas_unidade.append(f"{len(cancelados)} cancelados no PagBank")
+        if outros_eventos:
+            linhas_unidade.append(f"{outros_eventos} eventos não aprovados/ajustes no PagBank")
+        for adquirente in registro.recebimentos.adquirentes:
+            linhas_unidade.extend(escape(alerta.mensagem) for alerta in adquirente.alertas)
+            linhas_unidade.extend(
+                f"A menor: {moeda_br(c.valor)} — {escape(c.responsavel)} — "
+                f"{escape(c.motivo or 'sem confirmação na adquirente')} — "
+                f"tipoInclusao={escape(c.tipo_inclusao or 'não informado')}"
+                for c in adquirente.a_menor
+            )
+            linhas_unidade.extend(
+                f"A maior: {moeda_br(inv.transacao.valor)} — {escape(inv.responsavel)} — "
+                "tipoInclusao=não aplicável (sem lançamento ERP)"
+                for inv in adquirente.a_maior
+            )
 
         despesas = [despesa for caixa in caixas for despesa in caixa.despesas]
         if despesas:

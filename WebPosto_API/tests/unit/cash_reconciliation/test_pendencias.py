@@ -137,6 +137,108 @@ def test_alertas_criam_pendencias_com_chave_idempotente_e_historico_append_only(
             conexao.execute("DELETE FROM historico_pendencias")
 
 
+@pytest.mark.parametrize("menor", [True, False])
+def test_cartoes_v3_pendencia_idempotente_e_nome(tmp_path, menor):
+    from src.modules.cash_reconciliation.domain.cartoes import AlertaCartao, CartaoErp
+    from src.modules.cash_reconciliation.domain.recebimentos import RecebimentoAdquirente
+
+    cartao = CartaoErp(
+        codigo=1,
+        empresa_codigo=EMPRESA,
+        venda_codigo=10,
+        valor=Decimal("150"),
+        momento=datetime(2026, 10, 6, 10),
+        administradora="PAGSEGURO",
+        nsu="1234",
+        nsu_tef=None,
+        autorizacao=None,
+        frentista=7,
+        nome_frentista="Funcionário Sintético",
+        caixa_codigo=106,
+    )
+    alerta = AlertaCartao(
+        codigo="CARTAO_VALOR_A_MENOR" if menor else "CARTAO_VALOR_A_MAIOR",
+        severidade="vermelho" if menor else "laranja",
+        mensagem="Lançado R$ 150, recebido R$ 100 — faltam R$ 50 — Funcionário Sintético (7)",
+        valor=Decimal("50"),
+        cartoes=(cartao,),
+    )
+    diario = diario_com_alertas(alertas_laranja())
+    diario = diario.model_copy(
+        update={
+            "recebimentos": ResultadoRecebimentos(
+                empresa_codigo=EMPRESA,
+                dia=DIA,
+                adquirentes=(
+                    RecebimentoAdquirente(adquirente="PAGBANK", situacao="ok", alertas=(alerta,)),
+                ),
+            )
+        }
+    )
+    entradas = pendencias_do_dia(diario)
+    recebimento = next(
+        p
+        for p in entradas
+        if p.tipo == ("recebimento_valor_a_menor" if menor else "caixa_alertas_laranja")
+    )
+    assert recebimento.severidade == ("vermelho" if menor else "laranja")
+    if menor:
+        assert recebimento.valor == Decimal("50")
+    else:
+        grupos = [p for p in entradas if p.tipo == "caixa_alertas_laranja"]
+        assert len(grupos) == 1
+        assert recebimento.referencia == "caixa:106:laranja"
+        detalhes = json.loads(recebimento.mensagem)["alertas"]
+        assert len(detalhes) == len(alertas_laranja()) + 1
+        assert detalhes[-1]["codigo"] == "CARTAO_VALOR_A_MAIOR"
+    assert "Funcionário Sintético (7)" in recebimento.mensagem
+    banco = tmp_path / "pendencias.sqlite3"
+    assert repositorio.registrar(entradas, banco=banco) == len(entradas)
+    assert repositorio.registrar(entradas, banco=banco) == 0
+
+
+def test_telegram_v3_diferencas_e_evento_desconhecido():
+    from src.modules.cash_reconciliation.application import resumo_diario
+    from src.modules.cash_reconciliation.application.conciliar_cartoes import conciliar
+    from src.modules.cash_reconciliation.domain.recebimentos import RecebimentoAdquirente
+    from .test_cartoes import C, T, DIA as DIA_CARTOES
+
+    resultado = conciliar(
+        74014, "PAGBANK", DIA_CARTOES,
+        [
+            T("100", "10:00", nsu="1234"),
+            T("20", "12:00", nsu="9999").model_copy(update={"situacao": "cancelada"}),
+            T("30", "13:00", nsu="8888").model_copy(update={"situacao": "tipo_evento=X"}),
+        ],
+        [C(1, "150", "10:00", nsu="1234")], [], set(),
+    )
+    diario = criar_diario(DIA_CARTOES, unidade=74014).model_copy(update={
+        "recebimentos": ResultadoRecebimentos(
+            empresa_codigo=74014, dia=DIA_CARTOES,
+            adquirentes=(RecebimentoAdquirente.de_resultado(resultado),),
+        ),
+    })
+    mensagem = "\n".join(resumo_diario.gerar_mensagem_curta(
+        DIA_CARTOES, [diario], [74014], set(), {74014: 0},
+    ))
+    assert "Cartões: 1 com valor menor que o recebido (faltam R$ 50,00)" in mensagem
+    assert "1 cancelados no PagBank" in mensagem
+    assert "1 eventos não aprovados/ajustes no PagBank" in mensagem
+    assert "frentista não identificado" in mensagem
+    assert "tipoInclusao=" in mensagem
+
+
+def test_fragmentacao_alerta_preserva_entidades_html():
+    from html import escape, unescape
+    from src.modules.cash_reconciliation.application.resumo_diario import _quebrar_linha
+
+    texto = escape("A" * 3998 + "& <Funcionário Sintético>")
+    partes = _quebrar_linha(texto, 4000)
+    assert all(len(p) <= 4000 for p in partes)
+    assert unescape("".join(partes)) == "A" * 3998 + "& <Funcionário Sintético>"
+    assert all(not p.endswith("&a") for p in partes)
+
+
 def test_sangrias_repassadas_aprovam_abertas_e_preservam_justificadas_recusadas(
     tmp_path,
     monkeypatch,

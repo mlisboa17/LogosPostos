@@ -38,6 +38,27 @@ const dia = {
   }],
 };
 
+test("CARTOES_V3 mostra diferenca, funcionario, origem e cancelamento", () => {
+  const cartao = {
+    valor: "150", momento: "2026-10-05T10:00:00", administradora: "PAGSEGURO",
+    frentista: 7, nome_frentista: "Funcionário Sintético <b>", tipo_inclusao: "PDV-TEF",
+  };
+  const html = renderRecebimentos([{
+    dia: "2026-10-05",
+    adquirentes: [{
+      adquirente: "PAGBANK", situacao: "ok", casados: {quantidade: 1, total: "100"},
+      divergencias_valor: [{cartao, transacao: {valor: "100", momento: cartao.momento}, diferenca: "50"}],
+      a_maior: [], a_menor: [{...cartao, motivo: "cancelada no PagBank em 05/10/2026 10:05"}],
+      pares_provaveis: [],
+    }],
+  }]);
+  assert.ok(html.includes("Diferença"));
+  assert.ok(html.includes("CARTAO_VALOR_A_MENOR"));
+  assert.ok(html.includes("Funcionário Sintético &lt;b&gt; (7)"));
+  assert.ok(html.includes("PDV-TEF"));
+  assert.ok(html.includes("cancelada no PagBank"));
+});
+
 test("fechamento aguarda o prazo do backend em vez do timeout padrao de 30s", async (t) => {
   const get = t.mock.method(apiClient, "get", async () => ({ caixas: [] }));
   assert.deepEqual(await consultarFechamento(321, "2026-01-01", "2026-01-02"), { caixas: [] });
@@ -192,7 +213,7 @@ test("pendencias e credenciais invalidas nao exibem KPIs ficticios", () => {
 test("divergencias tem cores, motivos escapados, proveniencia e alerta de periodo parcial", () => {
   const html = renderRecebimentos([dia], ["03/01/2026: timeout"]);
   for (const tom of ["vermelho", "laranja", "amarelo"]) assert.match(html, new RegExp(`ca-row--${tom}`));
-  assert.match(html, /Frentista #7 · atribuído/);
+  assert.match(html, /nome indisponível \(7\) · atribuído/);
   assert.match(html, /Sugestão \(3 candidatos\)/);
   assert.match(html, /CARTOES_V1/);
   assert.match(html, /Totais e ranking são parciais/);

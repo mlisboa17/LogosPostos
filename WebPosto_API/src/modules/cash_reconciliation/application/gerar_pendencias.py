@@ -143,30 +143,94 @@ def pendencias_do_dia(resultado: ResultadoDiario) -> list[NovaPendencia]:
                         ),
                     )
     for adquirente in resultado.recebimentos.adquirentes:
-        if adquirente.situacao != "ok":
+        if adquirente.situacao != "ok" and not adquirente.alertas:
             continue
+        laranja = defaultdict(list)
+        for alerta in adquirente.alertas:
+            referencia = ":".join(str(c.codigo) for c in alerta.cartoes)
+            if alerta.severidade == "laranja":
+                caixa = alerta.cartoes[0].caixa_codigo if alerta.cartoes else None
+                laranja[caixa].append(
+                    {
+                        "codigo": alerta.codigo,
+                        "mensagem": alerta.mensagem,
+                        "valor": str(alerta.valor),
+                    }
+                )
+                continue
+            novas.append(
+                _entrada(
+                    unidade=resultado.empresa_codigo,
+                    dia=resultado.dia,
+                    tipo=(
+                        "recebimento_valor_a_menor"
+                        if alerta.codigo == "CARTAO_VALOR_A_MENOR"
+                        else "recebimento_nsu_repetido"
+                    ),
+                    severidade="vermelho",
+                    valor=alerta.valor,
+                    referencia=f"{adquirente.adquirente}:{alerta.codigo}:{referencia}",
+                    mensagem=alerta.mensagem,
+                )
+            )
+        for caixa, itens_laranja in laranja.items():
+            referencia = f"caixa:{caixa}:laranja"
+            existente = next(
+                (
+                    entrada
+                    for entrada in novas
+                    if entrada.tipo == "caixa_alertas_laranja" and entrada.referencia == referencia
+                ),
+                None,
+            )
+            if existente is not None:
+                itens_laranja = json.loads(existente.mensagem)["alertas"] + itens_laranja
+                novas.remove(existente)
+            valores = [Decimal(a["valor"]) for a in itens_laranja if a["valor"] is not None]
+            novas.append(
+                _entrada(
+                    unidade=resultado.empresa_codigo,
+                    dia=resultado.dia,
+                    tipo="caixa_alertas_laranja",
+                    severidade="laranja",
+                    valor=sum(valores, Decimal(0)) if valores else None,
+                    referencia=referencia,
+                    identidade=f"{resultado.empresa_codigo}|{resultado.dia.isoformat()}|caixa:{caixa}|laranja",
+                    mensagem=json.dumps({"alertas": itens_laranja}, ensure_ascii=False),
+                )
+            )
         for investigacao in adquirente.a_maior:
             transacao = investigacao.transacao
             referencia = transacao.identificador or transacao.nsu or transacao.autorizacao or "sem-identificador"
-            novas.append(_entrada(
-                unidade=resultado.empresa_codigo,
-                dia=resultado.dia,
-                tipo="recebimento_a_maior",
-                severidade="laranja",
-                valor=transacao.valor,
-                referencia=f"{adquirente.adquirente}:transacao:{referencia}",
-                mensagem="Recebimento na adquirente sem lançamento correspondente no webPosto.",
-            ))
+            novas.append(
+                _entrada(
+                    unidade=resultado.empresa_codigo,
+                    dia=resultado.dia,
+                    tipo="recebimento_a_maior",
+                    severidade="laranja",
+                    valor=transacao.valor,
+                    referencia=f"{adquirente.adquirente}:transacao:{referencia}",
+                    mensagem=(
+                        f"Recebimento na adquirente sem lançamento correspondente no webPosto. "
+                        f"{investigacao.responsavel}; tipoInclusao=não aplicável (sem lançamento ERP)"
+                    ),
+                )
+            )
         for cartao in adquirente.a_menor:
-            novas.append(_entrada(
-                unidade=resultado.empresa_codigo,
-                dia=resultado.dia,
-                tipo="recebimento_a_menor",
-                severidade="vermelho",
-                valor=cartao.valor,
-                referencia=f"{adquirente.adquirente}:cartao:{cartao.codigo}",
-                mensagem="Lançamento de recebimento sem confirmação correspondente na adquirente.",
-            ))
+            novas.append(
+                _entrada(
+                    unidade=resultado.empresa_codigo,
+                    dia=resultado.dia,
+                    tipo="recebimento_a_menor",
+                    severidade="vermelho",
+                    valor=cartao.valor,
+                    referencia=f"{adquirente.adquirente}:cartao:{cartao.codigo}",
+                    mensagem=(
+                        f"{cartao.motivo or 'Lançamento de recebimento sem confirmação correspondente na adquirente.'}"
+                        f" — {cartao.responsavel}; tipoInclusao={cartao.tipo_inclusao or 'não informado'}"
+                    ),
+                )
+            )
     return novas
 
 

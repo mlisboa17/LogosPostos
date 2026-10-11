@@ -102,16 +102,16 @@ export function rankingFrentistas(dias) {
 function renderAtribuicao(inv) {
   if (!inv) return '<span class="ca-muted">Sem atribuição</span>';
   const rotulo = inv.atribuicao === "atribuido"
-    ? inv.frentista == null ? "Atribuído sem código de frentista" : `Frentista #${inv.frentista} · atribuído`
-    : inv.atribuicao === "sugestao" ? `Sugestão (${inv.candidatos.length} candidatos)` : "Sem abastecimento";
+    ? inv.frentista == null ? "frentista não identificado — atribuição sem código" : `${inv.nome_frentista || "nome indisponível"} (${inv.frentista}) · atribuído`
+    : inv.atribuicao === "sugestao" ? `frentista não identificado — Sugestão (${inv.candidatos.length} candidatos)` : "frentista não identificado — sem abastecimento";
   const candidatos = inv.candidatos.map((c) =>
-    `<li>Frentista ${escapeHtml(c.abastecimento.frentista == null ? "não informado" : `#${c.abastecimento.frentista}`)}:
+    `<li>Frentista ${escapeHtml(c.abastecimento.frentista == null ? "não informado" : `${c.abastecimento.nome_frentista || "nome indisponível"} (${c.abastecimento.frentista})`)}:
     ${escapeHtml(c.pontos)} pontos · ${escapeHtml(c.motivos.join(" · "))}</li>`
   ).join("");
   return `<strong>${escapeHtml(rotulo)}</strong>${candidatos ? `<ul class="ca-candidates">${candidatos}</ul>` : ""}`;
 }
 
-function renderDivergencia(dia, transacao, classificacao, tom, investigacao = null, cartao = null) {
+function renderDivergencia(dia, transacao, classificacao, tom, investigacao = null, cartao = null, diferenca = null) {
   const momento = transacao.momento || "";
   const detalhePar = cartao
     ? `<p class="ca-hint">ERP: ${escapeHtml(formatTime(cartao.momento))} · ${safeCurrency(cartao.valor)}</p>`
@@ -119,9 +119,16 @@ function renderDivergencia(dia, transacao, classificacao, tom, investigacao = nu
   return `<tr class="ca-row--${tom}">
     <td>${escapeHtml(formatDate(dia))}</td><td>${escapeHtml(formatTime(momento))}</td>
     <td class="ca-num">${safeCurrency(transacao.valor)}</td>
+    <td class="ca-num">${diferenca == null ? "—" : safeCurrency(diferenca)}</td>
     <td>${escapeHtml(transacao.bandeira || transacao.administradora || "—")}</td>
-    <td><span class="ca-chip ca-chip--${tom}">${classificacao}</span>${detalhePar}</td>
-    <td>${renderAtribuicao(investigacao)}</td>
+    <td><span class="ca-chip ca-chip--${tom}">${escapeHtml(classificacao)}</span>${detalhePar}
+      ${transacao.motivo ? `<p>${escapeHtml(transacao.motivo)}</p>` : ""}
+      <p>tipoInclusao: ${escapeHtml((cartao || transacao).tipo_inclusao || (investigacao && !cartao ? "não aplicável (sem lançamento ERP)" : "não informado"))}</p></td>
+    <td>${investigacao ? renderAtribuicao(investigacao) : escapeHtml(
+      (cartao || transacao).frentista == null
+        ? `frentista não identificado — ${(cartao || transacao).motivo_frentista || "sem vínculo com a venda"}`
+        : `${(cartao || transacao).nome_frentista || "nome indisponível"} (${(cartao || transacao).frentista})`
+    )}</td>
   </tr>`;
 }
 
@@ -140,7 +147,10 @@ export function renderRecebimentos(dias, falhas = [], diaSelecionado = null) {
     ).join(" ");
     if (!ok.length) {
       return `<article class="ca-panel"><h4>${escapeHtml(nome)} ${avisos}</h4>
-        <p class="ca-muted">Sem conciliação disponível. Nenhum dado estimado.</p></article>`;
+        <p class="ca-muted">Sem conciliação disponível. Nenhum dado estimado.</p>
+        ${itens.flatMap((item) => (item.alertas || []).map((a) =>
+          `<p class="ca-error">${escapeHtml(a.codigo)}: ${escapeHtml(a.mensagem)}</p>`
+        )).join("")}</article>`;
     }
     const resumo = {
       casados: ok.reduce((sum, item) => sum + item.casados.quantidade, 0),
@@ -150,6 +160,13 @@ export function renderRecebimentos(dias, falhas = [], diaSelecionado = null) {
       pares: ok.reduce((sum, item) => sum + item.pares_provaveis.length + (item.grupos_provaveis || []).length, 0),
     };
     const linhas = ok.map((item) => [
+      ...(item.divergencias_valor || []).map((c) => renderDivergencia(
+        item.dia, c.transacao, Number(c.diferenca) > 0 ? "CARTAO_VALOR_A_MENOR" : "CARTAO_VALOR_A_MAIOR",
+        Number(c.diferenca) > 0 ? "vermelho" : "laranja", null, c.cartao, c.diferenca
+      )),
+      ...(item.alertas || []).filter((a) => a.codigo === "CARTAO_NSU_REPETIDO").flatMap((a) =>
+        a.cartoes.map((c) => renderDivergencia(item.dia, c, `${a.codigo}: ${a.mensagem}`, "vermelho"))
+      ),
       ...item.a_menor.map((cartao) => renderDivergencia(item.dia, cartao, "A menor", "vermelho")),
       ...item.a_maior.map((inv) => renderDivergencia(item.dia, inv.transacao, "A maior", "laranja", inv)),
       ...item.pares_provaveis.map((par) => renderDivergencia(item.dia, par.investigacao.transacao, "Par provável", "amarelo", par.investigacao, par.cartao)),
@@ -169,7 +186,7 @@ export function renderRecebimentos(dias, falhas = [], diaSelecionado = null) {
         <article class="ca-kpi"><span>Pares prováveis</span><strong>${resumo.pares}</strong></article>
       </div>
       ${linhas ? `<div class="ca-table-wrap"><table class="table-compact ca-receipts-table">
-        <thead><tr><th>Data</th><th>Hora</th><th class="ca-num">Valor</th><th>Bandeira / forma</th><th>Classificação</th><th>Frentista / motivos</th></tr></thead>
+        <thead><tr><th>Data</th><th>Hora</th><th class="ca-num">Valor</th><th class="ca-num">Diferença</th><th>Bandeira / forma</th><th>Classificação</th><th>Frentista / motivos</th></tr></thead>
         <tbody>${linhas}</tbody></table></div>` : '<p class="ca-ok">Sem divergências nos dias consultados.</p>'}
       <p class="ca-provenance">${escapeHtml(fontes)}</p>
     </article>`;
