@@ -79,7 +79,7 @@ export function rankingFrentistas(dias) {
         ...item.pares_provaveis.map((par) => par.investigacao),
         ...(item.grupos_provaveis || []).flatMap((grupo) => grupo.investigacoes),
       ];
-      investigacoes.forEach((inv) => {
+      [...new Map(investigacoes.map((inv) => [inv.transacao.identificador || inv, inv])).values()].forEach((inv) => {
         const atribuido = inv.atribuicao === "atribuido" && inv.frentista != null;
         const frentistas = atribuido
           ? [inv.frentista]
@@ -87,8 +87,14 @@ export function rankingFrentistas(dias) {
             ? [...new Set(inv.candidatos.map((c) => c.abastecimento.frentista).filter((id) => id != null))]
             : [];
         frentistas.forEach((id) => {
-          const linha = ranking.get(id) || { frentista: id, atribuidos: 0, sugestoes: 0 };
+          const linha = ranking.get(id) || {
+            frentista: id, atribuidos: 0, sugestoes: 0,
+            valorAtribuidos: 0, valorSugestoes: 0, nome: null,
+          };
           linha[atribuido ? "atribuidos" : "sugestoes"] += 1;
+          linha[atribuido ? "valorAtribuidos" : "valorSugestoes"] += Number(inv.transacao.valor);
+          linha.nome ||= atribuido ? inv.nome_frentista
+            : inv.candidatos.find((c) => c.abastecimento.frentista === id)?.abastecimento.nome_frentista;
           ranking.set(id, linha);
         });
       });
@@ -103,7 +109,7 @@ function renderAtribuicao(inv) {
   if (!inv) return '<span class="ca-muted">Sem atribuição</span>';
   const rotulo = inv.atribuicao === "atribuido"
     ? inv.frentista == null ? "frentista não identificado — atribuição sem código" : `${inv.nome_frentista || "nome indisponível"} (${inv.frentista}) · atribuído`
-    : inv.atribuicao === "sugestao" ? `frentista não identificado — Sugestão (${inv.candidatos.length} candidatos)` : "frentista não identificado — sem abastecimento";
+    : inv.atribuicao === "sugestao" ? `frentista não identificado — Sugestão (${inv.candidatos.length} candidatos · ${formatCurrency(inv.transacao.valor)})` : "frentista não identificado — sem abastecimento";
   const candidatos = inv.candidatos.map((c) =>
     `<li>Frentista ${escapeHtml(c.abastecimento.frentista == null ? "não informado" : `${c.abastecimento.nome_frentista || "nome indisponível"} (${c.abastecimento.frentista})`)}:
     ${escapeHtml(c.pontos)} pontos · ${escapeHtml(c.motivos.join(" · "))}</li>`
@@ -159,7 +165,25 @@ export function renderRecebimentos(dias, falhas = [], diaSelecionado = null) {
       maior: ok.reduce((sum, item) => sum + item.a_maior.length, 0),
       menor: ok.reduce((sum, item) => sum + item.a_menor.length, 0),
       pares: ok.reduce((sum, item) => sum + item.pares_provaveis.length + (item.grupos_provaveis || []).length, 0),
+      maiorValor: ok.flatMap((i) => i.a_maior).reduce((s, i) => s + Number(i.transacao.valor), 0),
+      menorValor: ok.flatMap((i) => i.a_menor).reduce((s, c) => s + Number(c.valor), 0),
+      paresValor: ok.reduce((s, i) => s
+        + [...new Map(i.pares_provaveis.map((p) => [p.investigacao.transacao.identificador || p.investigacao, p.investigacao])).values()].reduce((v, inv) => v + Number(inv.transacao.valor), 0)
+        + (i.grupos_provaveis || []).reduce((v, g) => v + g.investigacoes.reduce((n, inv) => n + Number(inv.transacao.valor), 0), 0), 0),
     };
+    const formas = new Map();
+    ok.forEach((item) => (item.formas || []).forEach((f) => {
+      const resumoForma = formas.get(f.forma) || { portalQtd: 0, portalValor: 0, erpQtd: 0, erpValor: 0 };
+      resumoForma.portalQtd += f.portal.quantidade;
+      resumoForma.portalValor += Number(f.portal.total);
+      resumoForma.erpQtd += f.webposto.quantidade;
+      resumoForma.erpValor += Number(f.webposto.total);
+      formas.set(f.forma, resumoForma);
+    }));
+    const tabelaFormas = formas.size ? `<table class="table-compact"><thead><tr><th>Forma</th><th>Portal</th><th>webPosto</th><th>Diferença</th></tr></thead><tbody>${[...formas].map(([forma, f]) =>
+      `<tr><td>${escapeHtml(forma)}</td><td>${f.portalQtd} · ${safeCurrency(f.portalValor)}</td><td>${f.erpQtd} · ${safeCurrency(f.erpValor)}</td><td>${safeCurrency(f.portalValor - f.erpValor)}</td></tr>`
+    ).join("")}</tbody></table>` : "";
+    const divergencias = ok.flatMap((i) => i.divergencias_valor || []);
     const linhas = ok.map((item) => [
       ...(item.divergencias_valor || []).map((c) => renderDivergencia(
         item.dia, c.transacao, Number(c.diferenca) > 0 ? "CARTAO_VALOR_A_MENOR" : "CARTAO_VALOR_A_MAIOR",
@@ -172,7 +196,7 @@ export function renderRecebimentos(dias, falhas = [], diaSelecionado = null) {
       ...item.a_maior.map((inv) => renderDivergencia(item.dia, inv.transacao, "A maior", "laranja", inv)),
       ...item.pares_provaveis.map((par) => renderDivergencia(item.dia, par.investigacao.transacao, "Par provável", "amarelo", par.investigacao, par.cartao)),
       ...(item.grupos_provaveis || []).flatMap((grupo) => grupo.investigacoes.map((inv) =>
-        renderDivergencia(item.dia, inv.transacao, `Grupo provável (${grupo.investigacoes.length} recebimentos)`, "amarelo", inv, grupo.cartao)
+        renderDivergencia(item.dia, inv.transacao, `Grupo provável (${grupo.investigacoes.length} recebimentos · ${formatCurrency(grupo.investigacoes.reduce((s, i) => s + Number(i.transacao.valor), 0))})`, "amarelo", inv, grupo.cartao)
       )),
     ].join("")).join("");
     const fontes = ok.map((item) =>
@@ -182,10 +206,12 @@ export function renderRecebimentos(dias, falhas = [], diaSelecionado = null) {
       <p class="ca-hint">${ok.length} de ${itens.length} dias com conciliação disponível.</p>
       <div class="ca-kpis">
         <article class="ca-kpi"><span>Casados</span><strong>${resumo.casados}</strong><small>${safeCurrency(resumo.total)}</small></article>
-        <article class="ca-kpi ca-kpi--laranja"><span>A maior</span><strong>${resumo.maior}</strong></article>
-        <article class="ca-kpi ca-kpi--vermelho"><span>A menor</span><strong>${resumo.menor}</strong></article>
-        <article class="ca-kpi"><span>Pares prováveis</span><strong>${resumo.pares}</strong></article>
+        <article class="ca-kpi ca-kpi--laranja"><span>A maior</span><strong>${resumo.maior}</strong><small>${safeCurrency(resumo.maiorValor)}</small></article>
+        <article class="ca-kpi ca-kpi--vermelho"><span>A menor</span><strong>${resumo.menor}</strong><small>${safeCurrency(resumo.menorValor)}</small></article>
+        <article class="ca-kpi"><span>Pares prováveis</span><strong>${resumo.pares}</strong><small>${safeCurrency(resumo.paresValor)}</small></article>
+        <article class="ca-kpi"><span>Valores divergentes</span><strong>${divergencias.length}</strong><small>${safeCurrency(divergencias.reduce((s, c) => s + Math.abs(Number(c.diferenca)), 0))}</small></article>
       </div>
+      ${tabelaFormas}
       ${linhas ? `<div class="ca-table-wrap"><table class="table-compact ca-receipts-table">
         <thead><tr><th>Data</th><th>Hora</th><th class="ca-num">Valor</th><th class="ca-num">Diferença</th><th>Bandeira / forma</th><th>Classificação</th><th>Frentista / motivos</th></tr></thead>
         <tbody>${linhas}</tbody></table></div>` : '<p class="ca-ok">Sem divergências nos dias consultados.</p>'}
@@ -195,7 +221,7 @@ export function renderRecebimentos(dias, falhas = [], diaSelecionado = null) {
   const ranking = rankingFrentistas(dias);
   const rankingHtml = ranking.length
     ? `<div class="ca-table-wrap"><table class="table-compact"><thead><tr><th>Frentista</th><th>Atribuídos</th><th>Sugestões</th></tr></thead>
-      <tbody>${ranking.map((linha) => `<tr><td>#${escapeHtml(linha.frentista)}</td><td>${linha.atribuidos}</td><td>${linha.sugestoes}</td></tr>`).join("")}</tbody></table></div>`
+      <tbody>${ranking.map((linha) => `<tr><td>${escapeHtml(linha.nome || "nome indisponível")} (${escapeHtml(linha.frentista)})</td><td>${linha.atribuidos} · ${safeCurrency(linha.valorAtribuidos)}</td><td>${linha.sugestoes} · ${safeCurrency(linha.valorSugestoes)}</td></tr>`).join("")}</tbody></table></div>`
     : '<p class="ca-muted">Sem atribuições ou sugestões nos dias disponíveis.</p>';
   return `<h3>Recebimentos eletrônicos</h3>
     ${diaSelecionado ? `<p class="ca-hint">Totais e ranking do dia ${escapeHtml(formatDate(diaSelecionado))}. O fechamento acima mantém o período selecionado.</p>` : ""}

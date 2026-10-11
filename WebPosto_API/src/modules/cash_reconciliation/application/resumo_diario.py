@@ -263,9 +263,14 @@ def gerar_mensagem_curta(
                 f"Cartões: {len(divergencias)} com valor menor que o recebido (faltam {moeda_br(total)})"
             )
         if cancelados:
-            linhas_unidade.append(f"{len(cancelados)} cancelados no PagBank")
+            linhas_unidade.append(f"{len(cancelados)} cancelados no PagBank · {moeda_br(sum((t.valor for t in cancelados), Decimal(0)))}")
         if outros_eventos:
-            linhas_unidade.append(f"{outros_eventos} eventos não aprovados/ajustes no PagBank")
+            total_eventos = sum(
+                (t.valor for a in registro.recebimentos.adquirentes if a.adquirente == "PAGBANK"
+                 for t in a.transacoes_canceladas if t.situacao not in {"cancelada", "estornada"}),
+                Decimal(0),
+            )
+            linhas_unidade.append(f"{outros_eventos} eventos não aprovados/ajustes no PagBank · {moeda_br(total_eventos)}")
         for adquirente in registro.recebimentos.adquirentes:
             if adquirente.adquirente == "PREMMIA":
                 if adquirente.situacao == "ok" and adquirente.casados:
@@ -273,14 +278,52 @@ def gerar_mensagem_curta(
                         len(adquirente.a_menor)
                         + len(adquirente.a_maior)
                         + len(adquirente.divergencias_valor)
-                        + sum(a.codigo == "CARTAO_NSU_REPETIDO" for a in adquirente.alertas)
+                    )
+                    valor_divergencias = sum(
+                        (
+                            *(i.transacao.valor for i in adquirente.a_maior),
+                            *(c.valor for c in adquirente.a_menor),
+                            *(abs(c.diferenca) for c in adquirente.divergencias_valor),
+                        ),
+                        Decimal(0),
                     )
                     linhas_unidade.append(
                         f"Premmia: {adquirente.casados.quantidade} conferidos · "
-                        f"{moeda_br(adquirente.casados.total)} · {divergencias_premmia} divergências"
+                        f"{moeda_br(adquirente.casados.total)} · {divergencias_premmia} divergências · "
+                        f"{moeda_br(valor_divergencias)}"
                     )
                 elif adquirente.erro:
                     linhas_unidade.append(f"Premmia: {escape(adquirente.erro)}")
+            if adquirente.situacao == "ok":
+                if adquirente.adquirente != "PREMMIA" and adquirente.casados:
+                    linhas_unidade.append(
+                        f"{escape(adquirente.adquirente)}: {adquirente.casados.quantidade} conferidos · "
+                        f"{moeda_br(adquirente.casados.total)}"
+                    )
+                for rotulo, valores in (
+                    ("A maior", [i.transacao.valor for i in adquirente.a_maior]),
+                    ("A menor", [c.valor for c in adquirente.a_menor]),
+                ):
+                    linhas_unidade.append(f"{rotulo}: {len(valores)} · {moeda_br(sum(valores, Decimal(0)))}")
+                provaveis = {
+                    p.investigacao.transacao.identificador: p.investigacao.transacao
+                    for p in adquirente.pares_provaveis
+                }
+                provaveis.update({
+                    inv.transacao.identificador: inv.transacao
+                    for g in adquirente.grupos_provaveis for inv in g.investigacoes
+                })
+                if provaveis:
+                    linhas_unidade.append(
+                        f"Recebimentos prováveis: {len(provaveis)} · "
+                        f"{moeda_br(sum((t.valor for t in provaveis.values()), Decimal(0)))}"
+                    )
+                for forma in adquirente.formas:
+                    linhas_unidade.append(
+                        f"{escape(forma.forma)}: portal {forma.portal.quantidade} · {moeda_br(forma.portal.total)}"
+                        f" / webPosto {forma.webposto.quantidade} · {moeda_br(forma.webposto.total)}"
+                        f" · diferença {moeda_br(forma.diferenca)}"
+                    )
             linhas_unidade.extend(escape(alerta.mensagem) for alerta in adquirente.alertas)
             linhas_unidade.extend(
                 f"A menor: {moeda_br(c.valor)} — {escape(c.responsavel)} — "

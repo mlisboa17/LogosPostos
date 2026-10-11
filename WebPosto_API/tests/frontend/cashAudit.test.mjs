@@ -92,6 +92,19 @@ test("Premmia tem bloco proprio, desconto, divergencia e aviso humano", () => {
   assert.doesNotMatch(aviso, /ca-kpis/);
 });
 
+test("quantidades de recebimentos e formas exibem seus valores", () => {
+  const item = {...dia.adquirentes[0], formas: [{
+    forma: "Desconto", portal: {quantidade: 3, total: "30"},
+    webposto: {quantidade: 2, total: "20"}, diferenca: "10",
+  }]};
+  const html = renderRecebimentos([{dia: dia.dia, adquirentes: [item]}]).replaceAll(" ", " ");
+  assert.match(html, /A maior<\/span><strong>1<\/strong><small>R\$ 10,15/);
+  assert.match(html, /A menor<\/span><strong>1<\/strong><small>R\$ 5,00/);
+  assert.match(html, /3 · R\$ 30,00/);
+  assert.match(html, /2 · R\$ 20,00/);
+  assert.match(html, /<td>R\$ 10,00<\/td>/);
+});
+
 test("auditoria mostra os chips novos e os detalhes de desconto e despesas", () => {
   const auditoria = {
     caixa: {
@@ -215,9 +228,9 @@ test("periodo inclusivo ate 31 dias e rejeicao de datas invalidas", () => {
 
 test("ranking separa atribuidos e sugestoes e deduplica candidatos por recebimento", () => {
   assert.deepEqual(rankingFrentistas([dia]), [
-    { frentista: 7, atribuidos: 1, sugestoes: 0 },
-    { frentista: 8, atribuidos: 0, sugestoes: 1 },
-    { frentista: 9, atribuidos: 0, sugestoes: 1 },
+    { frentista: 7, atribuidos: 1, sugestoes: 0, valorAtribuidos: 10.15, valorSugestoes: 0, nome: undefined },
+    { frentista: 8, atribuidos: 0, sugestoes: 1, valorAtribuidos: 0, valorSugestoes: 10.15, nome: undefined },
+    { frentista: 9, atribuidos: 0, sugestoes: 1, valorAtribuidos: 0, valorSugestoes: 10.15, nome: undefined },
   ]);
 });
 
@@ -238,7 +251,7 @@ test("divergencias tem cores, motivos escapados, proveniencia e alerta de period
   const html = renderRecebimentos([dia], ["03/01/2026: timeout"]);
   for (const tom of ["vermelho", "laranja", "amarelo"]) assert.match(html, new RegExp(`ca-row--${tom}`));
   assert.match(html, /nome indisponível \(7\) · atribuído/);
-  assert.match(html, /Sugestão \(3 candidatos\)/);
+  assert.match(html.replaceAll(" ", " "), /Sugestão \(3 candidatos · R\$ 10,15\)/);
   assert.match(html, /CARTOES_V1/);
   assert.match(html, /Totais e ranking são parciais/);
   assert.match(html, /&lt;script&gt;/);

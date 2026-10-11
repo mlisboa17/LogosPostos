@@ -21,6 +21,30 @@ DIA = date(2026, 10, 9)
 EMPRESA = 321
 
 
+def test_resumo_v32_quantidade_valor_e_forma():
+    from src.modules.cash_reconciliation.application.conciliar_cartoes import conciliar
+    from src.modules.cash_reconciliation.domain.recebimentos import RecebimentoAdquirente
+    from .test_cartoes import T, DIA as DIA_CARTOES
+    from .test_pendencias import criar_diario
+
+    t = T("12", "10:00", nsu="CUPOM001").model_copy(update={
+        "adquirente": "PREMMIA", "bandeira": "Desconto",
+    })
+    resultado = conciliar(74014, "PREMMIA", DIA_CARTOES, [t], [], [], set())
+    diario = criar_diario(DIA_CARTOES, 74014).model_copy(update={
+        "recebimentos": ResultadoRecebimentos(
+            empresa_codigo=74014, dia=DIA_CARTOES,
+            adquirentes=(RecebimentoAdquirente.de_resultado(resultado),),
+        ),
+    })
+    mensagem = "\n".join(resumo_diario.gerar_mensagem_curta(
+        DIA_CARTOES, [diario], [74014], set(), {74014: 1},
+    ))
+    assert "0 conferidos · R$ 0,00 · 1 divergências · R$ 12,00" in mensagem
+    assert "A maior: 1 · R$ 12,00" in mensagem
+    assert "Desconto: portal 1 · R$ 12,00 / webPosto 0 · R$ 0,00 · diferença R$ 12,00" in mensagem
+
+
 def _registro(*, alertas=None, despesas=(), vales=(), adquirentes=()):
     base = resultado_sintetico()
     auditoria = base.caixas[0].model_copy(
