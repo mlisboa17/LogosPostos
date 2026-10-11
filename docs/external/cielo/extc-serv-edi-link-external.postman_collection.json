@@ -1,0 +1,549 @@
+{
+	"info": {
+		"_postman_id": "12676dd2-9be6-4b47-8cb3-6bec0040ee74",
+		"name": "extc-serv-edi-link-external",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "29711084"
+	},
+	"item": [
+		{
+			"name": "/v1/link/generate",
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					},
+					{
+						"key": "X-Signature",
+						"value": "m2btVfhkLvkCxSbFspdR13dctBzTgO9osEe1SZKjgcs="
+					},
+					{
+						"key": "Authorization",
+						"value": "Bearer {{accessToken}}",
+						"type": "text",
+						"disabled": true
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"merchantCode\":\"1234567890\",\n    \"fileType\": [3,4,9,15,16],\n    \"processType\": [\"D\",\"R\"],\n    \"startDate\": \"2025-10-22\",\n    \"endDate\": \"2025-10-22\"\n}"
+				},
+				"url": {
+					"raw": "https://api-internet.cielo.com.br/cielo-extc-serv-edi-link-exp-external/extc-serv-edi-link-external/v1/link/generate",
+					"protocol": "https",
+					"host": [
+						"api-internet",
+						"cielo",
+						"com",
+						"br"
+					],
+					"path": [
+						"cielo-extc-serv-edi-link-exp-external",
+						"extc-serv-edi-link-external",
+						"v1",
+						"link",
+						"generate"
+					]
+				},
+				"description": "StartFragment\n\n## **Gerar Link de Arquivos EDI**\n\n### 🔗 **URL**\n\n```\nPOST https://api-internet.cielo.com.br/cielo-extc-serv-edi-link-exp-external/extc-serv-edi-link-external/v1/link/generate\n\n ```\n\n### **Headers**\n\n| Nome | Valor | Descrição |\n| --- | --- | --- |\n| `Content-Type` | `application/json` | Define que o corpo da requisição está em formato JSON. |\n| `X-Signature` | `{{X-Signature}}` | Assinatura digital da requisição, usada para garantir integridade/autenticidade. |\n| `Authorization` | `Bearer {{authorization}}` | Token Bearer obtido via OAuth 2.0 para autenticação da requisição. |\n\n---\n\n### **Body (JSON)**\n\n``` json\n{\n  \"merchantCode\":\"1234567890\",\n  \"fileType\": [3,4,9,15,16],\n  \"processType\": [\"D\",\"R\"],\n  \"startDate\": \"2025-10-06\",\n  \"endDate\": \"2025-10-06\"\n}\n\n ```\n\n#### **Descrição dos Campos**\n\n| Campo | Tipo | Obrigatório | Descrição |\n| --- | --- | --- | --- |\n| `merchantCode` | `string` | ✅ | Código da matriz EDI a ser recuperada. |\n| `fileType` | `array[int]` | ✅ | Tipos de arquivos a serem recuperados. Valores possíveis: |\n|  |  |  | \\- `3`: Vendas |\n|  |  |  | \\- `4`: Pagamentos |\n|  |  |  | \\- `9`: Saldo |\n|  |  |  | \\- `15`: NRC |\n| `processType` | `array[string]` | ✅ | Tipo de processamento. Valores possíveis: |\n|  |  |  | \\- `\"D\"`: Diário |\n|  |  |  | \\- `\"R\"`: Reprocessamento |\n|  |  |  | \\- `\"M\"`: Mensal |\n| `startDate` | `string (yyyy-MM-dd)` | ✅ | Data inicial do intervalo desejado. |\n| `endDate` | `string (yyyy-MM-dd)` | ✅ | Data final do intervalo desejado. |\n\n### **Exemplo de Requisição no Postman**\n\n- **Método:** `POST`\n    \n- **URL:** `https://api-internet.cielo.com.br/cielo-extc-serv-edi-link-exp-external/extc-serv-edi-link-external/v1/link/generate`\n    \n- **Headers:**\n    \n    - `Content-Type: application/json`\n        \n    - `X-Signature: {{X-Signature}}`\n        \n    - `Authorization: Bearer {{authorization}}`\n        \n- **Body (raw, JSON):**\n    \n\n``` json\n{\n    \"merchantCode\":\"1234567890\",\n    \"fileType\": [3,4,9,15,16],\n    \"processType\": [\"D\",\"R\"],\n    \"startDate\": \"2025-10-06\",\n    \"endDate\": \"2025-10-06\"\n}\n\n ```"
+			},
+			"response": [
+				{
+					"name": "200 OK",
+					"originalRequest": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "X-Signature",
+								"value": "{{X-Signature}}"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"merchantCode\":\"1234567890\",\n    \"fileType\": [3,4,9,15,16],\n    \"processType\": [\"D\",\"R\"],\n    \"startDate\": \"2025-10-22\",\n    \"endDate\": \"2025-10-22\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "https://api-internet.cielo.com.br/cielo-extc-serv-edi-link-exp-external/extc-serv-edi-link-external/v1/link/generate",
+							"protocol": "https",
+							"host": [
+								"api-internet",
+								"cielo",
+								"com",
+								"br"
+							],
+							"path": [
+								"cielo-extc-serv-edi-link-exp-external",
+								"extc-serv-edi-link-external",
+								"v1",
+								"link",
+								"generate"
+							]
+						}
+					},
+					"status": "OK",
+					"code": 200,
+					"_postman_previewlanguage": "json",
+					"header": [
+						{
+							"key": "Content-Type",
+							"value": "application/json",
+							"description": "",
+							"type": "text"
+						}
+					],
+					"cookie": [
+						{
+							"expires": "Invalid Date",
+							"domain": "",
+							"path": ""
+						}
+					],
+					"body": "{\r\n    \"links\": [\r\n        {\r\n            \"url\": \"https://link.com\",\r\n            \"duration\": 15,\r\n            \"merchantCode\": \"1234567890\",\r\n            \"fileType\": 3,\r\n            \"generationDate\": \"2025-10-22\"\r\n        }\r\n    ]\r\n}"
+				},
+				{
+					"name": "400 Bad Requet token",
+					"originalRequest": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/x-www-form-urlencoded",
+								"type": "text"
+							},
+							{
+								"key": "X-Signature",
+								"value": "{{X-Signature}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"merchantCode\":\"1234567890\",\n    \"fileType\": [3,4,9,15,16],\n    \"processType\": [\"D\"],\n    \"startDate\": \"2025-10-22\",\n    \"endDate\": \"2025-10-22\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "https://api-internet.cielo.com.br/cielo-extc-serv-edi-link-exp-external/extc-serv-edi-link-external/v1/link/generate",
+							"protocol": "https",
+							"host": [
+								"api-internet",
+								"cielo",
+								"com",
+								"br"
+							],
+							"path": [
+								"cielo-extc-serv-edi-link-exp-external",
+								"extc-serv-edi-link-external",
+								"v1",
+								"link",
+								"generate"
+							]
+						}
+					},
+					"status": "Bad Request",
+					"code": 400,
+					"_postman_previewlanguage": "json",
+					"header": [
+						{
+							"key": "Content-Type",
+							"value": "application/json",
+							"description": "",
+							"type": "text"
+						}
+					],
+					"cookie": [],
+					"body": "{\r\n    \"error\": \"JWT Token is required.\"\r\n}"
+				},
+				{
+					"name": "400 Bad Request",
+					"originalRequest": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "X-Signature",
+								"value": "{{X-Signature}}"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"fileType\": [3,4,9,15,16],\n    \"processType\": [\"D\",\"R\"],\n    \"startDate\": \"2025-10-22\",\n    \"endDate\": \"2025-10-22\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "https://api-internet.cielo.com.br/cielo-extc-serv-edi-link-exp-external/extc-serv-edi-link-external/v1/link/generate",
+							"protocol": "https",
+							"host": [
+								"api-internet",
+								"cielo",
+								"com",
+								"br"
+							],
+							"path": [
+								"cielo-extc-serv-edi-link-exp-external",
+								"extc-serv-edi-link-external",
+								"v1",
+								"link",
+								"generate"
+							]
+						}
+					},
+					"status": "Bad Request",
+					"code": 400,
+					"_postman_previewlanguage": "json",
+					"header": [
+						{
+							"key": "Content-Type",
+							"value": "application/json",
+							"description": "",
+							"type": "text"
+						}
+					],
+					"cookie": [
+						{
+							"expires": "Invalid Date",
+							"domain": "",
+							"path": ""
+						}
+					],
+					"body": "{\n    \"errorCode\": \"400\",\n    \"errorDescription\": \"Bad Request\",\n    \"errorMessage\": \"required key [merchantCode] not found\"\n}"
+				},
+				{
+					"name": "401 Unauthorized",
+					"originalRequest": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "X-Signature",
+								"value": "{{X-Signature}}"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"merchantCode\":\"1234567890\",\n    \"fileType\": [3,4,9,15,16],\n    \"processType\": [\"D\",\"R\"],\n    \"startDate\": \"2025-10-22\",\n    \"endDate\": \"2025-10-22\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "https://api-internet.cielo.com.br/cielo-extc-serv-edi-link-exp-external/extc-serv-edi-link-external/v1/link/generate",
+							"protocol": "https",
+							"host": [
+								"api-internet",
+								"cielo",
+								"com",
+								"br"
+							],
+							"path": [
+								"cielo-extc-serv-edi-link-exp-external",
+								"extc-serv-edi-link-external",
+								"v1",
+								"link",
+								"generate"
+							]
+						}
+					},
+					"status": "Unauthorized",
+					"code": 401,
+					"_postman_previewlanguage": "json",
+					"header": [
+						{
+							"key": "Content-Type",
+							"value": "application/json",
+							"name": "Content-Type",
+							"description": "",
+							"type": "text"
+						},
+						{
+							"key": "Strict-Transport-Security",
+							"value": "max-age=31536000; includeSubdomains;"
+						},
+						{
+							"key": "Content-Length",
+							"value": "82"
+						},
+						{
+							"key": "Date",
+							"value": "Wed, 22 Oct 2025 19:28:21 GMT"
+						},
+						{
+							"key": "Connection",
+							"value": "close"
+						},
+						{
+							"key": "x-cert-status",
+							"value": "ok"
+						},
+						{
+							"key": "Set-Cookie",
+							"value": "bm_sv=553240BA0DFC9FCB7DCA5457C3FECB7F~YAAQzQMVAnVoueyZAQAA7s9kDR0SBSLESgSSKoYC5OuOoVmEpXkWkh8C4bKXwhRquDVJyTBKdIyS2xmtaUVxqkoGRe/GJclMn1JI/hKDa2cq8Zup3YfWpReadpxMUWK4XiWpd/TkmbGsWAi52Oc2Abj5PsskSENnYYvDVs6XmBvEzspM1H4N1EfUZXEplTzVNrxXurTJXllVaCk+lVs7KnsV7kGo9G+2JBSLQikqXb14FmSGKKOT269apdSrw6XA1Xbn~1; Domain=.cielo.com.br; Path=/; Expires=Wed, 22 Oct 2025 21:08:29 GMT; Max-Age=6008; Secure"
+						}
+					],
+					"cookie": [],
+					"body": "{\n    \"timestamp\": \"2025-10-22T19:28:21.937+00:00\",\n    \"status\": 401,\n    \"reason\": \"Invalid HMAC\"\n}"
+				},
+				{
+					"name": "422 Unprocessable Entity",
+					"originalRequest": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							},
+							{
+								"key": "X-Signature",
+								"value": "{{X-Signature}}"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"merchantCode\":\"1234567890\",\n    \"fileType\": [3,4,9,15,16],\n    \"processType\": [\"D\",\"R\"],\n    \"startDate\": \"2023-10-22\",\n    \"endDate\": \"2023-10-22\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "https://api-internet.cielo.com.br/cielo-extc-serv-edi-link-exp-external/extc-serv-edi-link-external/v1/link/generate",
+							"protocol": "https",
+							"host": [
+								"api-internet",
+								"cielo",
+								"com",
+								"br"
+							],
+							"path": [
+								"cielo-extc-serv-edi-link-exp-external",
+								"extc-serv-edi-link-external",
+								"v1",
+								"link",
+								"generate"
+							]
+						}
+					},
+					"status": "Unprocessable Entity",
+					"code": 422,
+					"_postman_previewlanguage": "json",
+					"header": [
+						{
+							"key": "Content-Type",
+							"value": "application/json",
+							"name": "Content-Type",
+							"description": "",
+							"type": "text"
+						},
+						{
+							"key": "Strict-Transport-Security",
+							"value": "max-age=31536000; includeSubdomains;"
+						},
+						{
+							"key": "Content-Length",
+							"value": "139"
+						},
+						{
+							"key": "Date",
+							"value": "Wed, 22 Oct 2025 19:26:38 GMT"
+						},
+						{
+							"key": "Connection",
+							"value": "close"
+						},
+						{
+							"key": "x-cert-status",
+							"value": "ok"
+						},
+						{
+							"key": "Set-Cookie",
+							"value": "bm_sv=553240BA0DFC9FCB7DCA5457C3FECB7F~YAAQzQMVArXrt+yZAQAAxDljDR1cIRAPXrsLSZ8E3VedIJxYy7p08y8Si4CC0fwLMDVtA3mXjg9E5RFhx2gd8Nj3CtQHjYfOM/3Ky9XD2g+tLnBgMVS8+64nDZhwaTF9r1/sBt5EK6QtBIf10Dn7jcoBXl09z29woaGcxDRngVug+hBKW2GcyMrohlILk/XnYiqpDHqIzBCvZX3d8spjlUGlrKiU9GbL91M9/rVJdDKizkm/aB3Asz/5GJMoHb1f0nAu~1; Domain=.cielo.com.br; Path=/; Expires=Wed, 22 Oct 2025 21:08:29 GMT; Max-Age=6111; Secure"
+						}
+					],
+					"cookie": [],
+					"body": "{\n    \"timestamp\": \"2025-10-22T19:26:37.951+00:00\",\n    \"status\": 422,\n    \"reason\": \"Erro de validação - Os dados fornecidos não podem ser processados!\"\n}"
+				}
+			]
+		},
+		{
+			"name": "/token",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"let response = pm.response.json();\r",
+							"pm.environment.set(\"accessToken\", response.access_token);"
+						],
+						"type": "text/javascript",
+						"packages": {},
+						"requests": {}
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "urlencoded",
+					"urlencoded": [
+						{
+							"key": "client_id",
+							"value": "{{client_id}}",
+							"type": "text"
+						},
+						{
+							"key": "client_secret",
+							"value": "{{client_secret}}",
+							"type": "text"
+						},
+						{
+							"key": "grant_type",
+							"value": "client_credentials",
+							"type": "text"
+						}
+					]
+				},
+				"url": {
+					"raw": "https://api-internet.cielo.com.br/cielo-security-sys-web/oauth/v2/MulesoftPRD/protocol/openid-connect/token",
+					"protocol": "https",
+					"host": [
+						"api-internet",
+						"cielo",
+						"com",
+						"br"
+					],
+					"path": [
+						"cielo-security-sys-web",
+						"oauth",
+						"v2",
+						"MulesoftPRD",
+						"protocol",
+						"openid-connect",
+						"token"
+					]
+				},
+				"description": "### **Endpoint de Autenticação OAuth 2.0 da Cielo**\n\n``` json\nhttps://api-internet.cielo.com.br/cielo-security-sys-web/oauth/v2/MulesoftPRD/protocol/openid-connect/token\n\n```\n\n**Finalidade:**  \nEsse endpoint é utilizado para obter um **token Bearer** que será usado na autorização de chamadas para outros endpoints protegidos da Cielo, geralmente em integrações via Mulesoft ou APIs privadas.\n\n### **Requisição**\n\n**Método HTTP:** `POST`\n\n**Headers:**\n\n```\nContent-Type: application/x-www-form-urlencoded\nclient_id:{{client_id}}\nclient_secret:{{client_secret}}\ngrant_type:client_credentials\n\n```\n\n### **Resposta Esperada**\n\nEm caso de sucesso, o endpoint retorna um JSON com o token de acesso:\n\n``` json\n{\n  \"access_token\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...\",\n  \"token_type\": \"Bearer\",\n  \"expires_in\": 3600\n}\n\n```\n\n- **access_token**: Token JWT que deve ser usado no header `Authorization` das requisições subsequentes.\n- **token_type**: Tipo do token, geralmente \"Bearer\".\n- **expires_in**: Tempo de expiração do token em segundos.\n    \n\n### **Uso do Token**\n\nApós obter o token, você deve incluí-lo no header das chamadas aos endpoints protegidos:\n\n``` plaintext\nAuthorization: Bearer <access_token>\n\n```"
+			},
+			"response": [
+				{
+					"name": "200 OK",
+					"originalRequest": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "urlencoded",
+							"urlencoded": [
+								{
+									"key": "client_id",
+									"value": "{{client_id}}",
+									"type": "text"
+								},
+								{
+									"key": "client_secret",
+									"value": "{{client_secret}}",
+									"type": "text"
+								},
+								{
+									"key": "grant_type",
+									"value": "client_credentials",
+									"type": "text"
+								}
+							]
+						},
+						"url": {
+							"raw": "https://api-internet.cielo.com.br/cielo-security-sys-web/oauth/v2/MulesoftPRD/protocol/openid-connect/token",
+							"protocol": "https",
+							"host": [
+								"api-internet",
+								"cielo",
+								"com",
+								"br"
+							],
+							"path": [
+								"cielo-security-sys-web",
+								"oauth",
+								"v2",
+								"MulesoftPRD",
+								"protocol",
+								"openid-connect",
+								"token"
+							]
+						}
+					},
+					"status": "OK",
+					"code": 200,
+					"_postman_previewlanguage": "json",
+					"header": [
+						{
+							"key": "Content-Type",
+							"value": "application/json",
+							"description": "",
+							"type": "text"
+						}
+					],
+					"cookie": [
+						{
+							"expires": "Invalid Date",
+							"domain": "",
+							"path": ""
+						}
+					],
+					"body": "{\n    \"access_token\": \"eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICJmRFF2cHA0LUxHUkdObUMtQmdJZHItbzFOUkR0Q0gydXlkcnVFTFlPOU4wIn0.eyJleHAiOjE3NjExNjA2MjcsImlhdCI6MTc2MTE2MDAyNywianRpIjoiOTVjM2U1OGQtYjMzNS00MmEzLThlYjMtZGNlZGM0MmEwYTFkIiwiaXNzIjoiaHR0cHM6Ly9yaHNzby5lbnRlcnByaXNldHJuLmNvcnAvYXV0aC9yZWFsbXMvTXVsZXNvZnRQUkQiLCJhdWQiOiJhY2NvdW50Iiwic3ViIjoiZDQwOTQ5NjMtMDdlOC00MmExLTk1OWEtZjlmZDNiNzNkY2UyIiwidHlwIjoiQmVhcmVyIiwiYXpwIjoiNzg5N2FlMzgtNTgwMS00Zjk0LWJlYmUtOTE3NTk2MWQwY2Y0IiwicmVhbG1fYWNjZXNzIjp7InJvbGVzIjpbIm9mZmxpbmVfYWNjZXNzIiwidW1hX2F1dGhvcml6YXRpb24iXX0sInJlc291cmNlX2FjY2VzcyI6eyJhY2NvdW50Ijp7InJvbGVzIjpbIm1hbmFnZS1hY2NvdW50IiwibWFuYWdlLWFjY291bnQtbGlua3MiLCJ2aWV3LXByb2ZpbGUiXX19LCJzY29wZSI6ImVtYWlsIHByb2ZpbGUiLCJlbWFpbF92ZXJpZmllZCI6ZmFsc2UsImNsaWVudElkIjoiNzg5N2FlMzgtNTgwMS00Zjk0LWJlYmUtOTE3NTk2MWQwY2Y0IiwiY2xpZW50SG9zdCI6IjEwLjgyLjMwLjYiLCJwcmVmZXJyZWRfdXNlcm5hbWUiOiJzZXJ2aWNlLWFjY291bnQtNzg5N2FlMzgtNTgwMS00Zjk0LWJlYmUtOTE3NTk2MWQwY2Y0IiwiY2xpZW50QWRkcmVzcyI6IjEwLjgyLjMwLjYifQ.b5HNIuqnR9nvBgBa9rh1M6jRadtROHqf6o1Anx0LO87CjrqGJ1fX_GdiQMm1BS6jO6mYE0f24nN8_o7oGPB3ZJjhFoaQk0hKcQEPWWWIF3LwtszrEQgA4KK36m1xtE7cNvid9as3jyUZPlw_mqU2NTMnShBb-w4RkegEhvzHQKkjLznCAZXGqUK6lkNOhNC1BjSfM9UIQmq6hkkENPx2e5bE8TiDXv3p_jlq4pTCw2hAoSbxiBhmtd_I6z8mmRcejjMPKFSDaUKSUP776txyJ42UHsEcL4bAipZbdyH7eu0ee1nQi0EP1DDsKzDG4ORgHfaD_DU065CqnnKVcNQNvg\",\n    \"expires_in\": 600,\n    \"refresh_expires_in\": 0,\n    \"token_type\": \"Bearer\",\n    \"not-before-policy\": 0,\n    \"scope\": \"email profile\"\n}"
+				}
+			]
+		}
+	]
+}

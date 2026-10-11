@@ -33,7 +33,13 @@ Histórico de sprints: um prompt por sprint em docs/prompts/ (SPRINT_05 ... SPRI
   (client_id/client_secret) + assinatura HMAC no header X-Signature + certificado mTLS;
   POST https://api-internet.cielo.com.br/cielo-extc-serv-edi-link-exp-external/extc-serv-edi-link-external/v1/link/generate
   (merchantCode, fileType 3=vendas 4=pagamentos, processType D/R/M, startDate/endDate) → links temporários de download.
-  Pendente do diretor: gerar a chave no portal Cielo, colocar no .env, certificado mTLS, manual de layout e de links.
+  Docs oficiais em docs/external/cielo/ (manual de links + collection Postman). Token: POST
+  https://api-internet.cielo.com.br/cielo-security-sys-web/oauth/v2/MulesoftPRD/protocol/openid-connect/token
+  (form: client_id, client_secret, grant_type=client_credentials; expira em 600 s). X-Signature = Base64(HMAC-SHA256(chave,
+  corpo JSON exato)). merchantCode = código da MATRIZ EDI. fileType 3/4/9/15/16. Links valem "duration" minutos.
+  .env (11/10): CIELO_CHAVE_API_POSTOVIP e CIELO_CHAVE_API_CONVENIENCIA_24_HORAS (44 caracteres = provável chave HMAC),
+  EC do VIP conveniência e da Conv. 24h. FALTAM client_id e client_secret (e confirmar se exige certificado mTLS).
+  Ainda falta o manual de LAYOUT do Extrato Eletrônico (posições do CIELO03/04/16).
 - Próximo: CIELO_01 · MAIS_01 (quando chegar a credencial) · Sprint 15 (dossiê + medir acerto das propostas) · EXTRATOS_01.
 
 ## Em andamento
