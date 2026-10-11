@@ -339,7 +339,7 @@ def _criar_planilha_telegram(dia: date, dados: dict, diretorio: Path | None = No
         planilha.auto_filter.ref = planilha.dimensions
         for celula in planilha[1]:
             celula.font = Font(bold=True)
-        for coluna in formatos_monetarios[planilha.title]:
+        for coluna in formatos_monetarios.get(planilha.title, ()):
             for linha in range(2, planilha.max_row + 1):
                 planilha[f"{coluna}{linha}"].number_format = '"R$" #,##0.00'
         if planilha.title == "Caixas":
