@@ -47,6 +47,12 @@ Histórico de sprints: um prompt por sprint em docs/prompts/ (SPRINT_05 ... SPRI
 - Telegram: trocar a planilha (pequena no celular) por algo mais legível; tirar código interno do plano de contas;
   faltas confirmadas x provisórias; DESPESAS_V1 (valor alto, plano incompatível, acima da média)
 - Integrações Mais Pagamentos, Rede, Cielo e PagBank Conv 24h (dependem dos fornecedores)
+- EXTRATOS_01 (adiante, decisão do diretor 11/10/2026) — captura automática dos extratos bancários/PagBank que chegam
+  por e-mail, para confirmar recebimentos fora das maquininhas. Primeiro caso: PIX CNPJ do Doze (PIX pela chave do posto,
+  direto na conta PagBank, sem maquininha — não aparece no EDI transacional). Doze 01–09/10: 7 lançamentos manuais
+  · R$ 2.480,41 sem conferência hoje. Ver RN-CARTAO-009.
+- Sprint 13 / 13.1 concluídas (commits 00c28d1, 8480d35): Premmia Casa Caiada 139 · R$ 14.909,55 conferidos, sobram
+  2 · R$ 140,00; Doze 208 · R$ 16.582,25 conferidos, sobram 2 · R$ 14,00.
 - 28 snapshots antigos ainda versionados; arquivar a pasta antiga do OneDrive
 
 ## Decisões fixas

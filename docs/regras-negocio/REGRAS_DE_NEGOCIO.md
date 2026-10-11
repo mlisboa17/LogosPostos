@@ -373,6 +373,19 @@
 | Status | vigente |
 | Vigência | 10/10/2026 — decisão do diretor |
 
+### RN-CARTAO-009 — PIX CNPJ (chave do posto, fora da maquininha)
+| Campo | Valor |
+|---|---|
+| Unidades | Doze 74014 |
+| Módulo | TEF/Cartões |
+| Padrão | — |
+| Exceção | "PIX CNPJ" no webPosto = PIX feito pela **chave PIX do posto**, direto na conta PagBank do Doze, **sem maquininha**; por isso não aparece no EDI transacional do PagBank e é lançado à mão |
+| Gatilho | Lançamento com administradora "PIX CNPJ" |
+| Ação no sistema | Hoje: só aparece como cartão manual sem venda (RN-CARTAO-008). Futuro: confirmar no extrato da conta PagBank recebido por e-mail (EXTRATOS_01) |
+| Implementação | — (EXTRATOS_01, adiante) |
+| Status | proposta |
+| Vigência | 11/10/2026 — informado pelo diretor (Doze 01–09/10: 7 lançamentos · R$ 2.480,41) |
+
 ---
 
 ## 8. Premmia (RN-PREMMIA)
@@ -492,3 +505,4 @@ Temas comuns em postos que **ainda não têm regra decidida** — não implement
 |---|---|
 | 10/10/2026 | Criação do documento com as regras vigentes do projeto (Sprints 01 a 13) e ADR-003 |
 | 11/10/2026 | CARTOES_V3_2: cupom no sufixo do NSU, POS PREMMIA com unicidade, forma PREMMIA DESCONTO CUPOM e valores junto às quantidades |
+| 11/10/2026 | RN-CARTAO-009 (PIX CNPJ do Doze, pela chave do posto) — proposta, depende de EXTRATOS_01 |
