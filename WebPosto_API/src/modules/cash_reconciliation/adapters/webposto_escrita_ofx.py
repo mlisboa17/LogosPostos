@@ -202,10 +202,11 @@ def verificar_duplicidade_historico(
 
 def formatar_transacao_webposto(
     l: LancamentoBancario,
-    formato_tipo: str = "CREDIT_DEBIT",
-    formato_sinal: str = "com_sinal",
+    formato_tipo: str = "CREDITO_DEBITO",
+    formato_sinal: str = "sempre_positivo",
+    incluir_tipo_transacao: bool = False,
 ) -> dict[str, Any]:
-    """Formata TransacaoBancaria respeitando a spec oficial."""
+    """Formata TransacaoBancaria respeitando a spec oficial e o padrão de MOVIMENTOS_CONTA."""
     # Data em ISO-8601
     dt_ref = l.momento or datetime.combine(l.data, datetime.min.time())
     dt_iso = dt_ref.strftime("%Y-%m-%dT%H:%M:%S")
@@ -232,7 +233,7 @@ def formatar_transacao_webposto(
         "descricao": l.descricao[:255],
         "numeroDocumento": (l.documento or l.fitid)[:50],
         "nomePagador": None,
-        "tipoTransacao": l.tipo_original[:50] if l.tipo_original else None,
+        "tipoTransacao": (l.tipo_original[:50] if l.tipo_original else None) if incluir_tipo_transacao else None,
         "extratoExterno": l.fitid[:50],
     }
 
@@ -243,8 +244,9 @@ def montar_payload_ofx(
     data_inicial: date,
     data_final: date,
     lancamentos: tuple[LancamentoBancario, ...],
-    formato_tipo: str = "CREDIT_DEBIT",
-    formato_sinal: str = "com_sinal",
+    formato_tipo: str = "CREDITO_DEBITO",
+    formato_sinal: str = "sempre_positivo",
+    incluir_tipo_transacao: bool = False,
 ) -> dict[str, Any]:
     """Monta o payload estrito ParamIncluirOfx."""
     # Verificação rígida contra opções proibidas
@@ -254,7 +256,12 @@ def montar_payload_ofx(
             raise BarreiraOfxErro(f"Opção de importação proibida detectada: {proibida}")
 
     transacoes = [
-        formatar_transacao_webposto(l, formato_tipo=formato_tipo, formato_sinal=formato_sinal)
+        formatar_transacao_webposto(
+            l,
+            formato_tipo=formato_tipo,
+            formato_sinal=formato_sinal,
+            incluir_tipo_transacao=incluir_tipo_transacao,
+        )
         for l in lancamentos
     ]
 
@@ -285,8 +292,9 @@ async def enviar_ofx_webposto(
     confirmar: bool = False,
     client: httpx.AsyncClient | None = None,
     diretorio_historico: Path | None = None,
-    formato_tipo: str = "CREDIT_DEBIT",
-    formato_sinal: str = "com_sinal",
+    formato_tipo: str = "CREDITO_DEBITO",
+    formato_sinal: str = "sempre_positivo",
+    incluir_tipo_transacao: bool = False,
 ) -> ResultadoImportacaoOfx:
     """ÚNICA função de envio de OFX para /INTEGRACAO/V1/OFXS com barreira total."""
     caminho = Path(caminho_arquivo)
@@ -339,8 +347,8 @@ async def enviar_ofx_webposto(
     amostra_primeiros = tuple(
         {
             "data": formatar_data(l.data),
-            "tipo": l.tipo,
-            "valor": float(l.valor),
+            "tipo": "Crédito" if l.eh_credito else "Débito",
+            "valor": float(abs(l.valor)),
             "descricao_mascarada": _mascarar_descricao(l.descricao),
         }
         for l in lancamentos_periodo[:3]
@@ -348,8 +356,8 @@ async def enviar_ofx_webposto(
     amostra_ultimos = tuple(
         {
             "data": formatar_data(l.data),
-            "tipo": l.tipo,
-            "valor": float(l.valor),
+            "tipo": "Crédito" if l.eh_credito else "Débito",
+            "valor": float(abs(l.valor)),
             "descricao_mascarada": _mascarar_descricao(l.descricao),
         }
         for l in lancamentos_periodo[-3:]
@@ -384,6 +392,7 @@ async def enviar_ofx_webposto(
         lancamentos=lancamentos_periodo,
         formato_tipo=formato_tipo,
         formato_sinal=formato_sinal,
+        incluir_tipo_transacao=incluir_tipo_transacao,
     )
 
     # 8. Verificação das travas para envio

@@ -270,6 +270,32 @@ async def test_regra_8_limite_de_7_dias_e_periodo_no_passado(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_formato_movimentos_conta_em_portugues_valor_positivo_tipo_transacao_null(tmp_path, monkeypatch, mock_webposto_transport):
+    unidade = _criar_unidade_teste()
+    arquivo_ofx = _criar_ofx_sintetico(tmp_path)
+    client = httpx.AsyncClient(transport=mock_webposto_transport, base_url="https://fake-webposto")
+    monkeypatch.setenv("CHAVE_TESTE_ENV", "token_valido")
+    res = await enviar_ofx_webposto(
+        unidade,
+        arquivo_ofx,
+        confirmar=False,
+        client=client,
+        diretorio_historico=tmp_path / "hist",
+    )
+    assert res.payload_enviado is not None
+    transacoes = res.payload_enviado["transacoes"]
+    assert len(transacoes) == 2
+    t1, t2 = transacoes
+    assert t1["tipo"] == "Crédito"
+    assert t1["valor"] == 250.0  # positivo
+    assert t1["tipoTransacao"] is None
+
+    assert t2["tipo"] == "Débito"
+    assert t2["valor"] == 50.0  # positivo
+    assert t2["tipoTransacao"] is None
+
+
+@pytest.mark.asyncio
 async def test_permissao_escrita_403_tratada_com_clareza(tmp_path, monkeypatch):
     unidade = _criar_unidade_teste()
     arquivo_ofx = _criar_ofx_sintetico(tmp_path)
