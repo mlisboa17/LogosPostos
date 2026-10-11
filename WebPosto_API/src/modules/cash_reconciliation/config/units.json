@@ -10,6 +10,10 @@
       "nome": "POSTO DOZE FILIAL II",
       "apelido": "Doze",
       "premmia_ativo": true,
+      "administradoras": {
+        "PAGBANK": ["PAGSEGURO", "PIX PAGBANK", "AMERICAN EXPRESS"],
+        "PREMMIA": ["PREMMIA"]
+      },
       "premmia_usuario_env": "PREMMIA_usuario_DOZE_REAL",
       "premmia_senha_env": "PREMMIA_SENHA_DOZE_REAL",
       "chave_env": "WEBPOSTO_API_KEY_POSTO_DOZE_FILIAL_II",
@@ -47,6 +51,10 @@
       "nome": "AP CASA CAIADA",
       "apelido": "Casa Caiada",
       "premmia_ativo": true,
+      "administradoras": {
+        "PAGBANK": ["PAGSEGURO", "PIX PAGBANK", "AMERICAN EXPRESS"],
+        "PREMMIA": ["PREMMIA"]
+      },
       "premmia_usuario_env": "PREMMIA_usuario_CASA_CAIADA",
       "premmia_senha_env": "PREMMIA_SENHA_CASA_CAIADA",
       "chave_env": "WEBPOSTO_API_KEY_CASA_CAIADA",

@@ -36,14 +36,20 @@ from ...webposto_integration.http import WebPostoErro
 logger = logging.getLogger(__name__)
 
 # administradoras do webPosto liquidadas por cada adquirente (V1/ADMINISTRADORAS)
-ADMINISTRADORAS = {"PAGBANK": ("PAGSEGURO", "PIX PAGBANK"), "PREMMIA": ("PREMMIA",)}
+ADMINISTRADORAS_PADRAO = {"PAGBANK": ("PAGSEGURO", "PIX PAGBANK"), "PREMMIA": ("PREMMIA",)}
 # casamento usa TODOS os recebimentos do ERP (ex.: AMEX da maquininha PagBank cadastrado com outro nome);
 # o filtro por administradora so define o que e cobrado como "a menor".
 
 
-def da_adquirente(c: CartaoErp, adquirente: str) -> bool:
+def da_adquirente(
+    c: CartaoErp,
+    adquirente: str,
+    administradoras: dict[str, tuple[str, ...]] | None = None,
+) -> bool:
     nome = c.administradora.upper()
-    return any(p in nome for p in ADMINISTRADORAS[adquirente])
+    mapa = administradoras or {}
+    nomes = mapa.get(adquirente, ADMINISTRADORAS_PADRAO[adquirente])
+    return any(p in nome for p in nomes)
 
 
 def conciliar(
@@ -57,12 +63,46 @@ def conciliar(
 ) -> ResultadoCartoes:
     """transacoes e cartoes podem cobrir D-1..D+1 (virada do dia); o relatorio e so do dia D."""
     transacoes, cartoes = list(transacoes), list(cartoes)
+    mapa_administradoras = carregar_unidades().get(empresa_codigo)
+    mapa_administradoras = mapa_administradoras.administradoras if mapa_administradoras else {}
+    cartao_pos_sem_detalhe = [
+        c for c in cartoes if "CARTÃO POS SEM DETALHE" in c.administradora.upper()
+    ]
+    cartoes = [c for c in cartoes if c not in cartao_pos_sem_detalhe]
     sem_fonte = [c for c in cartoes if "PIX CNPJ" in c.administradora.upper() and c.momento.date() == dia]
     cartoes = [c for c in cartoes if "PIX CNPJ" not in c.administradora.upper()]
     cancelados = [t for t in transacoes if t.situacao is not None]
     casados, sobra_t, sobra_c = casar(transacoes, cartoes)
     codigos_casados = {c.cartao.codigo for c in casados}
     alertas = []
+    transacoes_pos_sem_detalhe: set[str] = set()
+    for pagamento in cartao_pos_sem_detalhe:
+        candidatos = [
+            t for t in transacoes
+            if t.situacao is None and t.valor == pagamento.valor
+            and t.momento.date() == pagamento.momento.date()
+            and abs(t.momento - pagamento.momento) <= timedelta(minutes=30)
+        ]
+        provavel = min(candidatos, key=lambda t: abs(t.momento - pagamento.momento)) if candidatos else None
+        if len(candidatos) == 1 and provavel is not None:
+            transacoes_pos_sem_detalhe.add(provavel.identificador)
+        descricao_fonte = (
+            f"{provavel.adquirente} {provavel.bandeira or ''}".strip()
+            if provavel is not None else "adquirente não identificada"
+        )
+        alertas.append(
+            AlertaCartao(
+                codigo="CARTAO_POS_SEM_DETALHE",
+                severidade="laranja",
+                mensagem=(
+                    f"Detalhar cartão da venda {pagamento.venda_codigo}: R$ {pagamento.valor:.2f}; "
+                    f"pagamento provável: {descricao_fonte}"
+                ),
+                valor=pagamento.valor,
+                cartoes=(pagamento,),
+                transacoes=(provavel,) if provavel is not None else (),
+            )
+        )
     motivos_repetidos = {}
     for grupo in grupos_nsu_repetido(cartoes, transacoes):
         excedentes = [
@@ -106,6 +146,83 @@ def conciliar(
                     ),
                 )
             )
+    transacoes_duplicadas: set[str] = set()
+    transacoes_ativas = [t for t in transacoes if t.situacao is None and t.momento.date() == dia]
+    por_chave: dict[tuple[Decimal, str], list[TransacaoAdquirente]] = {}
+    for transacao in transacoes_ativas:
+        terminal = (transacao.terminal or "").strip().upper()
+        if terminal:
+            por_chave.setdefault((transacao.valor, terminal), []).append(transacao)
+    casamentos_por_transacao = {c.transacao.identificador: c for c in casados}
+    for (valor, terminal), grupo in por_chave.items():
+        grupo.sort(key=lambda t: (t.momento, t.identificador))
+        for indice, transacao in enumerate(grupo):
+            janela = [
+                t for t in grupo[indice:]
+                if t.momento - transacao.momento <= timedelta(minutes=3)
+            ]
+            if len(janela) < 2:
+                continue
+            casamentos = [casamentos_por_transacao[t.identificador] for t in janela
+                          if t.identificador in casamentos_por_transacao]
+            if len(casamentos) != 1:
+                continue
+            transacao_casada = casamentos[0].transacao
+            venda = casamentos[0].cartao
+            extras = [t for t in janela if t.identificador != transacao_casada.identificador]
+            for extra in extras:
+                estorno = next(
+                    (
+                        t for t in transacoes
+                        if t.situacao is not None
+                        and t.valor == extra.valor
+                        and (t.identificador == extra.identificador
+                             or (extra.nsu and t.nsu == extra.nsu)
+                             or (extra.autorizacao and t.autorizacao == extra.autorizacao))
+                        and extra.momento.date() <= t.momento.date() <= extra.momento.date() + timedelta(days=7)
+                    ),
+                    None,
+                )
+                transacoes_duplicadas.add(extra.identificador)
+                if estorno is not None:
+                    alertas.append(
+                        AlertaCartao(
+                            codigo="CARTAO_COBRANCA_DUPLICADA_ESTORNADA",
+                            severidade="informativo",
+                            mensagem=(
+                                f"Cobrança duplicada de R$ {valor:.2f} estornada em "
+                                f"{formatar_data_hora(estorno.momento)}; transação extra "
+                                f"{formatar_data_hora(extra.momento)}; venda {venda.venda_codigo} — "
+                                f"{venda.responsavel}"
+                            ),
+                            valor=valor,
+                            cartoes=(venda,),
+                            transacoes=(transacao_casada, extra, estorno),
+                        )
+                    )
+                    continue
+                autorizacoes = " / ".join(
+                    f"…{t.autorizacao[-4:]}" if t.autorizacao else "autorização indisponível"
+                    for t in (transacao_casada, extra)
+                )
+                alertas.append(
+                    AlertaCartao(
+                        codigo="CARTAO_COBRANCA_DUPLICADA",
+                        severidade="vermelho",
+                        mensagem=(
+                            f"Cobrança em duplicidade: {formatar_data_hora(transacao_casada.momento)} e "
+                            f"{formatar_data_hora(extra.momento)}; autorizações {autorizacoes}; "
+                            f"terminal …{terminal[-4:]}; venda/cupom {venda.venda_codigo}; "
+                            f"{venda.responsavel}"
+                        ),
+                        valor=valor,
+                        cartoes=(venda,),
+                        transacoes=(transacao_casada, extra),
+                    )
+                )
+            if extras:
+                break
+
     for casamento in casados:
         if not casamento.valor_divergente or casamento.transacao.momento.date() != dia:
             continue
@@ -148,13 +265,19 @@ def conciliar(
         sobras.append(c.model_copy(update={"motivo": motivo}))
     abastecimentos = list(abastecimentos)
     a_maior = [
-        investigar(t, abastecimentos, itens_em_dinheiro) for t in sobra_t if t.momento.date() == dia
+        investigar(t, abastecimentos, itens_em_dinheiro)
+        for t in sobra_t
+        if (
+            t.momento.date() == dia
+            and t.identificador not in transacoes_duplicadas
+            and t.identificador not in transacoes_pos_sem_detalhe
+        )
     ]
     a_menor = [
         c
         for c in sobras
         if c.momento.date() == dia
-        and (da_adquirente(c, adquirente) or c.codigo in motivos_repetidos)
+        and (da_adquirente(c, adquirente, mapa_administradoras) or c.codigo in motivos_repetidos)
     ]
     pares, grupos = [], []
     if adquirente != "PREMMIA":
@@ -212,6 +335,7 @@ async def coletar_contexto_cartoes(
         depois,
         contexto=contexto,
         abastecimentos=abastecimentos,
+        cartoes_existentes=cartoes,
     )
     codigos = {a.frentista for a in abastecimentos if a.frentista is not None}
     codigos.update(
@@ -254,7 +378,7 @@ async def conciliar_premmia(empresa_codigo: int, dia: date) -> ResultadoCartoes:
     unidade = carregar_unidades()[empresa_codigo]
     transacoes = premmia_portal.buscar_transacoes(unidade, dia)
     cartoes, abastecimentos, itens = await coletar_contexto_cartoes(empresa_codigo, dia)
-    cartoes = [c for c in cartoes if da_adquirente(c, "PREMMIA")]
+    cartoes = [c for c in cartoes if da_adquirente(c, "PREMMIA", unidade.administradoras)]
     return conciliar(empresa_codigo, "PREMMIA", dia, transacoes, cartoes, abastecimentos, itens)
 
 

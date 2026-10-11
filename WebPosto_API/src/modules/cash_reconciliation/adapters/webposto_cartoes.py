@@ -10,7 +10,7 @@ from collections import defaultdict
 import logging
 from pathlib import Path
 from decimal import Decimal, InvalidOperation
-from typing import Any
+from typing import Any, Iterable
 
 import httpx
 
@@ -58,6 +58,7 @@ def para_abastecimento(r: dict[str, Any]) -> Abastecimento:
         valor=_dec(r.get("valorTotal")),
         frentista=r.get("codigoFrentista"),
         venda_item_codigo=r.get("vendaItemCodigo"),
+        litros=_dec(r.get("quantidade")) if r.get("quantidade") is not None else None,
     )
 
 
@@ -152,10 +153,11 @@ async def buscar_contexto_vendas(
     client: httpx.AsyncClient | None = None,
     contexto: dict[int, dict] | None = None,
     abastecimentos: list[Abastecimento] | None = None,
+    cartoes_existentes: Iterable[CartaoErp] = (),
 ) -> tuple[set[int], list[CartaoErp]]:
-    """(vendaItemCodigo pagos em dinheiro, PIX lancados como forma de pagamento da venda).
+    """Retorna itens em dinheiro e pagamentos de venda que não têm cartão detalhado.
 
-    PIX nao entra em V1/CARTOES: vem de VENDAS_FORMA_PAGAMENTO (tipo B) com a hora de V1/VENDAS.
+    PIX não entra em V1/CARTOES; Cartão POS sem detalhe é mantido como alerta, não como cartão lançado.
     """
     p = _periodo(unidade, inicio, fim)
     itens = await paginar(unidade, "/INTEGRACAO/V1/VENDAS/ITENS", p, client=client)
@@ -233,4 +235,31 @@ async def buscar_contexto_vendas(
         for f in formas
         if f.get("tipoFormaPagamento") == TIPO_PIX and hora.get(f["vendaCodigo"]) and f.get("empresaCodigo") == unidade.empresa_codigo
     ]
-    return itens_dinheiro, pix
+    vendas_com_cartao = {
+        c.venda_codigo for c in cartoes_existentes if c.venda_codigo is not None
+    }
+    pos_sem_detalhe = [
+        CartaoErp(
+            codigo=int(f.get("codigo") or f["vendaCodigo"]),
+            empresa_codigo=f["empresaCodigo"],
+            venda_codigo=f["vendaCodigo"],
+            valor=_dec(f.get("valorPagamento")),
+            momento=ler_data_hora(hora[f["vendaCodigo"]]),
+            administradora=f"CARTÃO POS SEM DETALHE {f.get('nomeFormaPagamento') or ''}".strip(),
+            nsu=None,
+            nsu_tef=None,
+            autorizacao=None,
+            caixa_codigo=(contexto or {}).get(f["vendaCodigo"], {}).get("caixa_codigo"),
+            frentista=(contexto or {}).get(f["vendaCodigo"], {}).get("frentista"),
+        )
+        for f in formas
+        if f.get("empresaCodigo") == unidade.empresa_codigo
+        and f.get("tipoFormaPagamento") not in {TIPO_DINHEIRO, TIPO_PIX}
+        and (
+            "CARTAO POS" in str(f.get("nomeFormaPagamento") or "").upper().replace("Ã", "A")
+            or str(f.get("tipoFormaPagamento") or "").strip().upper() in {"C", "CARTAO", "CARTÃO"}
+        )
+        and f.get("vendaCodigo") not in vendas_com_cartao
+        and hora.get(f.get("vendaCodigo"))
+    ]
+    return itens_dinheiro, [*pix, *pos_sem_detalhe]

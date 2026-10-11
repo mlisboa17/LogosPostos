@@ -294,7 +294,7 @@ def test_conciliar_retorna_grupo_provavel_e_versao_cartoes_v3():
     resultado = conciliar(74014, "PAGBANK", DIA, transacoes, [C(1, "179.45", "10:05")], [], set())
     assert len(resultado.grupos_provaveis) == 1
     assert not resultado.a_maior and not resultado.a_menor
-    assert resultado.proveniencia.versao_regra == "CARTOES_V3_3"
+    assert resultado.proveniencia.versao_regra == "CARTOES_V3_4"
 
 
 # ---------- adapters ----------
@@ -531,6 +531,157 @@ def test_mapeia_cartao_e_abastecimento_do_webposto():
                      "dataMovimento": "2026-10-05", "horaMovimento": "10:00:00",
                      "adiministradoraDescricao": "MAESTRO PAGSEGURO", "nsu": "1", "nsuTef": None, "autorizacao": "A"})
     a = para_abastecimento({"abastecimentoCodigo": 2, "empresaCodigo": 74014, "dataHoraAbastecimento": "2026-10-05T00:28:48-03:00",
-                            "codigoBico": 3, "valorTotal": 50, "codigoFrentista": 7, "vendaItemCodigo": 11})
+                            "codigoBico": 3, "valorTotal": 50, "quantidade": "31.25",
+                            "codigoFrentista": 7, "vendaItemCodigo": 11})
     assert c.administradora == "MAESTRO PAGSEGURO" and c.valor == Decimal("10.5")
     assert a.momento == datetime(2026, 10, 5, 0, 28, 48, tzinfo=FUSO) and a.frentista == 7
+    assert a.litros == Decimal("31.25")
+
+
+def test_cartao_pos_sem_detalhe_classifica_grupo_2_sem_sugerir_lancamento():
+    from src.modules.cash_reconciliation.application.classificar_recebimentos import classificar_recebimentos
+    from src.modules.cash_reconciliation.domain.recebimentos import RecebimentoAdquirente, ResultadoRecebimentos
+
+    transacao = T("250.07", "19:13:34", ident="pagbank-250").model_copy(
+        update={"bandeira": "VISA", "terminal": "LEITOR-4038"}
+    )
+    venda = C(10294, "250.07", "19:13:34", adm="CARTÃO POS SEM DETALHE")
+    venda = venda.model_copy(update={"venda_codigo": 10294})
+    resultado = conciliar(74014, "PAGBANK", DIA, [transacao], [venda], [], set())
+    recebimentos = ResultadoRecebimentos(
+        empresa_codigo=74014,
+        dia=DIA,
+        adquirentes=(RecebimentoAdquirente.de_resultado(resultado),),
+    )
+    acoes = classificar_recebimentos(recebimentos)
+
+    assert not resultado.a_maior and not resultado.a_menor
+    assert any(alerta.codigo == "CARTAO_POS_SEM_DETALHE" for alerta in resultado.alertas)
+    assert len(acoes) == 1 and acoes[0].grupo == 2
+    assert acoes[0].motivo == "Detalhar cartão da venda 10294"
+
+
+@pytest.mark.asyncio
+async def test_adapter_detecta_cartao_pos_sem_registro_detalhado(monkeypatch):
+    from src.modules.cash_reconciliation.adapters import webposto_cartoes
+    from src.modules.cash_reconciliation.domain.models import Unidade
+
+    unidade = Unidade(
+        empresa_codigo=74014,
+        nome="Doze",
+        chave_env="NAO_USADA",
+        destinos=(),
+    )
+
+    async def paginar(_unidade, path, _params, **_kwargs):
+        if path.endswith("/VENDAS/ITENS"):
+            return []
+        if path.endswith("/VENDAS_FORMA_PAGAMENTO"):
+            return [{
+                "empresaCodigo": 74014,
+                "vendaCodigo": 10294,
+                "tipoFormaPagamento": "C",
+                "nomeFormaPagamento": "Cartão POS",
+                "valorPagamento": "250.07",
+            }]
+        if path.endswith("/VENDAS"):
+            return [{
+                "empresaCodigo": 74014,
+                "vendaCodigo": 10294,
+                "dataHora": "2026-10-05T19:13:34-03:00",
+                "cancelada": False,
+                "caixaCodigo": 10,
+            }]
+        if path.endswith("/CAIXAS"):
+            return []
+        raise AssertionError(f"endpoint não esperado: {path}")
+
+    monkeypatch.setattr(webposto_cartoes, "paginar", paginar)
+    _, pagamentos = await webposto_cartoes.buscar_contexto_vendas(
+        unidade, DIA, DIA, contexto={}, cartoes_existentes=()
+    )
+
+    assert len(pagamentos) == 1
+    assert pagamentos[0].venda_codigo == 10294
+    assert pagamentos[0].valor == Decimal("250.07")
+    assert "CARTÃO POS SEM DETALHE" in pagamentos[0].administradora
+
+
+def test_administradora_american_express_da_unidade_faz_parte_do_pagbank():
+    from src.modules.cash_reconciliation.application.conciliar_cartoes import da_adquirente
+    from src.modules.cash_reconciliation.config import carregar_unidades
+
+    cartao = C(1, "100", "10:00", adm="AMERICAN EXPRESS")
+    mapa_doze = carregar_unidades()[74014].administradoras
+    mapa_casa_caiada = carregar_unidades()[5555].administradoras
+
+    assert da_adquirente(cartao, "PAGBANK", mapa_doze)
+    assert da_adquirente(cartao, "PAGBANK", mapa_casa_caiada)
+
+
+def test_cobranca_duplicada_mesmo_terminal_e_so_uma_venda_vira_apurar():
+    from src.modules.cash_reconciliation.application.classificar_recebimentos import classificar_recebimentos
+    from src.modules.cash_reconciliation.domain.recebimentos import (
+        RecebimentoAdquirente,
+        ResultadoRecebimentos,
+    )
+
+    primeira = T("250.07", "19:12:26", aut="018845", ident="transacao-duplicada").model_copy(
+        update={"terminal": "LEITOR-4038", "bandeira": "VISA"}
+    )
+    segunda = T("250.07", "19:13:21", aut="024956", ident="transacao-da-venda").model_copy(
+        update={"terminal": "LEITOR-4038", "bandeira": "VISA"}
+    )
+    cartao = C(10294, "250.07", "19:13:34", aut="024956").model_copy(
+        update={
+            "venda_codigo": 10294,
+            "frentista": 302036,
+            "nome_frentista": "Matheus Gomes da Silva",
+        }
+    )
+    resultado = conciliar(74014, "PAGBANK", DIA, [primeira, segunda], [cartao], [], set())
+
+    alerta = next(a for a in resultado.alertas if a.codigo == "CARTAO_COBRANCA_DUPLICADA")
+    acoes = classificar_recebimentos(
+        ResultadoRecebimentos(
+            empresa_codigo=74014,
+            dia=DIA,
+            adquirentes=(RecebimentoAdquirente.de_resultado(resultado),),
+        )
+    )
+    assert alerta.transacoes == (segunda, primeira)
+    assert "19:12" in alerta.mensagem and "19:13" in alerta.mensagem
+    assert "…8845" in alerta.mensagem and "…4956" in alerta.mensagem
+    assert "…4038" in alerta.mensagem and "Matheus Gomes da Silva (302036)" in alerta.mensagem
+    assert not resultado.a_maior
+    assert len(resultado.casados) == 1
+    assert len(acoes) == 1 and acoes[0].grupo == 3
+    assert acoes[0].motivo.endswith("(não lançar)")
+
+
+def test_estorno_da_cobranca_extra_no_dia_seguinte_remove_acao_de_apuracao():
+    from src.modules.cash_reconciliation.application.classificar_recebimentos import classificar_recebimentos
+    from src.modules.cash_reconciliation.domain.recebimentos import RecebimentoAdquirente, ResultadoRecebimentos
+
+    primeira = T("250.07", "19:12:26", aut="018845", ident="transacao-extra").model_copy(
+        update={"terminal": "LEITOR-4038"}
+    )
+    segunda = T("250.07", "19:13:21", aut="024956", ident="transacao-venda").model_copy(
+        update={"terminal": "LEITOR-4038"}
+    )
+    estorno = T("250.07", "08:00:00", aut="018845", dia="2026-10-06", ident="transacao-extra").model_copy(
+        update={"situacao": "estornada", "terminal": "LEITOR-4038"}
+    )
+    cartao = C(10294, "250.07", "19:13:34", aut="024956").model_copy(update={"venda_codigo": 10294})
+    resultado = conciliar(74014, "PAGBANK", DIA, [primeira, segunda, estorno], [cartao], [], set())
+    recebimentos = ResultadoRecebimentos(
+        empresa_codigo=74014,
+        dia=DIA,
+        adquirentes=(RecebimentoAdquirente.de_resultado(resultado),),
+    )
+
+    assert any(a.codigo == "CARTAO_COBRANCA_DUPLICADA_ESTORNADA" for a in resultado.alertas)
+    assert not any(a.grupo == 3 for a in classificar_recebimentos(recebimentos))
+    assert sum(f.portal.quantidade for f in recebimentos.adquirentes[0].formas) == 1
+    assert sum((f.portal.total for f in recebimentos.adquirentes[0].formas), Decimal(0)) == Decimal("250.07")
+    assert sum((f.webposto.total for f in recebimentos.adquirentes[0].formas), Decimal(0)) == Decimal("250.07")

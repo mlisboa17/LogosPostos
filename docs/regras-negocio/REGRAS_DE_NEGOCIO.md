@@ -241,12 +241,25 @@
 | Unidades | Todas |
 | Módulo | Caixa · Conciliação |
 | Padrão | Relatório por unidade/dia com caixas, modalidades, quebra, faltas, sangrias, despesas, vales, frentistas, recebimentos e pendências; valores em R$ e datas `dd/mm/aaaa HH:mm` (Recife). Toda ocorrência identificável usa nome + código; NSU mostra somente os 4 últimos dígitos |
-| Exceção | O relatório interativo/CLI consome resultados gravados. Nome ausente é “nome indisponível (código)”; abastecimentos, litros, hora/centro de custo de despesa ausentes na persistência são indicados como não persistidos, sem estimativa nem consulta ao ERP/portais |
+| Exceção | Por padrão o relatório reconsulta o webPosto e as fontes configuradas; `--gravado` usa somente o resultado salvo. Nome ausente é “nome indisponível (código)”; fonte sem evidência nunca aparece como conferida |
 | Gatilho | Solicitação de relatório por dia e unidade |
-| Ação no sistema | Markdown por CLI/API e tela de Fechamento; planilha XLSX com abas por bloco. API exige autenticação e respeita escopo do gerente. Nenhuma escrita no ERP ou notificação |
+| Ação no sistema | Markdown por CLI/API e tela de Fechamento; planilha XLSX com abas por bloco. API exige autenticação e respeita escopo do gerente. O relatório compara os resultados com a execução do robô, evidencia fontes não conferidas, abastecimentos por frentista e vales fora de caixa. Nenhuma escrita no ERP ou notificação |
 | Implementação | `application/relatorio_caixa_dia.py` · `src/jobs/relatorio_caixa.py` · `interfaces/http.py` · `frontend/pages/cashAudit.js` |
 | Status | vigente |
 | Vigência | 11/10/2026 — Sprint 15 |
+
+### RN-CAIXA-007 — Vale fora de caixa
+| Campo | Valor |
+|---|---|
+| Unidades | Todas |
+| Módulo | Caixa |
+| Padrão | Vale de funcionário com `caixaCodigo = 0` é informativo e deve ser mostrado separadamente como “fora de caixa”, com valor, hora e funcionário |
+| Exceção | Não atribuir o vale a um caixa nem incluí-lo na quebra de caixa |
+| Gatilho | Vale do dia sem vínculo com caixa |
+| Ação no sistema | Exibir em bloco próprio do relatório e do resumo; não gerar ação de lançamento |
+| Implementação | Sprint 15.1 · `application/relatorio_caixa_dia.py` |
+| Status | vigente |
+| Vigência | 11/10/2026 — informado pelo diretor |
 
 ---
 
@@ -451,9 +464,35 @@
 | Conferência manual | Diretor/gerente da unidade registra Conferido/Não encontrado e observação no SQLite; Não encontrado cria grupo 3. Conferido não modifica o ERP |
 | Propostas | Grupo 2 gera proposta local com De → Para, lançamento/venda/caixa, evidências mascaradas e nota de certeza. Status proposta, executada pelo gerente ou descartada, com usuário/data/histórico. ADR-003 Fase 0: nenhum lançamento automático |
 | Nota de certeza | Escore de evidência, não probabilidade: troca em dinheiro reaproveita pontos do motor; chave exata 100, valor/hora com unicidade 80, busca cruzada 70, combinação cruzada 60 e par/grupo provável 50. Medir decisões humanas no histórico antes de qualquer automação |
-| Implementação | Sprint 14 · `application/classificar_recebimentos.py`, contratos Pydantic e motor CARTOES_V3_3 |
+| Implementação | Sprint 14 · `application/classificar_recebimentos.py`, contratos Pydantic e motor CARTOES_V3_4 |
 | Status | vigente |
 | Vigência | 11/10/2026 |
+
+### RN-CARTAO-011 — Cobrança duplicada da adquirente
+| Campo | Valor |
+|---|---|
+| Unidades | Todas com adquirente transacional |
+| Módulo | TEF/Cartões |
+| Padrão | Mesmo valor, terminal e intervalo de até 3 minutos, com apenas um cartão/venda correspondente no webPosto, caracteriza duplicidade da adquirente |
+| Exceção | Cancelamento/estorno correspondente em até 7 dias encerra o alerta ativo e preserva a evidência do evento |
+| Gatilho | Duas ou mais transações aprovadas no mesmo terminal sem pagamentos ERP correspondentes na mesma quantidade |
+| Ação no sistema | Alerta vermelho `CARTAO_COBRANCA_DUPLICADA`, grupo 3 “Apurar”; mostrar horários, finais das autorizações, terminal, venda e frentista; recomendar “verificar estorno ao cliente”, nunca “lançar” |
+| Implementação | Sprint 15.1 · `rules/cartoes.py` · `application/conciliar_cartoes.py` |
+| Status | vigente |
+| Vigência | 11/10/2026 — caso Doze 10/10 |
+
+### RN-CARTAO-012 — Cartão POS sem detalhe da venda
+| Campo | Valor |
+|---|---|
+| Unidades | Todas |
+| Módulo | TEF/Cartões |
+| Padrão | Forma de pagamento de cartão na venda, sem registro correspondente em `V1/CARTOES`, é detalhe faltante, não prova de ausência de pagamento |
+| Exceção | Pagamento provável da adquirente é sugestão, não casamento definitivo |
+| Gatilho | `V1/VENDAS_FORMA_PAGAMENTO` identifica Cartão POS e a venda não aparece em `V1/CARTOES` |
+| Ação no sistema | Grupo 2 “Detalhar cartão da venda <cupom>”; apresentar adquirente/bandeira provável quando houver evidência única |
+| Implementação | Sprint 15.1 · `adapters/webposto_cartoes.py` · `application/conciliar_cartoes.py` |
+| Status | vigente |
+| Vigência | 11/10/2026 — informado pelo diretor |
 
 ---
 
@@ -589,3 +628,4 @@ Temas comuns em postos que **ainda não têm regra decidida** — não implement
 | 11/10/2026 | Sprint 14.1: Premmia invisível com fallback visível apenas antes do login, uma tentativa de login por noite; qualquer falha de coleta é aviso com etapa e data dos últimos dados; novas abas da planilha diária formatadas em R$ |
 | 11/10/2026 | RN-REDE-007 (setores por centro de custo; FECHAMENTO = ajuste de NF), RN-REDE-008 (período de aprendizado), novos itens "A definir" (fluxo de respostas, limites proporcionais, despesa × NF-e, grupos, IA); ADR-004 e ADR-005 propostas |
 | 11/10/2026 | Sprint 15: RN-CAIXA-006 — relatório diário por unidade, CLI/API/tela e XLSX, somente sobre dados persistidos e sem acesso a portais |
+| 11/10/2026 | Sprint 15.1: relatório atualizável com status por fonte, CARTOES_V3_4, RN-CARTAO-011/012 e RN-CAIXA-007; sem envio ao Telegram |

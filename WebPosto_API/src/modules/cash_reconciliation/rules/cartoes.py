@@ -1,4 +1,4 @@
-"""Conciliacao adquirente x webPosto e investigacao por abastecimento — CARTOES_V3_3.
+"""Conciliacao adquirente x webPosto e investigacao por abastecimento — CARTOES_V3_4.
 
 1. Chave exata: NSU ou autorizacao (cartao). Evidencia Doze 05/10/2026: 255/255.
 2. Sem NSU (PIX via adquirente): mesmo valor e |dt| <= 10 min.
@@ -17,6 +17,8 @@ Mudou alguma regra? Crie nova VERSAO.
 7. Mesmo NSU/autorizacao exige conferir valor; cancelamentos nao casam.
 8. Codigo repetido no portal: valor/dia e horario mais proximo, sem reutilizar ERP.
    Duplicidade sem usos correspondentes no portal conserva o alerta legado.
+9. Cobranças iguais no mesmo terminal em até 3 minutos, com apenas um cartão/venda
+   correspondente no webPosto, são duplicidade da adquirente e não sugestão de lançamento.
 """
 
 from __future__ import annotations
@@ -32,7 +34,7 @@ from ..domain.cartoes import (
     TransacaoAdquirente,
 )
 
-VERSAO = "CARTOES_V3_3"
+VERSAO = "CARTOES_V3_4"
 logger = logging.getLogger(__name__)
 CORTE_AUTOMATICO = 80
 CORTE_SUGESTAO = 50

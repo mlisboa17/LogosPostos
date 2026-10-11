@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import calendar
+import hashlib
 import json
 import re
 from collections import defaultdict
@@ -455,6 +456,23 @@ def _pendencias_conferencia(resultado: ResultadoDiario) -> list[NovaPendencia]:
     from .classificar_recebimentos import montar_conferencia
     from ..adapters.propostas_lancamento import salvar_proposta
     from ..domain.recebimentos import ResultadoRecebimentos
+
+    for adquirente in resultado.recebimentos.adquirentes:
+        for alerta in adquirente.alertas:
+            if alerta.codigo != "CARTAO_COBRANCA_DUPLICADA_ESTORNADA" or len(alerta.transacoes) < 3:
+                continue
+            transacao_extra = alerta.transacoes[1]
+            acao_id = hashlib.sha256(
+                (
+                    f"{resultado.empresa_codigo}|{resultado.dia}|{adquirente.adquirente}|"
+                    f"transacao:{transacao_extra.identificador}"
+                ).encode()
+            ).hexdigest()
+            repositorio_pendencias.encerrar_recebimento_estornado(
+                resultado.empresa_codigo,
+                resultado.dia,
+                acao_id,
+            )
 
     base = resultado.model_copy(update={
         "conferencia_recebimentos": False,

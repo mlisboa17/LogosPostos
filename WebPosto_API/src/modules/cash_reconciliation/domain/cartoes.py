@@ -66,6 +66,7 @@ class Abastecimento(_Frozen):
     valor: Decimal
     frentista: int | None          # codigoFrentista (identfid)
     venda_item_codigo: int | None
+    litros: Decimal | None = None
     nome_frentista: str | None = None
     venda_codigo: int | None = None
 
@@ -114,6 +115,7 @@ class AlertaCartao(_Frozen):
     mensagem: str
     valor: Decimal
     cartoes: tuple[CartaoErp, ...] = ()
+    transacoes: tuple[TransacaoAdquirente, ...] = ()
 
 
 class ParProvavel(_Frozen):

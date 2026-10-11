@@ -13,7 +13,7 @@ from ..domain.fechamento import Caixa
 from ..domain.tempo import formatar_data_hora
 from ..domain.execucao import ResultadoDiario
 from ..domain.recebimentos import ResultadoRecebimentos, ResumoCasados, ResumoForma, forma_recebimento
-from ..rules.cartoes import agrupar_sobras
+from ..rules.cartoes import agrupar_sobras, investigar
 
 JANELA_CRUZADA = timedelta(minutes=30)
 
@@ -105,6 +105,48 @@ def classificar_recebimentos(
         ))
 
     for a in adquirentes:
+        for alerta in a.alertas:
+            if alerta.codigo == "CARTAO_POS_SEM_DETALHE":
+                for cartao in alerta.cartoes:
+                    adquirente_provavel = alerta.transacoes[0] if alerta.transacoes else None
+                    incluir(
+                        a.adquirente,
+                        cartao,
+                        2,
+                        f"Detalhar cartão da venda {cartao.venda_codigo}",
+                        cartao.administradora,
+                        (
+                            f"{adquirente_provavel.adquirente} {adquirente_provavel.bandeira or ''}".strip()
+                            if adquirente_provavel else "adquirente a confirmar"
+                        ),
+                        evidencias=(alerta.codigo, alerta.mensagem),
+                    )
+                continue
+            if alerta.codigo != "CARTAO_COBRANCA_DUPLICADA":
+                continue
+            cartao = alerta.cartoes[0] if alerta.cartoes else None
+            casamento = next(
+                (
+                    item for item in a.detalhes_casados
+                    if cartao is not None and item.cartao.codigo == cartao.codigo
+                ),
+                None,
+            )
+            extra = next(
+                (
+                    transacao for transacao in alerta.transacoes
+                    if casamento is None or transacao.identificador != casamento.transacao.identificador
+                ),
+                None,
+            )
+            if extra is not None:
+                incluir(
+                    a.adquirente,
+                    investigar(extra, (), set()),
+                    3,
+                    "Cobrança em duplicidade; verificar estorno ao cliente (não lançar)",
+                    evidencias=(alerta.codigo, alerta.mensagem),
+                )
         for c in a.sem_fonte:
             incluir(a.adquirente, c, 4, "Fonte não disponível; conferir com extrato/comprovante",
                     evidencias=("RN-CARTAO-009",))
@@ -242,6 +284,12 @@ def classificar_recebimentos(
             incluir(a.adquirente, c, 4, "Fonte não disponível; conferir com extrato/comprovante",
                     evidencias=("RN-CARTAO-009",))
         for alerta in a.alertas:
+            if alerta.codigo in {
+                "CARTAO_COBRANCA_DUPLICADA",
+                "CARTAO_COBRANCA_DUPLICADA_ESTORNADA",
+                "CARTAO_POS_SEM_DETALHE",
+            }:
+                continue
             for c in alerta.cartoes:
                 if c.codigo not in vistos_cartoes and not any(p.cartao.codigo == c.codigo for p in a.detalhes_casados):
                     incluir(a.adquirente, c, 4, "Alerta sem comprovante individual gravado; conferir antes de recomendar alteração",

@@ -74,12 +74,21 @@ class RecebimentoAdquirente(_Frozen):
 
     @classmethod
     def de_resultado(cls, resultado: ResultadoCartoes) -> RecebimentoAdquirente:
+        from ..config import carregar_unidades
+
         transacoes = {
             t.identificador: t for t in (
                 *(c.transacao for c in resultado.casados),
                 *(i.transacao for i in resultado.a_maior),
                 *(p.investigacao.transacao for p in resultado.pares_provaveis),
                 *(i.transacao for g in resultado.grupos_provaveis for i in g.investigacoes),
+                *(
+                    t
+                    for alerta in resultado.alertas
+                    if alerta.codigo != "CARTAO_COBRANCA_DUPLICADA_ESTORNADA"
+                    for t in alerta.transacoes
+                    if t.situacao is None
+                ),
             )
         }
         cartoes = {
@@ -87,8 +96,27 @@ class RecebimentoAdquirente(_Frozen):
                 *(c.cartao for c in resultado.casados), *resultado.a_menor,
                 *(p.cartao for p in resultado.pares_provaveis),
                 *(g.cartao for g in resultado.grupos_provaveis),
+                *(
+                    c
+                    for alerta in resultado.alertas
+                    if alerta.codigo == "CARTAO_POS_SEM_DETALHE"
+                    for c in alerta.cartoes
+                ),
             )
         }
+        unidade = carregar_unidades().get(resultado.empresa_codigo)
+        administradoras = (
+            unidade.administradoras.get(resultado.adquirente.upper(), ())
+            if unidade is not None
+            else ()
+        )
+        if administradoras:
+            cartoes = {
+                codigo: cartao
+                for codigo, cartao in cartoes.items()
+                if "CARTÃO POS SEM DETALHE" in cartao.administradora.upper()
+                or any(nome in cartao.administradora.upper() for nome in administradoras)
+            }
         formas = sorted({
             *(forma_recebimento(t.bandeira) for t in transacoes.values()),
             *(forma_recebimento(c.administradora) for c in cartoes.values()),

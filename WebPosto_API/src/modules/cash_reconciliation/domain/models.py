@@ -89,6 +89,7 @@ class Unidade(_Frozen):
     destino_padrao: int | None = None  # conta assumida quando a sangria vem sem contaCodigo
     repasse_sangria_para: int | None = None
     adquirentes: tuple[AdquirenteConfigurada, ...] = ()
+    administradoras: dict[str, tuple[str, ...]] = Field(default_factory=dict)
     premmia_ativo: bool = False
     premmia_usuario_env: str | None = None
     premmia_senha_env: str | None = None

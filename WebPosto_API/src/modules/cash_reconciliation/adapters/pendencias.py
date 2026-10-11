@@ -114,6 +114,51 @@ def substituir_por_acao(unidade: int, dia: date, referencias: tuple[str, ...], a
         raise ErroPersistenciaPendencias("Falha ao substituir pendência legada.") from None
 
 
+def encerrar_recebimento_estornado(
+    unidade: int,
+    dia: date,
+    acao_id: str,
+    *,
+    banco: Path | None = None,
+) -> bool:
+    caminho = banco or BANCO_PENDENCIAS
+    if not caminho.is_file():
+        return False
+    identidade = hashlib.sha256(
+        f"{unidade}|{dia}|recebimento_apurar|{acao_id}".encode()
+    ).hexdigest()
+    try:
+        with _conectar(caminho) as conexao:
+            conexao.execute("BEGIN IMMEDIATE")
+            existente = conexao.execute(
+                "SELECT id FROM pendencias WHERE identidade=? AND status='aberta'",
+                (identidade,),
+            ).fetchone()
+            if existente is None:
+                return False
+            registrado_em = agora().isoformat()
+            atualizada = conexao.execute(
+                "UPDATE pendencias SET status='aprovada' WHERE id=? AND status='aberta'",
+                (existente["id"],),
+            )
+            if atualizada.rowcount != 1:
+                return False
+            conexao.execute(
+                """INSERT INTO historico_pendencias
+                (pendencia_id,acao,status_anterior,status_novo,usuario,justificativa,registrado_em)
+                VALUES (?,'estorno_confirmado','aberta','aprovada','robo',?,?)""",
+                (
+                    existente["id"],
+                    "RN-CARTAO-011: estorno da cobrança duplicada confirmado pela adquirente.",
+                    registrado_em,
+                ),
+            )
+            return True
+    except sqlite3.Error:
+        logger.exception("Falha ao encerrar cobrança estornada unidade=%s", unidade)
+        raise ErroPersistenciaPendencias("Falha ao encerrar cobrança estornada.") from None
+
+
 @contextmanager
 def _conectar(banco: Path | None = None) -> Iterator[sqlite3.Connection]:
     caminho = banco or BANCO_PENDENCIAS

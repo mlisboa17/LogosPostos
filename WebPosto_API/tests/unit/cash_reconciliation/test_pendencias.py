@@ -666,6 +666,73 @@ def test_a_maior_legadas_so_abertas_substituidas_com_historico(tmp_path):
     assert repositorio.obter(antigas[2].id, banco=banco).status == "recusada"
 
 
+def test_estorno_confirmado_fecha_apuracao_duplicada_com_historico(tmp_path, monkeypatch):
+    from src.modules.cash_reconciliation.domain.cartoes import AlertaCartao, TransacaoAdquirente
+    from src.modules.cash_reconciliation.domain.recebimentos import RecebimentoAdquirente
+
+    banco = tmp_path / "pendencias.sqlite3"
+    monkeypatch.setattr(repositorio, "BANCO_PENDENCIAS", banco)
+    extra_id = "transacao-extra"
+    acao_id = hashlib.sha256(
+        f"{EMPRESA}|{DIA}|PAGBANK|transacao:{extra_id}".encode()
+    ).hexdigest()
+    repositorio.registrar(
+        [NovaPendencia(
+            unidade=EMPRESA,
+            dia=DIA,
+            tipo="recebimento_apurar",
+            severidade="vermelho",
+            valor=Decimal("250.07"),
+            referencia=acao_id,
+            mensagem="Cobrança duplicada — verificar estorno ao cliente.",
+        )],
+        banco=banco,
+    )
+    transacoes = (
+        TransacaoAdquirente(
+            adquirente="PAGBANK", identificador="transacao-venda", nsu=None,
+            autorizacao="024956", valor=Decimal("250.07"),
+            momento=datetime(2026, 10, 6, 19, 13), bandeira="VISA",
+        ),
+        TransacaoAdquirente(
+            adquirente="PAGBANK", identificador=extra_id, nsu=None,
+            autorizacao="018845", valor=Decimal("250.07"),
+            momento=datetime(2026, 10, 6, 19, 12), bandeira="VISA",
+        ),
+        TransacaoAdquirente(
+            adquirente="PAGBANK", identificador=extra_id, nsu=None,
+            autorizacao="018845", valor=Decimal("250.07"),
+            momento=datetime(2026, 10, 7, 8), bandeira="VISA", situacao="estornada",
+        ),
+    )
+    resolvido = criar_diario(DIA).model_copy(update={
+        "conferencia_recebimentos": True,
+        "recebimentos": ResultadoRecebimentos(
+            empresa_codigo=EMPRESA,
+            dia=DIA,
+            adquirentes=(RecebimentoAdquirente(
+                adquirente="PAGBANK",
+                situacao="ok",
+                alertas=(AlertaCartao(
+                    codigo="CARTAO_COBRANCA_DUPLICADA_ESTORNADA",
+                    severidade="informativo",
+                    mensagem="Estorno confirmado no dia seguinte.",
+                    valor=Decimal("250.07"),
+                    transacoes=transacoes,
+                ),),
+            ),),
+        ),
+    })
+
+    pendencias_do_dia(resolvido)
+    pendencia = next(
+        item for item in repositorio.listar(unidade=EMPRESA, limite=100)[0]
+        if item.referencia == acao_id
+    )
+    assert pendencia.status == "aprovada"
+    assert [evento.acao for evento in pendencia.historico] == ["criada", "estorno_confirmado"]
+
+
 def test_a_maior_caixas_sobrepostos_nao_inventa_vinculo():
     diario = diario_com_recebimentos_a_maior()
     auditoria = diario.fechamento.caixas[0]
