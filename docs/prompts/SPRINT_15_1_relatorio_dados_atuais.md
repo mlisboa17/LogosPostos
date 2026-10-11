@@ -29,6 +29,15 @@ Totais corretos do dia: PagBank EDI **495 · R$ 36.541,86** × webPosto **494 ·
 2. Totais por adquirente no formato pedido pelo diretor: **EDI/portal × webPosto × diferença (N · R$)**, e a lista dos itens que explicam a diferença.
 3. Abastecimentos por frentista (quantidade, litros, R$) a partir de `V1/ABASTECIMENTOS` (sem aferição); despesas com centro de custo/setor; vales **fora de caixa** do dia em bloco próprio.
 
+## PARTE A2 — Status da conferência no topo (pedido do diretor, 11/10/2026)
+
+Abrir o relatório (e cada unidade no Telegram e no Painel) com um bloco de status:
+1. **Cada fonte contra o webPosto, na mesma forma de pagamento** (nunca adquirentes entre si): PagBank (EDI) × cartões/PIX PagBank no webPosto; Premmia (portal) × formas Premmia; Mais Pagamentos × "Transferência Bancária"; PIX CNPJ × extrato anexado (Sprint 17, quando houver); Dinheiro × apresentado pelo operador. O webPosto não é uma linha própria.
+2. **Três estados por fonte:** ✅ conferido e bate (N · R$); ❌ conferido com diferença (fonte R$ × webPosto R$ → diferença R$, e o motivo resumido, ex.: "cobrança em duplicidade Visa 19:12"); ⏳ não conferido (motivo: "aguardando credencial", "extrato não anexado", "coleta falhou"). **Fonte não conferida nunca aparece como ✅.**
+3. **Resultado:** "✅ CONFERÊNCIA REALIZADA — tudo bate" só se não houver ❌ nem ⏳; "❌ DIFERENÇAS ENCONTRADAS" se houver ❌ (somar as diferenças em R$); "⚠ CONFERÊNCIA PARCIAL" se só houver ⏳.
+4. Exemplos que o teste tem de reproduzir (10/10/2026): **Casa Caiada** — PagBank ✅ 109 · R$ 8.983,98; Premmia ✅ 14 · R$ 1.032,57; Mais Pagamentos ⏳ R$ 3.702,54; Dinheiro ❌ falta R$ 11,71 → "1 diferença (R$ 11,71) e 1 fonte sem conferência". **Doze** — PagBank ❌ R$ 36.541,86 × R$ 36.291,79 → R$ 250,07 (duplicidade); Premmia ✅ 32 · R$ 2.570,17; Mais Pagamentos ⏳ R$ 23.881,93; Dinheiro ❌ falta R$ 84,80.
+5. Painel: selo por unidade/dia (✅ / ❌ / ⚠) com link para o relatório.
+
 ## PARTE B — Regras novas (CARTOES_V3_4)
 
 1. **Cobrança em duplicidade:** duas ou mais transações da adquirente com **mesmo valor, mesma maquininha (terminal), até 3 min** de diferença e **só uma** venda/cartão correspondente no webPosto → alerta vermelho `CARTAO_COBRANCA_DUPLICADA` na Sprint 14 como grupo **3 (Apurar)** com ação **"verificar estorno ao cliente"** (não "lançar"); mostrar as duas horas, autorizações (finais), terminal, a venda/cupom e o frentista. Se aparecer cancelamento/estorno da transação extra nos dias seguintes → fechar sozinho com histórico.
