@@ -89,6 +89,9 @@ class Unidade(_Frozen):
     destino_padrao: int | None = None  # conta assumida quando a sangria vem sem contaCodigo
     repasse_sangria_para: int | None = None
     adquirentes: tuple[AdquirenteConfigurada, ...] = ()
+    premmia_ativo: bool = False
+    premmia_usuario_env: str | None = None
+    premmia_senha_env: str | None = None
 
     def destino(self, conta_codigo: int | None) -> Destino | None:
         return next((d for d in self.destinos if d.conta_codigo == conta_codigo), None)

@@ -152,6 +152,8 @@ def test_cli_como_main_grava_resumo_brasileiro_sem_rede(monkeypatch, tmp_path):
     monkeypatch.setenv("WEBPOSTO_WRITES", "0")
     monkeypatch.setattr("dotenv.load_dotenv", lambda *args: None)
     monkeypatch.setattr(config, "carregar_unidades", lambda: {})
+    monkeypatch.setattr(noturno, "carregar_unidades", lambda: {})
+    monkeypatch.setattr("src.jobs.noturno.POSTOS", {})
     monkeypatch.setattr(config_placar, "POSTOS", {})
     monkeypatch.setattr(persistencia, "DIRETORIO", tmp_path)
     monkeypatch.setattr(sys, "argv", ["noturno", "--dia", "06/10/2026"])

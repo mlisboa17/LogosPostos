@@ -14,6 +14,60 @@ from sqlalchemy.orm import sessionmaker
 from src.infrastructure.repositories.models import Base
 
 
+_tentativas_portal = []
+
+
+@pytest.fixture(autouse=True)
+def bloquear_navegadores_e_portal_premmia(monkeypatch):
+    import httpx
+    from playwright.sync_api import BrowserType as SyncBrowserType
+    from playwright.async_api import BrowserType as AsyncBrowserType
+    from playwright.sync_api._context_manager import PlaywrightContextManager
+    from playwright.async_api._context_manager import (
+        PlaywrightContextManager as AsyncContextManager,
+    )
+
+    tentativas = []
+
+    def bloquear(*args, **kwargs):
+        tentativas.append("Playwright/portal")
+        _tentativas_portal.append("Playwright/portal")
+        pytest.fail("Teste tentou abrir navegador ou acessar o portal Premmia.", pytrace=False)
+
+    for classe, metodos in (
+        (PlaywrightContextManager, ("__enter__",)),
+        (AsyncContextManager, ("__aenter__",)),
+        (SyncBrowserType, ("launch", "launch_persistent_context", "connect", "connect_over_cdp")),
+        (AsyncBrowserType, ("launch", "launch_persistent_context", "connect", "connect_over_cdp")),
+    ):
+        for metodo in metodos:
+            monkeypatch.setattr(classe, metodo, bloquear)
+
+    enviar_sync = httpx.Client.send
+    enviar_async = httpx.AsyncClient.send
+
+    def enviar(self, request, *args, **kwargs):
+        if request.url.host == "cn.vibraenergia.com.br":
+            bloquear()
+        return enviar_sync(self, request, *args, **kwargs)
+
+    async def enviar_assincrono(self, request, *args, **kwargs):
+        if request.url.host == "cn.vibraenergia.com.br":
+            bloquear()
+        return await enviar_async(self, request, *args, **kwargs)
+
+    monkeypatch.setattr(httpx.Client, "send", enviar)
+    monkeypatch.setattr(httpx.AsyncClient, "send", enviar_assincrono)
+    yield
+    assert not tentativas, "Tentativa de acesso real interceptada durante o teste."
+
+
+def pytest_terminal_summary(terminalreporter):
+    terminalreporter.write_line(
+        f"Isolamento Premmia: {len(_tentativas_portal)} tentativas reais de navegador/portal."
+    )
+
+
 @pytest.fixture(scope="session")
 def event_loop():
     """Fixture para event loop."""
