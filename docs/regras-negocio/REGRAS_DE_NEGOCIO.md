@@ -621,6 +621,8 @@ No teste autorizado de 10/10/2026, 507 lançamentos foram enviados e o webPosto 
 
 **Leitura real (somente leitura, Doze 74014, títulos de 01/09 a 10/10/2026):** 196 títulos, todos `tipoLancamento` "Boleto"; 160 vêm de nota de entrada e 36 são avulsos; `linhaDigitavel` **nunca preenchida** → o casamento será por CNPJ/CPF do fornecedor + valor + vencimento; plano de contas gerencial e centro de custo sempre preenchidos (base para a IA aprender); a baixa fica registrada em `pagamento[]` com a conta usada. 128 em aberto, **81 já vencidos e ainda "Aberto"** (a investigar: pagos sem baixa ou realmente não pagos).
 
+**Pagamento agrupado (decisão do diretor, 11/10/2026):** frete IPSEP — os carregamentos do mês são somados e pagos de uma vez perto do dia 15 do mês seguinte. Um débito no extrato pode quitar **vários títulos** do mesmo fornecedor/mês: o casamento deve aceitar "1 débito = soma dos títulos em aberto do fornecedor no mês anterior". Exemplo real: frete de julho (18 títulos, R$ 4.950,00) baixado em 13/08 na conta PAGBANK DOZE FILIAL. Mapa do Doze: conta "BANCO 24H - DOZE FILIAL" = Banco do Brasil; "PAGBANK DOZE FILIAL" = PagBank; "CAIXA(POSTO)" = dinheiro (sem extrato).
+
 **Condições a verificar (somente leitura, antes de qualquer sprint de escrita):** como a linha digitável aparece em `TITULOS_PAGAR`; se títulos de NF (DUPLICATAS) e títulos avulsos são distinguíveis; tolerância quando o valor pago difere do título (juros, multa, desconto); janela de vencimento; o que fazer com pagamento parcial; se existe (ou precisa ser criado pelo diretor) um plano de contas/centro de custo "A CLASSIFICAR" por unidade.
 
 ---
