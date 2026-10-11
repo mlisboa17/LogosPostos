@@ -50,6 +50,23 @@ Casos reais que **têm** de cair no grupo certo (01–09/10/2026):
 4. Pendências: grupo 3 = vermelha individual; grupos 1 e 2 = laranja agrupada por caixa/dia (RN-PEND-001); idempotente; substituídas com histórico.
 5. Telegram, por filial: `Recebimentos: N conferidos · R$ X` e `1 Lançar N · R$ · 2 Alterar N · R$ · 3 Apurar N · R$ · 4 Conferir à mão N · R$`, e cada item do grupo 3 em linha própria com o nome do frentista. Planilha diária: aba "Ações de recebimento" com os 4 grupos e colunas Conferido (S/N) e Observação.
 
+## PARTE B2 — Visão diária por adquirente e compensação entre formas (pedido do diretor)
+
+Modelo do diretor (valores ilustrativos), Dif. = adquirente − webPosto:
+
+| Data | Webposto Premmia | Premmia | Dif. | Webposto PagBank | PagBank | Dif. | Webposto Mais Pag. | Mais Pag. | Dif. | **Diferença do dia** |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 02/out | 1.000,00 | 1.050,00 | +50,00 | 800,00 | 800,00 | 0,00 | 650,00 | 600,00 | −50,00 | **0,00** |
+| 04/out | 900,00 | 890,00 | −10,00 | 750,00 | 760,00 | +10,00 | 500,00 | 500,00 | 0,00 | **0,00** |
+
+Leitura: o dinheiro do dia fecha, mas foi lançado na adquirente errada (02/out: R$ 50 pagos no Premmia lançados como Mais Pagamentos; 04/out: R$ 10 do PagBank lançados como Premmia).
+
+1. Tela e planilha: tabela **exatamente nesse formato**, uma linha por dia e um bloco de 3 colunas por adquirente ativa da unidade (webPosto × adquirente × Dif.), com a coluna **Diferença do dia** e uma linha de total do período. Adquirente sem integração aparece como "pendente" (sem inventar valores).
+2. **Compensação:** quando há Dif. positiva numa adquirente e negativa em outra no mesmo dia, procurar o par item a item (mesmo valor, até 30 min, sobra "recebido e não lançado" de um lado e "lançado sem lastro" do outro) → **grupo 2 ALTERAR** "lançado como X, pago como Y". Se a diferença vier de mais de um item, tentar combinação única de até 4 itens (mesma lógica do grupo provável). Sem par identificável → manter cada lado no seu grupo e marcar o dia como "compensação a apurar".
+3. **Correção pronta (Fase 0 da ADR-003, sem escrever no ERP):** para cada item do grupo 2, gerar uma **proposta de correção** pronta para o gerente executar no webPosto: código do lançamento, venda, caixa, data/hora, valor, **De → Para** (forma/adquirente/bandeira), frentista, evidência (NSU/código da adquirente mascarado, horários) e nota de certeza. Lista "Correções prontas" na tela (com botão copiar) e aba na planilha diária. Gravar cada proposta em `data/propostas_lancamento/` (fora do Git) com status `proposta` → depois `executada pelo gerente` / `descartada` (marcado na tela), para medir o acerto da nota (ADR-003, Fase 0).
+4. Telegram por filial: "Diferença do dia: R$ 0,00 · 2 correções prontas (R$ 60,00)" quando houver compensação.
+5. Testes: os dois dias do modelo acima com itens sintéticos → par encontrado, proposta De → Para correta, Diferença do dia 0,00; compensação com 2 itens somando o valor; caso sem par → "compensação a apurar".
+
 ## PARTE C — Testes e dados reais
 
 1. Testes sintéticos de cada grupo, da busca cruzada (lançado como PagBank, pago no Premmia → grupo 2), da troca de forma, do grupo provável, da reincidência e da conferência manual (Não encontrado → grupo 3). Nenhum acesso ao portal.
