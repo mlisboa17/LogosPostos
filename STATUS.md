@@ -16,12 +16,16 @@ Histórico de sprints: um prompt por sprint em docs/prompts/ (SPRINT_05 ... SPRI
   TELEGRAM_ENVIO=1 desde 10/10/2026 (envio automático após o robô)
 - Datas no padrão Brasil (America/Recife)
 
-## Ponto de parada (11/10/2026 00:30)
-- Sprint 13 (Premmia Casa Caiada + Doze) CONCLUÍDA: commits dfaf474 e 3cb082e; 255 testes verdes; coleta 01–09/10 feita.
-- Achado: "Desconto" do portal tem código de cupom diferente do NSU do ERP (PREMMIA DESCONTO CUPOM) → hoje cai como
-  a maior/a menor com o MESMO valor. Precisa casar pelo pagamento "pai" (mesmo segundo no portal / mesma venda no ERP).
-- Doze: parte do desconto Premmia foi lançada no webPosto como HIPERCARD; o diretor vai corrigir e REFAZER o Doze.
-- Próximo: Sprint 13.1 (casamento do desconto e POS PREMMIA) → Sprint 14 (dossiê + Fase 0 sombra + IDs RN).
+## Ponto de parada (11/10/2026 03:00)
+- Sprint 14 CONCLUÍDA (50cdc21, 97c6bd3, 0255950): tela "Conferência de Recebimentos" com 4 grupos
+  (Lançar/Alterar/Apurar/Conferir à mão), visão diária por adquirente, 17 correções prontas (status "proposta",
+  ADR-003 Fase 0), conferência manual auditada, período até D-2 e máx. 7 dias, datas dd/mm/aaaa em todo o frontend.
+  308 testes backend + 56 frontend verdes.
+- 01–09/10: Casa Caiada 1.280 · R$ 115.016,23 conferidos; Doze 2.955 · R$ 203.167,01; grupo 3 (sem lastro) = 0.
+  Reincidente: frentista 277311 (Casa Caiada), 3 trocas · R$ 163,90.
+- Mais Pagamentos usada em Doze, Casa Caiada e VIP (aparece como "Transferência Bancária"): R$ 278 mil em 9 dias
+  SEM conferência. Bloqueio: client_id/secret de integração (ver MAIS_01 no backlog).
+- Próximo: MAIS_01 (quando chegar a credencial) · Sprint 15 (dossiê + medir acerto das propostas) · EXTRATOS_01.
 
 ## Em andamento
 - SPRINT_12 CARTOES_V3 (prompt pronto, não executado): mesmo NSU com valor diferente; cancelamentos do EDI
