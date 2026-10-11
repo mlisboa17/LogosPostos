@@ -15,7 +15,8 @@ No repositório antigo (`C:\Users\mlisb\OneDrive\ProjetosAntigravy\LOGOS SPACE\A
 ## PARTE A — Infra de IA (genérica)
 
 1. `src/shared/ia/provedor.py`: interface `ProvedorIA.completar(mensagens, ferramentas=None, modelo) -> RespostaIA` + `GeminiProvedor` (timeout 60 s, até 2 tentativas em erro transitório, log só com tipo/status e chave mascarada) + `ProvedorFalso` para testes.
-2. Interruptor `LOGOS_IA_ATIVA` (padrão 0) e `LOGOS_IA_MODELO` / `LOGOS_IA_MODELO_FORTE` no `.env.example` (só nomes). Limite de custo: no máximo **N investigações por noite** (`LOGOS_IA_MAX_CASOS`, padrão 20) e de tokens por caso.
+2. **Plano B (aprovado pelo diretor):** portar também o provedor **OpenRouter** do código antigo como reserva — usado só se o Gemini falhar (erro transitório esgotado) e se houver chave configurada; registrar no log qual provedor respondeu.
+3. Interruptor `LOGOS_IA_ATIVA` (padrão 0) e `LOGOS_IA_MODELO` / `LOGOS_IA_MODELO_FORTE` no `.env.example` (só nomes). Limite de custo: no máximo **N investigações por noite** (`LOGOS_IA_MAX_CASOS`, padrão 20) e de tokens por caso.
 
 ## PARTE B — O Investigador (cash_reconciliation)
 
