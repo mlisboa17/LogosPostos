@@ -287,7 +287,7 @@
 |---|---|
 | Unidades | Todas |
 | Módulo | TEF/Cartões |
-| Padrão | Doze e Casa Caiada: PagBank (cartões e PIX, EDI ativo) + Premmia. VIP: Rede (pista), Cielo (loja), Mais Pagamentos (PIX; no webPosto "Transferência Bancária"), Premmia. Conv. 24h: Cielo (cartões), PagBank (PIX — credencial inválida) |
+| Padrão | Doze e Casa Caiada: PagBank (cartões e PIX, EDI ativo) + Mais Pagamentos (PIX) + Premmia. VIP: Rede (pista), Cielo (loja), Mais Pagamentos (PIX; no webPosto "Transferência Bancária"), Premmia. Conv. 24h: Cielo (cartões), PagBank (PIX — credencial inválida) |
 | Exceção | VIP não usa PagBank |
 | Gatilho | — |
 | Ação no sistema | Adquirente sem integração = "pendente"; credencial inválida = aviso |
@@ -537,6 +537,7 @@ Temas comuns em postos que **ainda não têm regra decidida** — não implement
 | 11/10/2026 | CARTOES_V3_2: cupom no sufixo do NSU, POS PREMMIA com unicidade, forma PREMMIA DESCONTO CUPOM e valores junto às quantidades |
 | 11/10/2026 | CARTOES_V3_3: preservar usos distintos de cupom repetido, casar por código/valor/dia e horário mais próximo; integridade original × mensal e encerramento de falsas pendências com histórico |
 | 11/10/2026 | Ajuste autorizado: Pix do portal × PREMMIA PIX usa valor exato, mesmo dia, até 10 minutos e unicidade nos dois lados, como POS PREMMIA; ambiguidade permanece para conferência |
+| 11/10/2026 | RN-CARTAO-001: Doze e Casa Caiada também usam Mais Pagamentos (PIX) — informado pelo diretor |
 | 11/10/2026 | RN-CARTAO-009 (PIX CNPJ do Doze, pela chave do posto) — proposta, depende de EXTRATOS_01 |
 | 11/10/2026 | Sprint 14: RN-CARTAO-010, quatro grupos acionáveis, conferência manual auditada, compensação diária e propostas locais; RN-CARTAO-009 conferência manual até integrar extrato |
 | 11/10/2026 | Sprint 14: RN-REDE-002 com sugestão, empate e responsável do caixa; detalhes individuais dos pagamentos, RN-REDE-006 (D−2, 7 dias) e campo brasileiro compartilhado na conferência |

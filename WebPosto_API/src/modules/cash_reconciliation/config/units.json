@@ -15,6 +15,7 @@
       "chave_env": "WEBPOSTO_API_KEY_POSTO_DOZE_FILIAL_II",
       "adquirentes": [
         {"nome": "PAGBANK", "situacao": "ativo", "modalidades": ["cartoes", "pix"]},
+        {"nome": "MAIS_PAGAMENTOS", "situacao": "pendente", "modalidades": ["pix"]},
         {"nome": "PREMMIA", "situacao": "ativo", "modalidades": ["premmia"]}
       ],
       "destinos": [
@@ -51,6 +52,7 @@
       "chave_env": "WEBPOSTO_API_KEY_CASA_CAIADA",
       "adquirentes": [
         {"nome": "PAGBANK", "situacao": "ativo", "modalidades": ["cartoes", "pix"]},
+        {"nome": "MAIS_PAGAMENTOS", "situacao": "pendente", "modalidades": ["pix"]},
         {"nome": "PREMMIA", "situacao": "ativo", "modalidades": ["premmia"]}
       ],
       "destino_padrao": 17837,
