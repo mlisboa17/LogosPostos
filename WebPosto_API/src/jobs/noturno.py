@@ -102,7 +102,7 @@ def _coletar_dados_telegram(dia: date) -> dict:
             resultado.empresa_codigo
             for resultado in resultados
             if resultado.erro_fechamento
-            or any(item.situacao == "erro" for item in resultado.recebimentos.adquirentes)
+            or any(item.situacao == "erro" and item.adquirente != "PREMMIA" for item in resultado.recebimentos.adquirentes)
         }
     abertas = {
         unidade: repositorio_pendencias.contar_abertas_somente_leitura(unidade=unidade)
@@ -333,15 +333,24 @@ def _criar_planilha_telegram(dia: date, dados: dict, diretorio: Path | None = No
         "Caixas": ("G", "H"),
         "Despesas": ("C",),
         "Vales": ("D",),
+        "Ações de recebimento": ("D",),
+        "Correções prontas": ("F",),
+        "Detalhes por pagamento": ("E", "N", "R"),
     }
     for planilha in workbook.worksheets:
         planilha.freeze_panes = "A2"
         planilha.auto_filter.ref = planilha.dimensions
         for celula in planilha[1]:
             celula.font = Font(bold=True)
-        for coluna in formatos_monetarios.get(planilha.title, ()):
+        colunas_monetarias = formatos_monetarios.get(planilha.title, ())
+        if planilha.title.startswith("Dia "):
+            colunas_monetarias = tuple(range(2, planilha.max_column + 1))
+        elif planilha.title.startswith("Formas "):
+            colunas_monetarias = (4, 6, 7)
+        for coluna in colunas_monetarias:
             for linha in range(2, planilha.max_row + 1):
-                planilha[f"{coluna}{linha}"].number_format = '"R$" #,##0.00'
+                celula = planilha.cell(linha, coluna) if isinstance(coluna, int) else planilha[f"{coluna}{linha}"]
+                celula.number_format = '"R$" #,##0.00'
         if planilha.title == "Caixas":
             for linha in range(2, planilha.max_row + 1):
                 planilha[f"D{linha}"].number_format = "dd/mm/yyyy hh:mm"

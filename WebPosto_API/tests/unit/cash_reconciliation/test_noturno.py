@@ -1,5 +1,7 @@
 import asyncio
 import ast
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -32,6 +34,9 @@ from src.shared.notificacao.telegram import (
 )
 
 from .test_http import resultado_sintetico
+from src.modules.cash_reconciliation.adapters import premmia_portal
+from src.modules.cash_reconciliation.application.resumo_diario import gerar_mensagem_curta
+from src.modules.cash_reconciliation.domain.tempo import FUSO
 
 DIA = date(2026, 10, 1)
 EMPRESA = 321
@@ -602,3 +607,156 @@ def test_modulos_nao_importam_uns_aos_outros():
                 ):
                     violacoes.append(f"{caminho}:{no.lineno}")
     assert violacoes == []
+
+
+@pytest.mark.parametrize("falha", [
+    premmia_portal.PremmiaErro("Detalhe privado", etapa="abrir login"),
+    premmia_portal.PlaywrightTimeoutError("URL privada"),
+    OSError("Arquivo privado"),
+    RuntimeError("Resposta privada"),
+])
+@pytest.mark.parametrize("historico_corrompido", [False, True])
+async def test_premmia_qualquer_falha_e_aviso_com_data_sem_alterar_saida(monkeypatch, tmp_path, falha, historico_corrompido):
+    u = unidade().model_copy(update={"premmia_ativo":True,
+        "adquirentes":(*unidade().adquirentes, AdquirenteConfigurada(nome="PREMMIA",situacao="ativo",modalidades=("premmia",)))})
+    monkeypatch.setenv("WEBPOSTO_WRITES","0")
+    monkeypatch.setattr(noturno,"carregar_unidades",lambda:{EMPRESA:u})
+    monkeypatch.setattr(premmia_portal,"DIRETORIO",tmp_path/"premmia")
+    def dias_coletados(*a):
+        if historico_corrompido:
+            from zipfile import BadZipFile
+            raise BadZipFile("Arquivo privado")
+        return {date(2026,9,30)}
+    monkeypatch.setattr(premmia_portal,"dias_coletados",dias_coletados)
+    chamadas=[]
+    async def coletar(unit, *, ate):
+        chamadas.append((unit.empresa_codigo,ate))
+        raise falha
+    async def recebimento(empresa,dia,config,*,timeout,aviso_premmia=None):
+        return RecebimentoAdquirente(adquirente=config.nome,situacao="pendente" if aviso_premmia else "ok",erro=aviso_premmia)
+    async def auditar(*a): return diario().fechamento
+    monkeypatch.setattr(premmia_portal,"coletar",coletar)
+    monkeypatch.setattr(noturno,"auditar_unidade",auditar)
+    monkeypatch.setattr(noturno,"conciliar_adquirente",recebimento)
+    monkeypatch.setattr(noturno,"pendencias_do_dia",lambda *a:[])
+    monkeypatch.setattr(noturno,"executar_reincidencia_mes",lambda *a,**k:[])
+    assert await noturno.executar(DIA,diretorio=tmp_path/"dados") == 0
+    assert chamadas == [(EMPRESA,DIA)]
+    estado=saude_robo.carregar_estado()
+    assert estado.unidades_com_falha == () and estado.unidades_com_aviso == (EMPRESA,)
+    r=persistencia.carregar_dia(EMPRESA,DIA,diretorio=tmp_path/"dados")
+    erro=r.recebimentos.adquirentes[-1].erro
+    assert "coleta não realizada hoje" in erro
+    assert ("dados até indisponíveis" if historico_corrompido else "dados até 30/09") in erro
+    assert "privad" not in erro
+    mensagem="\n".join(gerar_mensagem_curta(DIA,[r],[EMPRESA],set(),{EMPRESA:0}))
+    assert f"Premmia: {erro}" in mensagem
+
+
+def test_login_invisivel_novo_configuracao_e_fallback_unico_sem_credenciais(monkeypatch):
+    pw=MagicMock()
+    browsers=[MagicMock(),MagicMock()]
+    for browser in browsers:
+        browser.version="131.0.6778.33"
+        browser.new_context.return_value.new_page.return_value.goto.return_value=SimpleNamespace(status=200)
+    pw.chromium.launch.side_effect=browsers
+    monkeypatch.setattr(premmia_portal,"aguardar",lambda *a,**k:None)
+    monkeypatch.setattr(premmia_portal,"verificar_pagina",lambda *a:None)
+    browser,page=premmia_portal.abrir_login(pw,unidade(),visivel=False)
+    assert pw.chromium.launch.call_args.kwargs == {"headless":False,"args":["--headless=new"],"slow_mo":0}
+    contexto=browser.new_context.call_args.kwargs
+    assert "Headless" not in contexto["user_agent"]
+    assert contexto["locale"]=="pt-BR" and contexto["timezone_id"]=="America/Recife"
+    assert contexto["viewport"]=={"width":1366,"height":768}
+    assert page.goto.call_args.kwargs["timeout"]==90_000
+    page.locator.return_value.fill.assert_not_called()
+    browser.close()
+    pw.chromium.launch.reset_mock()
+    pw.chromium.launch.side_effect=browsers
+    browsers[0].new_context.return_value.new_page.return_value.goto.side_effect=premmia_portal.PlaywrightTimeoutError("sintético")
+    browser,page=premmia_portal.abrir_login(pw,unidade(),visivel=False)
+    assert pw.chromium.launch.call_count==2
+    assert pw.chromium.launch.call_args.kwargs["args"]==[]
+    browsers[0].close.assert_called()
+    page.locator.return_value.fill.assert_not_called()
+    browser.close()
+
+
+def test_fallback_nao_repete_apos_segunda_falha_ou_desafio(monkeypatch):
+    pw=MagicMock()
+    browser=pw.chromium.launch.return_value
+    page=browser.new_context.return_value.new_page.return_value
+    page.goto.side_effect=premmia_portal.PlaywrightTimeoutError("sintético")
+    with pytest.raises(premmia_portal.PlaywrightTimeoutError):
+        premmia_portal.abrir_login(pw,unidade(),visivel=False)
+    assert pw.chromium.launch.call_count==2
+    pw.chromium.launch.reset_mock()
+    page.goto.side_effect=None
+    page.goto.return_value=SimpleNamespace(status=200)
+    monkeypatch.setattr(premmia_portal,"aguardar",lambda *a,**k:None)
+    monkeypatch.setattr(premmia_portal,"verificar_pagina",lambda *a: (_ for _ in ()).throw(premmia_portal.PremmiaVerificacaoHumana()))
+    with pytest.raises(premmia_portal.PremmiaVerificacaoHumana):
+        premmia_portal.abrir_login(pw,unidade(),visivel=False)
+    assert pw.chromium.launch.call_count==1
+    page.locator.return_value.fill.assert_not_called()
+
+
+def test_login_ja_tentado_na_noite_nao_abre_navegador(monkeypatch,tmp_path):
+    u=unidade().model_copy(update={"premmia_usuario_env":"USUARIO_SINTETICO","premmia_senha_env":"SENHA_SINTETICA"})
+    monkeypatch.setenv("USUARIO_SINTETICO","sintético")
+    monkeypatch.setenv("SENHA_SINTETICA","sintético")
+    monkeypatch.setattr(premmia_portal,"agora",lambda:datetime(2026,10,11,4,tzinfo=FUSO))
+    pasta=tmp_path/"logins"
+    pasta.mkdir()
+    (pasta/f"{EMPRESA}_2026-10-11.json").write_text("{}",encoding="utf-8")
+    with pytest.raises(premmia_portal.PremmiaErro,match="já tentado"):
+        premmia_portal.coletar_sync(u,[DIA],diretorio=tmp_path)
+
+
+def test_planilha_telegram_todas_abas_atualizadas_e_valores_monetarios(monkeypatch,tmp_path):
+    from decimal import Decimal
+    from openpyxl import load_workbook
+    from src.modules.cash_reconciliation.application.classificar_recebimentos import montar_conferencia
+    from .test_conferencia_recebimentos import fonte,inv,registro
+    r=registro(fonte("PREMMIA",maior=(inv(dinheiro=True),)),unidade=EMPRESA)
+    conf=montar_conferencia(EMPRESA,r.dia,r.dia,[r])
+    monkeypatch.setattr(composicao_noturna,"conferencia_para_registro",lambda *a:conf)
+    dados={"resultados":[r],"unidades":{EMPRESA:unidade()},"nomes_funcionarios":{EMPRESA:{7:"Funcionário sintético"}},
+           "abertas":{EMPRESA:0},"vencidas":{EMPRESA:0}}
+    arquivo=composicao_noturna._criar_planilha_telegram(r.dia,dados,tmp_path)
+    wb = load_workbook(arquivo)
+    try:
+        assert set(wb.sheetnames)=={"Resumo","Caixas","Despesas","Vales","Ações de recebimento","Correções prontas",
+                                   "Detalhes por pagamento",f"Dia {EMPRESA}",f"Formas {EMPRESA}"}
+        for aba,colunas in {"Ações de recebimento":("D",),"Correções prontas":("F",),
+                            "Detalhes por pagamento":("E","N","R"),f"Dia {EMPRESA}":("B","C","D","E"),
+                            f"Formas {EMPRESA}":("D","F","G")}.items():
+            for coluna in colunas: assert wb[aba][f"{coluna}2"].number_format=='"R$" #,##0.00'
+        assert Decimal(str(wb["Ações de recebimento"]["D2"].value))==Decimal("50")
+        assert wb["Ações de recebimento"]["C2"].number_format=="dd/mm/yyyy hh:mm"
+    finally:
+        wb.close()
+
+
+def test_sem_fallback_apos_enviar_login_e_sem_repeticao_na_noite(monkeypatch,tmp_path):
+    u=unidade().model_copy(update={"premmia_usuario_env":"USUARIO_SINTETICO","premmia_senha_env":"SENHA_SINTETICA"})
+    monkeypatch.setenv("USUARIO_SINTETICO","sintético")
+    monkeypatch.setenv("SENHA_SINTETICA","sintético")
+    pw=MagicMock()
+    browser=MagicMock()
+    page=MagicMock()
+    monkeypatch.setattr(premmia_portal,"sync_playwright",lambda:pw)
+    abrir=MagicMock(return_value=(browser,page))
+    monkeypatch.setattr(premmia_portal,"abrir_login",abrir)
+    monkeypatch.setattr(premmia_portal,"verificar_pagina",lambda *a:None)
+    monkeypatch.setattr(premmia_portal,"unico",lambda loc:loc)
+    monkeypatch.setattr(premmia_portal,"aguardar",lambda *a,**k: (_ for _ in ()).throw(premmia_portal.PlaywrightTimeoutError("sintético")))
+    with pytest.raises(premmia_portal.PremmiaErro) as exc:
+        premmia_portal.coletar_sync(u,[DIA],diretorio=tmp_path)
+    assert exc.value.etapa=="confirmar login"
+    assert abrir.call_count==1
+    page.get_by_role.return_value.click.assert_called_once()
+    browser.close.assert_called_once()
+    with pytest.raises(premmia_portal.PremmiaErro,match="já tentado"):
+        premmia_portal.coletar_sync(u,[DIA],diretorio=tmp_path)
+    assert abrir.call_count==1

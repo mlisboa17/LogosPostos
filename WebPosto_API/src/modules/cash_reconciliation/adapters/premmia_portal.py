@@ -34,6 +34,7 @@ DIRETORIO = Path(__file__).resolve().parents[4] / "data" / "premmia"
 LOGIN = "https://cn.vibraenergia.com.br/premmia/revendedor/login"
 PAGAMENTOS = "https://cn.vibraenergia.com.br/premmia/revendedor/conferencia/pagamentos"
 TIMEOUT = 60_000
+TIMEOUT_LOGIN = 90_000
 COLUNAS = (
     "CPF",
     "Nome",
@@ -49,7 +50,9 @@ AVISO_HUMANO = "Premmia pediu verificação humana / credencial recusada"
 
 
 class PremmiaErro(RuntimeError):
-    pass
+    def __init__(self, mensagem: str, *, etapa: str | None = None):
+        super().__init__(mensagem)
+        self.etapa = etapa
 
 
 class PremmiaVerificacaoHumana(PremmiaErro):
@@ -344,8 +347,8 @@ def unico(locator):
     return visiveis[0]
 
 
-def aguardar(page, condicao) -> None:
-    limite = time.monotonic() + TIMEOUT / 1000
+def aguardar(page, condicao, *, timeout: int = TIMEOUT) -> None:
+    limite = time.monotonic() + timeout / 1000
     while time.monotonic() < limite:
         verificar_pagina(page)
         if condicao():
@@ -395,6 +398,45 @@ def url_periodo(url: str, inicio: date, fim: date) -> str:
     )
 
 
+def abrir_login(playwright, unidade: Unidade, *, visivel: bool):
+    modos = (True,) if visivel else (False, True)
+    for modo_visivel in modos:
+        browser = playwright.chromium.launch(
+            headless=False, args=[] if modo_visivel else ["--headless=new"],
+            slow_mo=300 if modo_visivel else 0,
+        )
+        try:
+            versao = browser.version
+            context = browser.new_context(
+                accept_downloads=True, locale="pt-BR", timezone_id="America/Recife",
+                viewport={"width": 1366, "height": 768},
+                user_agent=f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{versao} Safari/537.36",
+            )
+            page = context.new_page()
+            page.set_default_timeout(TIMEOUT)
+            page.set_default_navigation_timeout(TIMEOUT_LOGIN)
+            resposta = page.goto(LOGIN, wait_until="commit", timeout=TIMEOUT_LOGIN)
+            if resposta is None or resposta.status >= 400:
+                raise PremmiaErro("Portal indisponível na página de login.", etapa="abrir login")
+            aguardar(page, lambda: page.locator("input[data-testid='Login']").is_visible(), timeout=TIMEOUT_LOGIN)
+            verificar_pagina(page)
+            logger.info("Premmia unidade=%s etapa=abrir login modo=%s situacao=ok",
+                        unidade.empresa_codigo, "visivel" if modo_visivel else "invisivel")
+            return browser, page
+        except PremmiaVerificacaoHumana:
+            browser.close()
+            raise
+        except (PlaywrightError, PremmiaErro):
+            browser.close()
+            if modo_visivel:
+                raise
+            logger.warning("Premmia unidade=%s etapa=abrir login modo=invisivel fallback=visivel; credenciais ainda não enviadas",
+                           unidade.empresa_codigo)
+        except Exception:
+            browser.close()
+            raise
+
+
 def coletar_sync(
     unidade: Unidade,
     dias: list[date],
@@ -407,30 +449,33 @@ def coletar_sync(
     usuario = os.getenv(unidade.premmia_usuario_env or "", "")
     senha = os.getenv(unidade.premmia_senha_env or "", "")
     if not usuario or not senha:
-        raise PremmiaVerificacaoHumana()
+        erro = PremmiaVerificacaoHumana()
+        erro.etapa = "validar credenciais"
+        raise erro
+    tentativa_login = (diretorio or DIRETORIO) / "logins" / f"{unidade.empresa_codigo}_{agora().date().isoformat()}.json"
+    if tentativa_login.exists():
+        raise PremmiaErro("Premmia: login já tentado nesta noite; sem nova tentativa.", etapa="login já tentado")
     pasta = (diretorio or DIRETORIO) / "originais"
     pasta.mkdir(parents=True, exist_ok=True)
     etapa = "iniciar navegador"
     try:
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(
-                headless=not visivel, slow_mo=300 if visivel else 0
-            )
+            etapa = "abrir login"
+            browser, page = abrir_login(playwright, unidade, visivel=visivel)
             try:
-                context = browser.new_context(
-                    accept_downloads=True, locale="pt-BR", timezone_id="America/Recife"
-                )
-                page = context.new_page()
-                page.set_default_timeout(TIMEOUT)
                 page.set_default_navigation_timeout(TIMEOUT)
-                etapa = "abrir login"
-                resposta = page.goto(LOGIN, wait_until="commit")
-                if resposta is None or resposta.status >= 400:
-                    raise PremmiaErro("Portal indisponível na página de login.")
-                aguardar(page, lambda: page.locator("input[data-testid='Login']").is_visible())
                 unico(page.locator("input[data-testid='Login']")).fill(usuario)
                 unico(page.locator("input[data-testid='Senha']")).fill(senha)
                 verificar_pagina(page)
+                etapa = "enviar login"
+                tentativa_login.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    with tentativa_login.open("x", encoding="utf-8") as arquivo:
+                        json.dump({"registrado_em": agora().isoformat()}, arquivo)
+                        arquivo.flush()
+                        os.fsync(arquivo.fileno())
+                except FileExistsError:
+                    raise PremmiaErro("Premmia: login já tentado nesta noite; sem nova tentativa.", etapa=etapa) from None
                 unico(page.get_by_role("button", name="Entrar", exact=True)).click()
                 etapa = "confirmar login"
                 aguardar(page, lambda: "/login" not in page.url)
@@ -493,8 +538,13 @@ def coletar_sync(
             finally:
                 browser.close()
     except PlaywrightError as exc:
-        raise PremmiaErro(f"Premmia: {type(exc).__name__} na etapa {etapa}.") from None
-    except PremmiaVerificacaoHumana:
+        logger.warning("Premmia unidade=%s falha etapa=%s tipo=%s", unidade.empresa_codigo, etapa, type(exc).__name__)
+        raise PremmiaErro(f"Premmia: {type(exc).__name__} na etapa {etapa}.", etapa=etapa) from None
+    except OSError as exc:
+        logger.warning("Premmia unidade=%s falha etapa=%s tipo=%s", unidade.empresa_codigo, etapa, type(exc).__name__)
+        raise PremmiaErro(f"Premmia: falha de arquivo na etapa {etapa}.", etapa=etapa) from None
+    except PremmiaVerificacaoHumana as exc:
+        exc.etapa = etapa
         logger.warning(
             "Premmia unidade=%s etapa=%s: %s", unidade.empresa_codigo, etapa, AVISO_HUMANO
         )
@@ -502,7 +552,8 @@ def coletar_sync(
     except PremmiaIntegridadeAviso as exc:
         logger.warning("Premmia unidade=%s etapa=%s: %s", unidade.empresa_codigo, etapa, exc)
         raise
-    except PremmiaErro:
+    except PremmiaErro as exc:
+        exc.etapa = exc.etapa or etapa
         logger.error("Premmia unidade=%s falha etapa=%s", unidade.empresa_codigo, etapa)
         raise
 

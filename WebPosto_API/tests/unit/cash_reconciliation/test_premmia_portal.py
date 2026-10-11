@@ -285,7 +285,7 @@ def test_um_login_fallback_timeout_um_dia_mesma_sessao(monkeypatch, tmp_path):
 
     page.goto.side_effect = goto
     monkeypatch.setattr(portal, "verificar_pagina", lambda *a: None)
-    monkeypatch.setattr(portal, "aguardar", lambda *a: None)
+    monkeypatch.setattr(portal, "aguardar", lambda *a, **k: None)
     monkeypatch.setattr(portal, "aguardar_exportacao", lambda *a: None)
     monkeypatch.setattr(portal, "unico", lambda loc: loc)
     download_context = MagicMock()
@@ -312,7 +312,7 @@ async def test_job_captcha_aviso_nao_falha_nem_repete(monkeypatch, tmp_path, int
     monkeypatch.setattr(noturno, "carregar_unidades", lambda: {321: u})
     chamadas = []
 
-    async def coletar(*args):
+    async def coletar(*args, **kwargs):
         chamadas.append(1)
         if integridade:
             raise portal.PremmiaIntegridadeAviso("Premmia: 2 linhas do portal não entraram na planilha")
@@ -338,9 +338,10 @@ async def test_job_captcha_aviso_nao_falha_nem_repete(monkeypatch, tmp_path, int
         321, DIA, diretorio=tmp_path / "dados"
     ).recebimentos.adquirentes[0]
     assert item.situacao == "pendente"
-    assert item.erro == (
+    assert "coleta não realizada hoje" in item.erro
+    assert (
         "Premmia: 2 linhas do portal não entraram na planilha" if integridade else portal.AVISO_HUMANO
-    )
+    ) in item.erro
     assert saude_robo.carregar_estado().unidades_com_aviso == (321,)
     if integridade:
         from src.modules.cash_reconciliation.application import resumo_diario

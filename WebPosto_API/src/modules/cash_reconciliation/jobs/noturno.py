@@ -125,22 +125,24 @@ async def executar(
             aviso_premmia = None
             if unidade.premmia_ativo:
                 try:
-                    await premmia_portal.coletar(unidade)
-                except premmia_portal.PremmiaVerificacaoHumana:
-                    aviso_premmia = premmia_portal.AVISO_HUMANO
+                    await premmia_portal.coletar(unidade, ate=dia)
+                except Exception as exc:
+                    # Fronteira do portal: falha de coleta e aviso sanitizado, nao falha da unidade.
+                    etapa = getattr(exc, "etapa", None) or "validar/persistir XLSX"
+                    logger.warning("Premmia coleta unidade=%s etapa=%s tipo=%s",
+                                   unidade.empresa_codigo, etapa, type(exc).__name__)
+                    try:
+                        coletados = premmia_portal.dias_coletados(premmia_portal.caminho_mensal(unidade, dia))
+                        anteriores = [d for d in coletados if d <= dia]
+                        ultima = max(anteriores).strftime("%d/%m") if anteriores else "indisponíveis"
+                    except Exception as erro_historico:
+                        logger.warning("Premmia unidade=%s histórico de coleta indisponível tipo=%s",
+                                       unidade.empresa_codigo, type(erro_historico).__name__)
+                        ultima = "indisponíveis"
+                    aviso_premmia = f"coleta não realizada hoje ({etapa}) — dados até {ultima}"
+                    if isinstance(exc, (premmia_portal.PremmiaVerificacaoHumana, premmia_portal.PremmiaIntegridadeAviso)):
+                        aviso_premmia += f" · {exc}"
                     unidades_com_aviso.add(unidade.empresa_codigo)
-                except premmia_portal.PremmiaIntegridadeAviso as exc:
-                    aviso_premmia = str(exc)
-                    unidades_com_aviso.add(unidade.empresa_codigo)
-                except (premmia_portal.PremmiaErro, OSError) as exc:
-                    logger.error(
-                        "Premmia coleta unidade=%s tipo=%s",
-                        unidade.empresa_codigo,
-                        type(exc).__name__,
-                    )
-                    aviso_premmia = "Premmia: falha na coleta; consultar log da etapa."
-                    falhas += 1
-                    unidades_com_falha.add(unidade.empresa_codigo)
             if aviso_premmia:
                 resultado = await coletar_unidade(
                     unidade,
@@ -162,12 +164,12 @@ async def executar(
             if novas:
                 repositorio_pendencias.registrar(novas, banco=diretorio_pendencias)
             if resultado.erro_fechamento or any(
-                item.situacao == "erro" for item in resultado.recebimentos.adquirentes
+                item.situacao == "erro" and item.adquirente != "PREMMIA" for item in resultado.recebimentos.adquirentes
             ):
                 falhas += 1
                 unidades_com_falha.add(unidade.empresa_codigo)
             if any(
-                item.situacao == "credencial inválida"
+                item.situacao == "credencial inválida" or (item.adquirente == "PREMMIA" and (item.erro or item.situacao == "erro"))
                 for item in resultado.recebimentos.adquirentes
             ):
                 unidades_com_aviso.add(unidade.empresa_codigo)

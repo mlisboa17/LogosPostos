@@ -439,10 +439,10 @@
 | Unidades | Casa Caiada e Doze (VIP desligado até ter os demais EDIs) |
 | Módulo | Premmia |
 | Padrão | Coleta do dia 01 do mês até ontem, só dias faltantes; uma planilha por posto e mês (`data/premmia/posto<apelido>_<MM>_<AAAA>.xlsx`), acrescentando os dias |
-| Exceção | CAPTCHA/2FA/termos/senha recusada → para e avisa; não tenta de novo na noite |
+| Exceção | Qualquer falha do portal é aviso, não falha do robô; CAPTCHA/2FA/termos/senha recusada → para e avisa. No máximo um envio de login por unidade/noite, com registro local persistente |
 | Gatilho | Robô noturno |
 | Ação no sistema | Planilha mensal; originais em `data/premmia/originais/`. Deduplicar somente código + data/hora + valor + forma; mesmo código em horários distintos permanece. A cada coleta, conferir as linhas por dia original × mensal; ausência gera aviso na unidade/Telegram e log, sem falha do robô |
-| Implementação | Sprint 13 (PREMMIA_01) |
+| Implementação | Sprint 13 / 14.1: Chromium headless novo, user agent comum, pt-BR/Recife, viewport 1366×768; abrir login até 90 s; fallback visível único somente antes de enviar credenciais |
 | Status | vigente |
 | Vigência | 10/10/2026 — decisão do diretor |
 
@@ -542,3 +542,4 @@ Temas comuns em postos que **ainda não têm regra decidida** — não implement
 | 11/10/2026 | Sprint 14: RN-CARTAO-010, quatro grupos acionáveis, conferência manual auditada, compensação diária e propostas locais; RN-CARTAO-009 conferência manual até integrar extrato |
 | 11/10/2026 | Sprint 14: RN-REDE-002 com sugestão, empate e responsável do caixa; detalhes individuais dos pagamentos, RN-REDE-006 (D−2, 7 dias) e campo brasileiro compartilhado na conferência |
 | 11/10/2026 | Sprint 14 B4: filtros gerais, fechamento, painéis, contas, vendas, despesas, estoque, exportações e snapshots usam o mesmo helper brasileiro, preservando ISO apenas no transporte técnico |
+| 11/10/2026 | Sprint 14.1: Premmia invisível com fallback visível apenas antes do login, uma tentativa de login por noite; qualquer falha de coleta é aviso com etapa e data dos últimos dados; novas abas da planilha diária formatadas em R$ |
