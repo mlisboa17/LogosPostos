@@ -20,6 +20,10 @@ Arquivos:
 @WebPosto_API/tests/unit/cash_reconciliation/test_pendencias.py
 @WebPosto_API/tests/frontend/cashAudit.test.mjs
 
+## Regra do diretor (10/10/2026): toda ocorrência traz o NOME do frentista
+
+Em todo alerta e pendência desta sprint (valor divergente, NSU repetido, cancelada, a maior, a menor) mostrar **"Nome do frentista (código)"** na pendência, na tela e no Telegram. Fonte: frentista da venda/abastecimento (`codigoFrentista`) ou operador do caixa; nome via `buscar_nomes_funcionarios` (`webposto_integration`), com cache por execução. Sem frentista identificável → "frentista não identificado" + motivo (ex.: "venda sem abastecimento"). Nomes ficam só em `data/` (fora do Git); testes com nomes sintéticos; no chat do agente continuam trocados por "Funcionário A...".
+
 ## PARTE A — Regra CARTOES_V3
 
 1. Nova `VERSAO = "CARTOES_V3"` (atualizar a docstring com os itens novos). Resultados V2 gravados continuam abrindo (campos novos opcionais com padrão vazio).

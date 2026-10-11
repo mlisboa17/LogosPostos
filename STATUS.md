@@ -45,7 +45,8 @@ Histórico de sprints: um prompt por sprint em docs/prompts/ (SPRINT_05 ... SPRI
 ## Decisões fixas
 Não trocar CONSUMER_TOKEN/ADMIN_TOKEN · conciliação de depósitos fora do escopo · somente leitura no ERP
 · .env só via load_dotenv · metas só para postos · testes nunca gravam no banco real
-· Telegram mostra nome do funcionário (decisão do diretor); nomes nunca no Git nem no chat dos agentes
+· TODA ocorrência (pendência, tela, Telegram, planilha) mostra o NOME do frentista + código (decisão do diretor 10/10/2026);
+  sem frentista identificável → "frentista não identificado" + motivo; nomes nunca no Git nem no chat dos agentes
 
 ## Retomada
 cd C:\Projetos\LOGOS\LogosPostos\WebPosto_API; Get-Content data\cash_audit\noturno.log -Tail 2; python -m uvicorn src.main:app --port 8000
