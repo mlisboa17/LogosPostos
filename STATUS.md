@@ -38,9 +38,16 @@ Histórico de sprints: um prompt por sprint em docs/prompts/ (SPRINT_05 ... SPRI
 - Sangria Alberis 05/10 R$ 267,00 "Banco 24h": ficou no cofre (resposta do diretor) → corrigir a conta; regra nova de
   valor impossível no Banco 24h (cédulas 20/50/100/200) na Sprint 17.
 - Prévia da tela nova (local, com nomes): WebPosto_API/data/previas/conferencia_do_dia.html — aguardando ajustes do diretor.
-- PRÓXIMO: Sprint 18 dividida em 18a (porta de escrita com travas, sem lançar) e 18b (1º lançamento com o diretor);
-  depois 16 (Investigador IA, Gemini autorizado), 17 (extratos + PIX CNPJ + sangria × depósito), tela nova.
-  Sprints menores (~20–30 min) e testes focados durante o trabalho.
+- **Sprint 18a CONCLUÍDA — porta de escrita de cartão isolada, desligada, com prévia e auditoria:**
+  1. Porta isolada `POST /INTEGRACAO/V1/CARTOES` e `DELETE /INTEGRACAO/V1/CARTOES/{id}` (para desfazer) em `src/modules/cash_reconciliation/adapters/webposto_escrita_cartao.py`.
+  2. Campos estritamente conforme a spec oficial da OpenAPI (`IncluirAlterarCartaoDto`). Sem PATCH.
+  3. Dupla trava exigida EXCLUSIVAMENTE do arquivo `.env` físico via `dotenv_values` (`WEBPOSTO_WRITES=1` e `LOGOS_ERP_ESCRITA=1`). Ignora variáveis de processo e recusa duplicatas.
+  4. Resolução unívoca de administradora (Amex Doze e Casa Caiada = PagBank; sem ambiguidade).
+  5. Montagem estrita a partir de proposta (exige NSU completo, autorização, administradora, venda, caixa, frentista, valor, data; falta de qualquer um recusa montagem).
+  6. CLI `python -m src.jobs.lancar_cartao --unidade <cod> --dia dd/mm/aaaa` lista prévia elegível; `--confirmar` sempre recusa com "piloto não liberado (Sprint 18b)".
+  7. Auditoria append-only em `data/lancamentos_logos/<empresa>/` (fora do Git) registrando o quê, evidências, autorização, payload sanitizado, resposta e como desfazer.
+  8. Bateria completa: 330 testes passando (19 novos testes específicos de barreira de escrita de cartão).
+- PRÓXIMO: Sprint 18b (1º lançamento controlado do piloto com o diretor acompanhando).
 ## Em andamento
 - SPRINT_12 CARTOES_V3 (prompt pronto, não executado): mesmo NSU com valor diferente; cancelamentos do EDI
 - PREMMIA_00 (VIP, 01 a 09/10/2026): login OK sem CAPTCHA (3 vezes); filtro de datas pela URL OK; tentativa 3 parou

@@ -56,6 +56,7 @@ class AcaoRecebimento(BaseModel):
     adquirente: str
     forma: str
     nsu: str | None = None
+    autorizacao: str | None = None
     venda: int | None = None
     caixa: int | None = None
     frentista: int | None = None

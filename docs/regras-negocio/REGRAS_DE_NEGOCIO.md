@@ -575,18 +575,18 @@
 
 ## 11. Escrita no ERP (RN-ERP)
 
-### RN-ERP-001 — Autonomia gradual de lançamento
+### RN-ERP-001 — Autonomia gradual de lançamento de cartão (porta isolada e desligada)
 | Campo | Valor |
 |---|---|
 | Unidades | Todas |
-| Módulo | ERP |
-| Padrão | Fases por tipo de lançamento: 0 Sombra → 1 Um toque → 2 Automático com limite → 3 Ampliação; interruptor `LOGOS_ERP_ESCRITA`; nunca alterar caixa consolidado |
+| Módulo | ERP · Cartões / Recebimentos |
+| Padrão | Fases por tipo de lançamento: 0 Sombra → 1 Um toque → 2 Automático com limite → 3 Ampliação; interruptores duplos no arquivo `.env` físico `LOGOS_ERP_ESCRITA=1` e `WEBPOSTO_WRITES=1` (ignorando variáveis de ambiente de processo e recusando duplicidade no arquivo); nunca alterar caixa consolidado. Porta de escrita isolada implementada para cartões (`POST /INTEGRACAO/V1/CARTOES` e `DELETE /INTEGRACAO/V1/CARTOES/{id}` para desfazer), estritamente conforme schema oficial `IncluirAlterarCartaoDto` (sem PATCH). A porta existe e está **DESLIGADA** (Sprint 18a); CLI `src.jobs.lancar_cartao` fornece apenas prévia de leitura e recusa `--confirmar` até liberação do piloto (Sprint 18b). Auditoria append-only mantida em `data/lancamentos_logos/<empresa>/` (fora do Git). |
 | Exceção | — |
-| Gatilho | Proposta de lançamento com nota de certeza calibrada |
-| Ação no sistema | Ver ADR-003 |
-| Implementação | `docs/architecture/adr/ADR-003-autonomia-gradual-de-escrita-no-erp.md` |
-| Status | proposta (Fase 0 a implementar) |
-| Vigência | 10/10/2026 — decisão do diretor |
+| Gatilho | Comando `python -m src.jobs.lancar_cartao` ou piloto do robô |
+| Ação no sistema | Validação de elegibilidade (NSU, autorização, administradora resolvida unívoca, venda, caixa, frentista, valor, data). Amex Doze e Casa Caiada = PagBank. Falta de qualquer campo ou administradora ambígua recusa montagem. `--confirmar` bloqueado na Sprint 18a. |
+| Implementação | `src/modules/cash_reconciliation/adapters/webposto_escrita_cartao.py` · `src/jobs/lancar_cartao.py` · `ADR-003` · SPRINT 18a |
+| Status | vigente (porta isolada e desligada; piloto aguarda Sprint 18b) |
+| Vigência | 11/10/2026 — decisão do diretor |
 
 ### RN-ERP-002 — Importação de OFX no webPosto (barreira)
 | Campo | Valor |

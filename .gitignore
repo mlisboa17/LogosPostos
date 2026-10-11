@@ -24,3 +24,8 @@ WebPosto_API/snapshots/
 data/
 data/importacoes_ofx/
 WebPosto_API/data/importacoes_ofx/
+data/lancamentos_logos/
+WebPosto_API/data/lancamentos_logos/
+pytest_temp/
+WebPosto_API/pytest_temp/
+
