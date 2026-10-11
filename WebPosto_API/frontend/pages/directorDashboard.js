@@ -139,7 +139,8 @@ export function renderPainelDiretor(dados, papel = "") {
   const unidades = dados?.unidades || [];
   return `<section class="director-dashboard">
     <header class="dd-header"><div><span class="dd-eyebrow">Visão executiva</span>
-      <h2>Painel do Diretor</h2><p>Indicadores provenientes dos resultados persistidos; sem consulta ao ERP.</p></div>
+      <h2>Painel do Diretor</h2><p>Indicadores provenientes dos resultados persistidos; sem consulta ao ERP.</p>
+      <a class="dd-link" href="/app/financial?view=conferencia-recebimentos">Conferência de Recebimentos</a></div>
       <span class="dd-stamp">Dados carregados ${escapeHtml(dataHora(new Date().toISOString()))}</span>
     </header>
     ${renderSaude(dados.saude_robo, papel)}

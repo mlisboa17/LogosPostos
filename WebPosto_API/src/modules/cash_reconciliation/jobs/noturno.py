@@ -100,7 +100,8 @@ async def coletar_unidade(
             fonte_sangrias=fechamento.proveniencia.fonte_sangrias if fechamento else "",
             extratos=(), outras_fontes=tuple(sorted(fontes)),
         ),
-        versoes_regras=(VERSAO_FECHAMENTO, VERSAO_CARTOES),
+        versoes_regras=(VERSAO_FECHAMENTO, VERSAO_CARTOES, "RN-CARTAO-010"),
+        conferencia_recebimentos=True,
     )
 
 

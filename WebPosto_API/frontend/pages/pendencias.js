@@ -30,6 +30,7 @@ const ROTULOS_TIPO = {
   caixa_alertas_laranja: "Alertas laranja do caixa",
   recebimento_a_maior: "Recebimento a maior",
   recebimento_a_menor: "Recebimento a menor",
+  recebimento_apurar: "Apurar — lançamento sem lastro",
   reincidencia_quebra: "Reincidência de quebra",
   reincidencia_sangria_alterada: "Reincidência de sangria alterada",
   reincidencia_recebimento_a_maior: "Reincidência de recebimento a maior",

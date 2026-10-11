@@ -40,6 +40,7 @@ import { renderCashAudit } from "./pages/cashAudit.js";
 import { contarPendenciasAbertas, renderPendencias } from "./pages/pendencias.js";
 import { renderCommercialScore } from "./pages/commercialScore.js?v=commercial-score-5";
 import { carregarPainelDiretor } from "./pages/directorDashboard.js";
+import { renderConferenciaRecebimentos } from "./pages/conferenciaRecebimentos.js";
 import { currentSession, login, logout } from "./services/auth.js";
 import { renderCompanySwitcher } from "./components/CompanySwitcher.js";
 import { createTableState } from "./services/tableState.js";
@@ -69,6 +70,8 @@ const VIEW_ALIASES = {
   "commercial-score": "commercialScore",
   "painel-diretor": "directorDashboard",
   directordashboard: "directorDashboard",
+  "conferencia-recebimentos": "conferenciaRecebimentos",
+  conferenciarecebimentos: "conferenciaRecebimentos",
 };
 
 const VIEW_URL_NAMES = {
@@ -77,6 +80,7 @@ const VIEW_URL_NAMES = {
   cashAudit: "cash-audit",
   commercialScore: "placar",
   directorDashboard: "painel-diretor",
+  conferenciaRecebimentos: "conferencia-recebimentos",
 };
 
 function normalizeViewId(view) {
@@ -336,6 +340,7 @@ const errorNode = document.querySelector("#error");
 const executiveNode = document.querySelector("#executiveView");
 const dashboardNode = document.querySelector("#dashboardView");
 const directorDashboardNode = document.querySelector("#directorDashboardView");
+const conferenciaRecebimentosNode = document.querySelector("#conferenciaRecebimentosView");
 const expensesNode = document.querySelector("#expensesView");
 const accountsNode = document.querySelector("#accountsView");
 const financeCenterNode = document.querySelector("#financeCenterView");
@@ -462,10 +467,11 @@ function setView(view) {
     ? "executive"
     : requestedView;
   writeUrl(state);
-  filtersNode.classList.toggle("hidden", state.view === "directorDashboard");
+  filtersNode.classList.toggle("hidden", ["directorDashboard", "conferenciaRecebimentos"].includes(state.view));
   executiveNode.classList.toggle("hidden", state.view !== "executive");
   dashboardNode.classList.toggle("hidden", state.view !== "dashboard");
   directorDashboardNode.classList.toggle("hidden", state.view !== "directorDashboard");
+  conferenciaRecebimentosNode.classList.toggle("hidden", state.view !== "conferenciaRecebimentos");
   expensesNode.classList.toggle("hidden", state.view !== "expenses");
   accountsNode.classList.toggle("hidden", state.view !== "accounts");
   financeCenterNode.classList.toggle("hidden", state.view !== "financeCenter");
@@ -1041,6 +1047,12 @@ async function refreshOperationalDataInBackground(bypassCache = false) {
 }
 
 async function refreshAll(bypassCache = false) {
+  if (state.view === "conferenciaRecebimentos") {
+    await renderConferenciaRecebimentos(conferenciaRecebimentosNode, {
+      papel: authenticatedUser?.role || "", unidadeInicial: state.pendenciaUnidade,
+    });
+    return;
+  }
   if (state.view === "directorDashboard") {
     setError("");
     setLoading(true);

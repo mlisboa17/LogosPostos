@@ -1593,3 +1593,23 @@ label.empresa-ms__row {
     overflow: auto;
   }
 }
+
+.conferencia-recebimentos { color: #e2e8f0; display: grid; gap: 1rem; }
+.cr-filters, .cr-tabs { display: flex; flex-wrap: wrap; gap: .8rem; align-items: end; }
+.conferencia-recebimentos label { display: grid; gap: .4rem; }
+.conferencia-recebimentos input, .conferencia-recebimentos select,
+.conferencia-recebimentos textarea, .conferencia-recebimentos button {
+  background: #152238; color: #e2e8f0; border: 1px solid #475569; border-radius: .4rem; padding: .6rem;
+}
+.cr-scroll { overflow-x: auto; margin: 1rem 0; }
+.cr-scroll table { width: 100%; border-collapse: collapse; white-space: nowrap; }
+.cr-scroll th, .cr-scroll td { padding: .7rem; border-bottom: 1px solid #334155; text-align: right; }
+.cr-scroll caption { text-align: left; padding: .5rem 0; }
+.cr-scroll small { display: block; white-space: normal; color: #fbbf24; }
+.cr-group { background: #0f172a; border-left: 4px solid #f59e0b; padding: 1rem; margin: 1rem 0; }
+.cr-group--3 { border-color: #ef4444; }
+.cr-group--4 { border-color: #94a3b8; }
+.conferencia-recebimentos article { padding: .8rem; border-bottom: 1px solid #334155; }
+.conferencia-recebimentos article b { color: #fbbf24; }
+.cr-result { min-width: 0; }
+.cr-tabs button[aria-pressed="true"] { border-color: #60a5fa; }

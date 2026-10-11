@@ -19,7 +19,9 @@ from openpyxl.styles import Font
 from src.modules.cash_reconciliation.adapters import pendencias as repositorio_pendencias
 from src.modules.cash_reconciliation.adapters import persistencia as persistencia_caixa
 from src.modules.cash_reconciliation.adapters import saude_robo
-from src.modules.cash_reconciliation.application.resumo_diario import gerar_mensagem_curta
+from src.modules.cash_reconciliation.application.resumo_diario import (
+    abas_conferencia_recebimentos, conferencia_para_registro, gerar_mensagem_curta,
+)
 from src.modules.cash_reconciliation.config import carregar_unidades, prazos_pendencia_dias
 from src.modules.cash_reconciliation.domain.tempo import agora, formatar_data, ontem, para_local
 from src.modules.cash_reconciliation.jobs.noturno import (
@@ -231,6 +233,9 @@ def _criar_planilha_telegram(dia: date, dados: dict, diretorio: Path | None = No
         planilha.append(cabecalho)
 
     por_unidade = {resultado.empresa_codigo: resultado for resultado in dados["resultados"]}
+    conferencias = [conferencia_para_registro(r) for r in dados["resultados"] if r.conferencia_recebimentos]
+    if conferencias:
+        abas_conferencia_recebimentos(workbook, conferencias)
     for codigo, unidade in dados["unidades"].items():
         registro = por_unidade.get(codigo)
         fechamento = registro.fechamento if registro else None
