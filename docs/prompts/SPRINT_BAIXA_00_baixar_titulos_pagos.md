@@ -4,7 +4,7 @@ Repositório `C:\Projetos\LOGOS\LogosPostos`, branch `feature/cash-audit-fechame
 
 ## Decisão do diretor (11/10/2026)
 
-O arquiteto cruzou (somente leitura) os títulos a pagar do Doze 74014 com os extratos OFX: **12 títulos "Aberto" já foram pagos no BB (R$ 181.365,28)** — mesmo valor, nome do fornecedor no extrato, data perto do vencimento. O diretor pediu que **o Logos** dê a baixa. Regra: RN-ERP-003 em `docs/regras-negocio/REGRAS_DE_NEGOCIO.md` (ler inteira, inclusive "pagamento agrupado" e "mapa de contas do Doze").
+O arquiteto cruzou (somente leitura) os títulos a pagar do Doze 74014 com os extratos OFX: **cerca de 20 títulos "Aberto" já foram pagos no BB e no PagBank (≈ R$ 225.919,50)** — mesmo valor, nome do fornecedor no extrato, data perto do vencimento. O diretor pediu que **o Logos** dê a baixa. Regra: RN-ERP-003 em `docs/regras-negocio/REGRAS_DE_NEGOCIO.md` (ler inteira, inclusive "pagamento agrupado" e "mapa de contas do Doze").
 
 @WebPosto_API/src/modules/cash_reconciliation/adapters/webposto_escrita_ofx.py
 @WebPosto_API/src/modules/cash_reconciliation/adapters/extrato_reader.py
@@ -36,7 +36,12 @@ O arquiteto cruzou (somente leitura) os títulos a pagar do Doze 74014 com os ex
 
 ## PARTE C — Teste com o diretor
 
-1. Rodar a prévia real do Doze com os extratos `C:\Projetos\LOGOS\extratos\BB\BB_Doze_Agosto_2026.ofx`, `...\BB\bancoBrasil_DozeFilial_Setembro_2026.ofx`, `...\BB\BB_Doze_Outubro2026.ofx.ofx` e `...\PAGBANK\PagBank_Doze_Outubro2026.ofx.ofx` e mostrar no chat. (Referência do arquiteto com agosto incluído: 12 prontos, R$ 181.365,28. Dois casos de mesmo valor com outro destinatário — frete Vibra R$ 300 × PIX para o Casa Caiada e SulAmérica R$ 3.500 × transferência — **não** podem ficar como prontos.)
+1. Rodar a prévia real do Doze com os 3 OFX do BB do Doze (agosto, setembro, outubro em `C:\Projetos\LOGOS\extratos\BB\`) e **todos** os OFX da pasta `C:\Projetos\LOGOS\extratos\PAGBANK\` (vários arquivos semanais, com dias sobrepostos e arquivos repetidos → **deduplicar por FITID**), e mostrar no chat. Referência do arquiteto: ≈ 20 prontos, ≈ R$ 225.919,50. Cuidados que o arquiteto encontrou e que a regra deve tratar:
+   - **PIX/transferência para as próprias empresas** (Casa Caiada, Posto Doze, Loja de Conveniência) e **aplicações** (Renda Fixa/CDB, Rende Fácil) **nunca** quitam título.
+   - Palavras genéricas do nome (TRANSPORTE, COMBUSTÍVEIS, COMÉRCIO, POSTO, LTDA, ENERGIA, SERVIÇOS…) não contam como "nome confere".
+   - Nome no extrato ≠ nome no webPosto: VECTOR = "ICTUS ENG", M&A = "M E BARRETO", COPERGAS = "COMPANHIA PERNAMBUCANA", INMETRO = "INSTITUTO NACIONAL", SINDCOMBUSTÍVEIS = "SIND DO COM VAREJ" → guardar esses apelidos por fornecedor em configuração (o diretor confirma).
+   - Dois títulos de mesmo valor para um único débito (ex.: SEFAZ PE R$ 1.844,52 com vencimentos 30/07 e 30/08) → **ambíguo**.
+   - Valor pago maior que o título (juros, ex.: COPERGAS) → "conferir à mão", não baixa nesta sprint.
 2. **Parar e pedir ao diretor** para ligar `WEBPOSTO_WRITES=1` e `LOGOS_BAIXA_TITULOS=1` no `.env` e dizer **qual título** baixar primeiro (sugerir o de menor valor). Só enviar depois do "ok" dele no chat.
 3. Baixar **1 título**, reler e mostrar o antes/depois. Se a resposta for 401/403 → parar e informar (pedir permissão à Quality).
 4. Só com novo "ok" do diretor: `--todos` para os demais prontos.
