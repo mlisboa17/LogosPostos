@@ -21,6 +21,16 @@ Casos reais que **têm** de cair no grupo certo (01–09/10/2026):
 - Doze: 2 Premmia Crédito R$ 10,00 que são desconto e POS PREMMIA R$ 200,02 → **2. ALTERAR**; PIX manuais com hora 01:00 casados no PagBank → **2. ALTERAR** (hora/vínculo); 01/10 R$ 160,00 sem abastecimento → **1. LANÇAR**.
 - Doze PIX CNPJ (7 · R$ 2.480,41) → **4. CONFERIR À MÃO**.
 
+## Detalhe obrigatório de cada item (pedido do diretor: "precisamos da hora, NSU, provável frentista — muito mais coisas")
+
+Todo item, em qualquer grupo, mostra **todas** as colunas disponíveis (as que não existirem aparecem como "—"):
+**lado da adquirente:** data, hora do pagamento, valor, adquirente, bandeira/forma, NSU (4 últimos), terminal (4 últimos);
+**lado do webPosto:** código do lançamento, venda, caixa, hora lançada, forma lançada, tipo de inclusão (PDV-TEF / PDV-Mobile / Manualmente);
+**abastecimento ligado:** hora, valor, bico, item da venda, forma em que a venda foi lançada;
+**responsável:** frentista (nome + código), como foi identificado (atribuído / sugestão / sem abastecimento) e a **nota** com os motivos (valor igual, minutos de diferença, troca de forma, valor não redondo);
+**ação:** grupo, De → Para, ID da regra, selo REINCIDENTE.
+Para grupo provável (1 lançamento × vários pagamentos): uma linha por pagamento com o mesmo detalhe.
+
 ## PARTE A — Classificação
 
 @WebPosto_API/src/modules/cash_reconciliation/application/conciliar_cartoes.py
