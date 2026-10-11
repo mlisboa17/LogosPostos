@@ -516,6 +516,9 @@ async def enviar_ofx_webposto(
     tem_debitos = any(not l.eh_credito for l in lancamentos_periodo)
     if tem_debitos and not formato_debito:
         raise BarreiraOfxErro("formato de débito não confirmado pela Quality")
+    # "Débito" com valor positivo foi o formato do incidente de 10/10 (entrou como crédito): nunca aceitar.
+    if tem_debitos and formato_debito not in VARIANTES_FORMATO_DEBITO[1:]:
+        raise BarreiraOfxErro(f"formato de débito inválido ou já reprovado: {formato_debito}")
 
     # 4. Resolução da conta e conferência com GET /INTEGRACAO/V1/CONTAS (somente leitura)
     contas_cadastradas = await paginar(unidade, "/INTEGRACAO/V1/CONTAS", {"empresaCodigo": unidade.empresa_codigo}, client=client)

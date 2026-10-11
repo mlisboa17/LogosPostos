@@ -466,7 +466,7 @@ async def test_formato_movimentos_conta_em_portugues_com_variante_confirmada(tmp
         confirmar=False,
         client=client,
         diretorio_historico=tmp_path / "hist",
-        formato_tipo_debito_confirmado="DEBITO_PORTUGUES",
+        formato_tipo_debito_confirmado="D",
     )
     assert res.payload_enviado is not None
     transacoes = res.payload_enviado["transacoes"]
@@ -476,9 +476,23 @@ async def test_formato_movimentos_conta_em_portugues_com_variante_confirmada(tmp
     assert t1["valor"] == 250.0
     assert t1["tipoTransacao"] is None
 
-    assert t2["tipo"] == "Débito"
+    assert t2["tipo"] == "D"
     assert t2["valor"] == 50.0
     assert t2["tipoTransacao"] is None
+
+
+@pytest.mark.asyncio
+async def test_formato_debito_do_incidente_e_desconhecido_sao_recusados(tmp_path, mock_webposto_transport):
+    """"Débito" com valor positivo entrou como crédito em 10/10: nunca pode ser usado."""
+    unidade = _criar_unidade_teste()
+    arquivo_ofx = _criar_ofx_sintetico(tmp_path)
+    client = httpx.AsyncClient(transport=mock_webposto_transport, base_url="https://fake-webposto")
+    for formato in ("DEBITO_PORTUGUES", "QUALQUER_COISA"):
+        with pytest.raises(BarreiraOfxErro, match="inválido ou já reprovado"):
+            await enviar_ofx_webposto(
+                unidade, arquivo_ofx, confirmar=False, client=client,
+                diretorio_historico=tmp_path / "hist", formato_tipo_debito_confirmado=formato,
+            )
 
 
 @pytest.mark.asyncio
