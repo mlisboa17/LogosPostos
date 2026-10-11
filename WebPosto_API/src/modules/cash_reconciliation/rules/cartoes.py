@@ -1,4 +1,4 @@
-"""Conciliacao adquirente x webPosto e investigacao por abastecimento — CARTOES_V2.
+"""Conciliacao adquirente x webPosto e investigacao por abastecimento — CARTOES_V3.
 
 1. Chave exata: NSU ou autorizacao (cartao). Evidencia Doze 05/10/2026: 255/255.
 2. Sem NSU (PIX via adquirente): mesmo valor e |dt| <= 10 min.
@@ -14,7 +14,10 @@
 6. Duas ou mais sobras a maior que somam o valor de uma sobra a menor no mesmo dia
    formam um "grupo provavel" se houver uma unica combinacao (ate 4 recebimentos).
 Mudou alguma regra? Crie nova VERSAO.
+7. Mesmo NSU/autorizacao exige conferir valor; cancelamentos nao casam.
+8. NSU/autorizacao repetido: somente o primeiro lancamento pode casar.
 """
+
 from __future__ import annotations
 
 from itertools import combinations
@@ -27,7 +30,7 @@ from ..domain.cartoes import (
     TransacaoAdquirente,
 )
 
-VERSAO = "CARTOES_V2"
+VERSAO = "CARTOES_V3"
 CORTE_AUTOMATICO = 80
 CORTE_SUGESTAO = 50
 JANELA_ABASTECIMENTO = timedelta(minutes=15)
@@ -40,11 +43,33 @@ def _chave(v: str | None) -> str:
     return str(v or "").strip().lstrip("0").upper()
 
 
+def grupos_nsu_repetido(cartoes: Iterable[CartaoErp]) -> list[list[CartaoErp]]:
+    grupos: list[tuple[set[str], list[CartaoErp]]] = []
+    for cartao in sorted(cartoes, key=lambda c: (c.momento, c.codigo)):
+        chaves = {_chave(k) for k in (cartao.nsu, cartao.nsu_tef, cartao.autorizacao) if _chave(k)}
+        if not chaves:
+            continue
+        relacionados = [grupo for grupo in grupos if grupo[0] & chaves]
+        membros = [cartao]
+        for grupo in relacionados:
+            chaves |= grupo[0]
+            membros.extend(grupo[1])
+            grupos.remove(grupo)
+        grupos.append((chaves, membros))
+    return [
+        sorted(membros, key=lambda c: (c.momento, c.codigo))
+        for _, membros in grupos
+        if len(membros) > 1
+    ]
+
+
 def casar(
     transacoes: Iterable[TransacaoAdquirente], cartoes: Iterable[CartaoErp]
 ) -> tuple[list[Casamento], list[TransacaoAdquirente], list[CartaoErp]]:
-    livres_t = list(transacoes)
-    livres_c = list(cartoes)
+    livres_t = [t for t in transacoes if t.situacao is None]
+    cartoes = list(cartoes)
+    repetidos = [c for grupo in grupos_nsu_repetido(cartoes) for c in grupo[1:]]
+    livres_c = [c for c in cartoes if c not in repetidos]
     casados: list[Casamento] = []
 
     indice: dict[str, CartaoErp] = {}
@@ -58,7 +83,16 @@ def casar(
             if c is not None and c in livres_c:
                 livres_t.remove(t)
                 livres_c.remove(c)
-                casados.append(Casamento(transacao=t, cartao=c, chave=nome))
+                diferenca = c.valor - t.valor
+                casados.append(
+                    Casamento(
+                        transacao=t,
+                        cartao=c,
+                        chave=nome,
+                        valor_divergente=abs(diferenca) >= CENTAVO,
+                        diferenca=diferenca,
+                    )
+                )
                 break
 
     # so transacoes sem NSU/autorizacao (PIX): cartao com NSU nunca casa por valor (esconderia divergencia)
@@ -70,7 +104,7 @@ def casar(
             livres_t.remove(t)
             livres_c.remove(c)
             casados.append(Casamento(transacao=t, cartao=c, chave="valor_hora"))
-    return casados, livres_t, livres_c
+    return casados, livres_t, livres_c + repetidos
 
 
 def pontuar(t: TransacaoAdquirente, a: Abastecimento, venda_em_dinheiro: bool) -> Candidato | None:
@@ -117,6 +151,10 @@ def investigar(
         frentista=frentista,
         candidatos=tuple(candidatos[:5]),
         troca_de_forma=bool(melhor and unico and melhor.venda_em_dinheiro),
+        nome_frentista=(
+            melhor.abastecimento.nome_frentista if melhor and frentista is not None else None
+        ),
+        motivo_frentista="atribuição ambígua" if melhor else "sem abastecimento compatível",
     )
 
 
@@ -128,7 +166,13 @@ def parear_sobras(
     pares: list[ParProvavel] = []
     for inv in a_maior:
         t = inv.transacao
-        cands = [c for c in livres_m if abs(c.valor - t.valor) < CENTAVO and c.momento.date() == t.momento.date()]
+        cands = [
+            c
+            for c in livres_m
+            if not c.motivo
+            and abs(c.valor - t.valor) < CENTAVO
+            and c.momento.date() == t.momento.date()
+        ]
         if cands:
             c = min(cands, key=lambda c: abs(c.momento - t.momento))
             livres_m.remove(c)
@@ -149,6 +193,8 @@ def agrupar_sobras(
     grupos: list[GrupoProvavel] = []
 
     for cartao in list(sobra_menor):
+        if cartao.motivo:
+            continue
         candidatos = sorted(
             (
                 (indice, investigacao)

@@ -37,23 +37,29 @@ def _texto(v: Any) -> str | None:
     return s or None
 
 
-def para_transacao(r: dict[str, Any]) -> TransacaoAdquirente | None:
-    if str(r.get("status_pagamento", "")).strip().upper() not in STATUS_APROVADO:
-        return None
-    if str(r.get("tipo_evento", "1")).strip() != "1":  # 1 = venda; demais sao ajustes/cancelamentos
-        return None
+def para_transacao(r: dict[str, Any]) -> TransacaoAdquirente:
+    status = str(r.get("status_pagamento", "")).strip().upper()
+    evento = str(r.get("tipo_evento", "1")).strip()
+    situacao = None
+    if evento != "1" or status not in STATUS_APROVADO:
+        situacao = f"tipo_evento={evento};status_pagamento={status}"
     dia = r.get("data_inicial_transacao") or r.get("data_venda_ajuste")
     hora = r.get("hora_inicial_transacao") or r.get("hora_venda_ajuste") or "00:00:00"
     valor = Decimal(str(r.get("valor_total_transacao") or r.get("valor_original_transacao") or 0))
     return TransacaoAdquirente(
         adquirente="PAGBANK",
-        identificador=_texto(r.get("tid")) or _texto(r.get("movimento_api_codigo")) or f"{dia}T{hora}:{valor}",
+        identificador=_texto(r.get("tid"))
+        or _texto(r.get("movimento_api_codigo"))
+        or f"{dia}T{hora}:{valor}",
         nsu=_texto(r.get("nsu")),
         autorizacao=_texto(r.get("codigo_autorizacao")),
         valor=valor.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
         momento=ler_data_hora(f"{dia}T{hora}"),
         bandeira=_texto(r.get("instituicao_financeira")),
         terminal=_texto(r.get("numero_serie_leitor")),
+        situacao=situacao,
+        tipo_evento=evento,
+        status_pagamento=status,
     )
 
 
@@ -86,8 +92,9 @@ async def buscar_transacoes(
             payload = resp.json()
             for r in payload.get("detalhes") or []:
                 t = para_transacao(r)
-                if t and t.identificador not in vistos:
-                    vistos.add(t.identificador)
+                identidade = f"{t.identificador}|{t.tipo_evento}|{t.status_pagamento}"
+                if t and identidade not in vistos:
+                    vistos.add(identidade)
                     saida.append(t)
             total = int((payload.get("pagination") or {}).get("totalPages") or 1)
             if pagina >= total or not payload.get("detalhes"):

@@ -6,6 +6,7 @@ VENDAS/ITENS + VENDAS_FORMA_PAGAMENTO (abastecimento -> venda -> forma de pagame
 from __future__ import annotations
 
 from datetime import date
+from collections import defaultdict
 from decimal import Decimal
 from typing import Any
 
@@ -39,6 +40,7 @@ def para_cartao(r: dict[str, Any]) -> CartaoErp:
         nsu=_texto(r.get("nsu")),
         nsu_tef=_texto(r.get("nsuTef")),
         autorizacao=_texto(r.get("autorizacao")),
+        tipo_inclusao=_texto(r.get("tipoInclusao")),
     )
 
 
@@ -85,7 +87,13 @@ def _cancelada(valor: Any) -> bool:
 
 
 async def buscar_contexto_vendas(
-    unidade: Unidade, inicio: date, fim: date, *, client: httpx.AsyncClient | None = None
+    unidade: Unidade,
+    inicio: date,
+    fim: date,
+    *,
+    client: httpx.AsyncClient | None = None,
+    contexto: dict[int, dict] | None = None,
+    abastecimentos: list[Abastecimento] | None = None,
 ) -> tuple[set[int], list[CartaoErp]]:
     """(vendaItemCodigo pagos em dinheiro, PIX lancados como forma de pagamento da venda).
 
@@ -95,6 +103,42 @@ async def buscar_contexto_vendas(
     itens = await paginar(unidade, "/INTEGRACAO/V1/VENDAS/ITENS", p, client=client)
     formas = await paginar(unidade, "/INTEGRACAO/V1/VENDAS_FORMA_PAGAMENTO", p, client=client)
     vendas = await paginar(unidade, "/INTEGRACAO/V1/VENDAS", p, client=client)
+    if contexto is not None:
+        por_item = defaultdict(set)
+        for abastecimento in abastecimentos or []:
+            if abastecimento.frentista is not None:
+                por_item[abastecimento.venda_item_codigo].add(abastecimento.frentista)
+        por_venda = defaultdict(set)
+        for item in itens:
+            if item.get("empresaCodigo") == unidade.empresa_codigo:
+                por_venda[item.get("vendaCodigo")].update(por_item[item.get("vendaItemCodigo")])
+        caixas = await paginar(unidade, "/INTEGRACAO/V1/CAIXAS", p, client=client)
+        operadores = {
+            caixa["caixaCodigo"]: caixa.get("funcionarioCodigo")
+            for caixa in caixas
+            if caixa.get("empresaCodigo") == unidade.empresa_codigo
+        }
+        for venda in vendas:
+            if venda.get("empresaCodigo") != unidade.empresa_codigo:
+                continue
+            candidatos = por_venda[venda["vendaCodigo"]]
+            if len(candidatos) == 1:
+                frentista = next(iter(candidatos))
+                motivo = "frentista do abastecimento vinculado à venda"
+            elif len(candidatos) > 1:
+                frentista, motivo = None, "venda com abastecimentos de frentistas diferentes"
+            else:
+                frentista = operadores.get(venda.get("caixaCodigo"))
+                motivo = (
+                    "operador do caixa"
+                    if frentista is not None
+                    else "venda sem abastecimento ou caixa identificável"
+                )
+            contexto[venda["vendaCodigo"]] = {
+                "frentista": frentista,
+                "motivo_frentista": motivo,
+                "caixa_codigo": venda.get("caixaCodigo"),
+            }
     hora = {
         v["vendaCodigo"]: v.get("dataHora")
         for v in vendas

@@ -143,7 +143,7 @@ def test_conciliar_filtra_adquirente_e_dia():
     assert r.proveniencia.versao_regra == VERSAO
 
 
-def test_conciliar_retorna_grupo_provavel_e_versao_cartoes_v2():
+def test_conciliar_retorna_grupo_provavel_e_versao_cartoes_v3():
     transacoes = [
         T("40.00", "10:00", ident="g1"),
         T("45.00", "10:01", ident="g2"),
@@ -153,7 +153,7 @@ def test_conciliar_retorna_grupo_provavel_e_versao_cartoes_v2():
     resultado = conciliar(74014, "PAGBANK", DIA, transacoes, [C(1, "179.45", "10:05")], [], set())
     assert len(resultado.grupos_provaveis) == 1
     assert not resultado.a_maior and not resultado.a_menor
-    assert resultado.proveniencia.versao_regra == "CARTOES_V2"
+    assert resultado.proveniencia.versao_regra == "CARTOES_V3"
 
 
 # ---------- adapters ----------
@@ -164,8 +164,124 @@ def test_pagbank_transacao_real_data_e_hora_separadas_e_filtro_de_status():
             "tipo_evento": "1", "instituicao_financeira": "VISA", "numero_serie_leitor": "SN1"}
     t = pagbank_edi.para_transacao(base)
     assert t.momento == datetime(2026, 10, 5, 0, 29, 25, tzinfo=FUSO) and t.valor == Decimal("87.43") and t.terminal == "SN1"
-    assert pagbank_edi.para_transacao({**base, "status_pagamento": "3"}) is None
-    assert pagbank_edi.para_transacao({**base, "tipo_evento": "2"}) is None
+    assert (
+        pagbank_edi.para_transacao({**base, "status_pagamento": "3"}).situacao
+        == "tipo_evento=1;status_pagamento=3"
+    )
+    assert (
+        pagbank_edi.para_transacao({**base, "tipo_evento": "2"}).situacao
+        == "tipo_evento=2;status_pagamento=1"
+    )
+
+
+@pytest.mark.parametrize(
+    "erp,recebido,codigo,severidade,diferenca",
+    [
+        ("150", "100", "CARTAO_VALOR_A_MENOR", "vermelho", "50"),
+        ("100", "150", "CARTAO_VALOR_A_MAIOR", "laranja", "-50"),
+        ("100.01", "100", "CARTAO_VALOR_A_MENOR", "vermelho", "0.01"),
+    ],
+)
+def test_valor_divergente_mesmo_nsu(erp, recebido, codigo, severidade, diferenca):
+    cartao = C(1, erp, "10:00", nsu="1234").model_copy(
+        update={
+            "frentista": 7,
+            "nome_frentista": "Funcionário Sintético",
+            "tipo_inclusao": "PDV-TEF",
+        }
+    )
+    resultado = conciliar(
+        74014, "PAGBANK", DIA, [T(recebido, "10:00", nsu="1234")], [cartao], [], set()
+    )
+    assert resultado.casados[0].valor_divergente
+    assert resultado.casados[0].diferenca == Decimal(diferenca)
+    assert resultado.alertas[0].codigo == codigo
+    assert resultado.alertas[0].severidade == severidade
+    assert "Funcionário Sintético (7)" in resultado.alertas[0].mensagem
+    assert "PDV-TEF" in resultado.alertas[0].mensagem
+
+
+def test_mesmo_nsu_valor_igual_sem_alerta_e_v2_abre():
+    from src.modules.cash_reconciliation.domain.recebimentos import RecebimentoAdquirente
+
+    resultado = conciliar(
+        74014,
+        "PAGBANK",
+        DIA,
+        [T("100", "10:00", nsu="1234")],
+        [C(1, "100", "10:00", nsu="1234")],
+        [],
+        set(),
+    )
+    assert not resultado.casados[0].valor_divergente and not resultado.alertas
+    antigo = RecebimentoAdquirente.model_validate(
+        {
+            "adquirente": "PAGBANK",
+            "situacao": "ok",
+            "casados": {"quantidade": 1, "total": "100"},
+        }
+    )
+    assert antigo.casados_valor_divergente.quantidade == 0
+    assert antigo.cancelados.quantidade == 0
+
+
+def test_cancelada_mesmo_nsu_explica_a_menor_e_nao_pareia():
+    cancelada = T("100", "10:05", nsu="1234").model_copy(update={"situacao": "cancelada"})
+    resultado = conciliar(
+        74014,
+        "PAGBANK",
+        DIA,
+        [cancelada, T("100", "11:00", nsu="9999")],
+        [C(1, "100", "10:00", nsu="1234")],
+        [],
+        set(),
+    )
+    assert not resultado.casados and not resultado.pares_provaveis
+    assert "cancelada no PagBank em 05/10/2026 10:05" == resultado.a_menor[0].motivo
+    assert resultado.cancelados == (cancelada,)
+
+
+def test_totais_v3_somam_diferencas_assinadas_e_eventos_separados():
+    from src.modules.cash_reconciliation.domain.recebimentos import RecebimentoAdquirente
+
+    transacoes = [
+        T("100", "10:00", nsu="1234"),
+        T("150", "11:00", nsu="5678"),
+        T("20", "12:00", nsu="9999").model_copy(update={"situacao": "cancelada"}),
+        T("30", "13:00", nsu="8888").model_copy(update={"situacao": "tipo_evento=X"}),
+    ]
+    resultado = conciliar(
+        74014, "PAGBANK", DIA, transacoes,
+        [C(1, "150", "10:00", nsu="1234"), C(2, "100", "11:00", nsu="5678")],
+        [], set(),
+    )
+    recebimento = RecebimentoAdquirente.de_resultado(resultado)
+    assert recebimento.casados_valor_divergente.quantidade == 2
+    assert recebimento.casados_valor_divergente.total == Decimal("0")
+    assert recebimento.cancelados.quantidade == 2
+    assert recebimento.cancelados.total == Decimal("50")
+
+
+def test_nsu_repetido_premmia_so_primeiro_casa_demais_nao_pareiam():
+    cartoes = [
+        C(1, "30", "23:04", nsu="1234", adm="PIX PREMMIA").model_copy(update={"venda_codigo": 11}),
+        C(2, "30", "23:09", nsu="1234", adm="PIX PREMMIA").model_copy(update={"venda_codigo": 22}),
+    ]
+    resultado = conciliar(
+        74014,
+        "PAGBANK",
+        DIA,
+        [T("30", "23:04", nsu="1234"), T("30", "23:09", nsu="7777")],
+        cartoes,
+        [],
+        set(),
+    )
+    assert len(resultado.casados) == 1
+    assert resultado.casados[0].cartao.codigo == 1
+    assert resultado.alertas[0].codigo == "CARTAO_NSU_REPETIDO"
+    assert resultado.alertas[0].severidade == "vermelho"
+    assert resultado.a_menor[0].motivo == "NSU já usado na venda 11"
+    assert not resultado.pares_provaveis
 
 
 async def test_pagbank_le_todas_as_paginas(monkeypatch):

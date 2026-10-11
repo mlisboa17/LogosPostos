@@ -3,15 +3,35 @@ from __future__ import annotations
 
 import uuid
 from datetime import date, timedelta
+from decimal import Decimal
+import logging
 from typing import Iterable
 
 from ..adapters import pagbank_edi
 from ..adapters.webposto_cartoes import buscar_abastecimentos, buscar_cartoes, buscar_contexto_vendas
 from ..config import carregar_unidades
-from ..domain.cartoes import Abastecimento, CartaoErp, ResultadoCartoes, TransacaoAdquirente
+from ..domain.cartoes import (
+    Abastecimento,
+    AlertaCartao,
+    CartaoErp,
+    ResultadoCartoes,
+    TransacaoAdquirente,
+)
 from ..domain.models import Proveniencia
-from ..domain.tempo import agora
-from ..rules.cartoes import VERSAO, agrupar_sobras, casar, investigar, parear_sobras
+from ..domain.tempo import agora, formatar_data_hora
+from ..rules.cartoes import (
+    VERSAO,
+    _chave,
+    agrupar_sobras,
+    casar,
+    grupos_nsu_repetido,
+    investigar,
+    parear_sobras,
+)
+from ...webposto_integration.funcionarios import buscar_nomes_funcionarios
+from ...webposto_integration.http import WebPostoErro
+
+logger = logging.getLogger(__name__)
 
 # administradoras do webPosto liquidadas por cada adquirente (V1/ADMINISTRADORAS)
 ADMINISTRADORAS = {"PAGBANK": ("PAGSEGURO", "PIX PAGBANK")}
@@ -34,11 +54,81 @@ def conciliar(
     itens_em_dinheiro: set[int],
 ) -> ResultadoCartoes:
     """transacoes e cartoes podem cobrir D-1..D+1 (virada do dia); o relatorio e so do dia D."""
+    transacoes, cartoes = list(transacoes), list(cartoes)
+    cancelados = [t for t in transacoes if t.situacao is not None]
+    alertas = []
+    motivos_repetidos = {}
+    for grupo in grupos_nsu_repetido(cartoes):
+        if not any(c.momento.date() == dia for c in grupo):
+            continue
+        primeiro = grupo[0]
+        mensagem = "NSU/autorização repetido: " + " · ".join(
+            f"venda {c.venda_codigo}, {formatar_data_hora(c.momento)}, R$ {c.valor:.2f}, "
+            f"{c.responsavel}, tipoInclusao={c.tipo_inclusao or 'não informado'}"
+            for c in grupo
+        )
+        alertas.append(
+            AlertaCartao(
+                codigo="CARTAO_NSU_REPETIDO",
+                severidade="vermelho",
+                mensagem=mensagem,
+                valor=sum((c.valor for c in grupo[1:] if c.momento.date() == dia), Decimal(0)),
+                cartoes=tuple(grupo),
+            )
+        )
+        for c in grupo[1:]:
+            motivos_repetidos[c.codigo] = f"NSU já usado na venda {primeiro.venda_codigo}"
     casados, sobra_t, sobra_c = casar(transacoes, cartoes)
+    for casamento in casados:
+        if not casamento.valor_divergente or casamento.transacao.momento.date() != dia:
+            continue
+        menor = casamento.diferenca > 0
+        alertas.append(
+            AlertaCartao(
+                codigo="CARTAO_VALOR_A_MENOR" if menor else "CARTAO_VALOR_A_MAIOR",
+                severidade="vermelho" if menor else "laranja",
+                mensagem=(
+                    f"Lançado R$ {casamento.cartao.valor:.2f}, recebido R$ {casamento.transacao.valor:.2f}"
+                    f" — {'faltam' if menor else 'sobram'} R$ {abs(casamento.diferenca):.2f} — "
+                    f"{casamento.cartao.responsavel}; tipoInclusao={casamento.cartao.tipo_inclusao or 'não informado'}"
+                ),
+                valor=abs(casamento.diferenca),
+                cartoes=(casamento.cartao,),
+            )
+        )
+    sobras = []
+    for c in sobra_c:
+        motivo = motivos_repetidos.get(c.codigo)
+        chaves = {_chave(k) for k in (c.nsu, c.nsu_tef, c.autorizacao) if _chave(k)}
+        cancelamento = next(
+            (
+                t
+                for t in cancelados
+                if chaves & {_chave(k) for k in (t.nsu, t.autorizacao) if _chave(k)}
+            ),
+            None,
+        )
+        if not motivo and cancelamento:
+            rotulo = (
+                f"{cancelamento.situacao} no PagBank"
+                if cancelamento.situacao in {"cancelada", "estornada", "ajuste"}
+                else f"evento não aprovado no PagBank ({cancelamento.situacao})"
+            )
+            motivo = f"{rotulo} em {formatar_data_hora(cancelamento.momento)}"
+        sobras.append(c.model_copy(update={"motivo": motivo}))
     abastecimentos = list(abastecimentos)
     a_maior, a_menor, pares = parear_sobras(
-        (investigar(t, abastecimentos, itens_em_dinheiro) for t in sobra_t if t.momento.date() == dia),
-        (c for c in sobra_c if c.momento.date() == dia and da_adquirente(c, adquirente)),
+        (
+            investigar(t, abastecimentos, itens_em_dinheiro)
+            for t in sobra_t
+            if t.momento.date() == dia
+        ),
+        (
+            c
+            for c in sobras
+            if c.momento.date() == dia
+            and (da_adquirente(c, adquirente) or c.codigo in motivos_repetidos)
+        ),
     )
     a_maior, a_menor, grupos = agrupar_sobras(a_maior, a_menor)
     return ResultadoCartoes(
@@ -50,24 +140,91 @@ def conciliar(
         a_menor=tuple(a_menor),
         pares_provaveis=tuple(pares),
         grupos_provaveis=tuple(grupos),
+        cancelados=tuple(t for t in cancelados if t.momento.date() == dia),
+        alertas=tuple(alertas),
         proveniencia=Proveniencia(
             execucao_id=uuid.uuid4().hex,
             executado_em=agora(),
             versao_regra=VERSAO,
             fonte_sangrias="",
             extratos=(),
-            outras_fontes=(pagbank_edi.FONTE, "webPosto/INTEGRACAO/V1/CARTOES",
-                           "webPosto/INTEGRACAO/V1/ABASTECIMENTOS", "webPosto/INTEGRACAO/V1/VENDAS/ITENS",
-                           "webPosto/INTEGRACAO/V1/VENDAS_FORMA_PAGAMENTO", "webPosto/INTEGRACAO/V1/VENDAS"),
+            outras_fontes=(
+                pagbank_edi.FONTE,
+                "webPosto/INTEGRACAO/V1/CARTOES",
+                "webPosto/INTEGRACAO/V1/ABASTECIMENTOS",
+                "webPosto/INTEGRACAO/V1/VENDAS/ITENS",
+                "webPosto/INTEGRACAO/V1/VENDAS_FORMA_PAGAMENTO",
+                "webPosto/INTEGRACAO/V1/VENDAS",
+            ),
         ),
     )
 
 
-async def conciliar_pagbank(empresa_codigo: int, dia: date) -> ResultadoCartoes:
+async def coletar_contexto_cartoes(
+    empresa_codigo: int, dia: date
+) -> tuple[list[CartaoErp], list[Abastecimento], set[int]]:
     unidade = carregar_unidades()[empresa_codigo]
     antes, depois = dia - timedelta(days=1), dia + timedelta(days=1)
-    transacoes = [t for d in (antes, dia, depois) for t in await pagbank_edi.buscar_transacoes(empresa_codigo, d)]
     cartoes = await buscar_cartoes(unidade, antes, depois)
-    abastecimentos = await buscar_abastecimentos(unidade, antes, dia)
-    itens, pix = await buscar_contexto_vendas(unidade, antes, depois)
-    return conciliar(empresa_codigo, "PAGBANK", dia, transacoes, cartoes + pix, abastecimentos, itens)
+    abastecimentos = await buscar_abastecimentos(unidade, antes, depois)
+    contexto: dict[int, dict] = {}
+    itens, pix = await buscar_contexto_vendas(
+        unidade,
+        antes,
+        depois,
+        contexto=contexto,
+        abastecimentos=abastecimentos,
+    )
+    codigos = {a.frentista for a in abastecimentos if a.frentista is not None}
+    codigos.update(
+        item["frentista"] for item in contexto.values() if item.get("frentista") is not None
+    )
+    try:
+        nomes = await buscar_nomes_funcionarios(unidade, antes, depois) if codigos else {}
+    except WebPostoErro as exc:
+        logger.warning("Nomes indisponíveis unidade=%s tipo=%s", empresa_codigo, type(exc).__name__)
+        nomes = {}
+    abastecimentos = [
+        a.model_copy(update={"nome_frentista": nomes.get(a.frentista)}) for a in abastecimentos
+    ]
+    cartoes = [
+        c.model_copy(
+            update={
+                **contexto.get(c.venda_codigo, {}),
+                "nome_frentista": nomes.get(contexto.get(c.venda_codigo, {}).get("frentista")),
+            }
+        )
+        for c in cartoes + pix
+    ]
+    return cartoes, abastecimentos, itens
+
+
+async def conciliar_pagbank(empresa_codigo: int, dia: date) -> ResultadoCartoes:
+    antes, depois = dia - timedelta(days=1), dia + timedelta(days=1)
+    transacoes = [
+        t
+        for d in (antes, dia, depois)
+        for t in await pagbank_edi.buscar_transacoes(empresa_codigo, d)
+    ]
+    cartoes, abastecimentos, itens = await coletar_contexto_cartoes(empresa_codigo, dia)
+    return conciliar(empresa_codigo, "PAGBANK", dia, transacoes, cartoes, abastecimentos, itens)
+
+
+async def verificar_repetidos_premmia(empresa_codigo: int, dia: date) -> ResultadoCartoes:
+    cartoes, abastecimentos, itens = await coletar_contexto_cartoes(empresa_codigo, dia)
+    cartoes = [c for c in cartoes if "PREMMIA" in c.administradora.upper()]
+    resultado = conciliar(empresa_codigo, "PAGBANK", dia, [], cartoes, abastecimentos, itens)
+    return resultado.model_copy(
+        update={
+            "adquirente": "PREMMIA",
+            "proveniencia": resultado.proveniencia.model_copy(
+                update={
+                    "outras_fontes": tuple(
+                        fonte
+                        for fonte in resultado.proveniencia.outras_fontes
+                        if fonte != pagbank_edi.FONTE
+                    ),
+                }
+            ),
+        }
+    )

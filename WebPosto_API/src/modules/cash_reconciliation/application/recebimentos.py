@@ -10,7 +10,7 @@ from ..adapters.webposto_http import WebPostoErro
 from ..config import carregar_unidades
 from ..domain.models import AdquirenteConfigurada, SituacaoAdquirente
 from ..domain.recebimentos import RecebimentoAdquirente, ResultadoRecebimentos
-from .conciliar_cartoes import conciliar_pagbank
+from .conciliar_cartoes import conciliar_pagbank, verificar_repetidos_premmia
 
 logger = logging.getLogger(__name__)
 TIMEOUT_ETAPA = 180.0
@@ -24,13 +24,32 @@ async def conciliar_adquirente(
     timeout: float = TIMEOUT_ETAPA,
 ) -> RecebimentoAdquirente:
     nome = configurada.nome
-    if configurada.situacao is SituacaoAdquirente.PENDENTE:
+    if nome == "PREMMIA" and configurada.situacao is SituacaoAdquirente.PENDENTE:
+        unidade = carregar_unidades().get(empresa_codigo)
+        if unidade and any(
+            a.nome == "PAGBANK" and a.situacao is SituacaoAdquirente.ATIVO
+            for a in unidade.adquirentes
+        ):
+            return RecebimentoAdquirente(adquirente=nome, situacao="pendente")
+    if configurada.situacao is SituacaoAdquirente.PENDENTE and nome != "PREMMIA":
         return RecebimentoAdquirente(adquirente=nome, situacao="pendente")
     if configurada.situacao is SituacaoAdquirente.CREDENCIAL_INVALIDA:
         return RecebimentoAdquirente(
             adquirente=nome, situacao="credencial inválida", erro="credencial inválida",
         )
     try:
+        if nome == "PREMMIA" and configurada.situacao is SituacaoAdquirente.PENDENTE:
+            resultado = await asyncio.wait_for(
+                verificar_repetidos_premmia(empresa_codigo, dia),
+                timeout=timeout,
+            )
+            return RecebimentoAdquirente(
+                adquirente=nome,
+                situacao="pendente",
+                alertas=resultado.alertas,
+                a_menor=resultado.a_menor,
+                proveniencia=resultado.proveniencia,
+            )
         if nome != "PAGBANK":
             raise ValueError("Adquirente ativa sem adaptador.")
         resultado = await asyncio.wait_for(conciliar_pagbank(empresa_codigo, dia), timeout=timeout)

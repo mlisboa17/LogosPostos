@@ -28,6 +28,9 @@ class TransacaoAdquirente(_Frozen):
     momento: DataHoraLocal
     bandeira: str | None = None
     terminal: str | None = None   # numero de serie da maquininha (compartilhada)
+    situacao: str | None = None
+    tipo_evento: str | None = None
+    status_pagamento: str | None = None
 
 
 class CartaoErp(_Frozen):
@@ -41,6 +44,18 @@ class CartaoErp(_Frozen):
     nsu: str | None
     nsu_tef: str | None
     autorizacao: str | None
+    tipo_inclusao: str | None = None
+    caixa_codigo: int | None = None
+    frentista: int | None = None
+    nome_frentista: str | None = None
+    motivo_frentista: str = "venda sem abastecimento ou operador identificável"
+    motivo: str | None = None
+
+    @property
+    def responsavel(self) -> str:
+        if self.frentista is None:
+            return f"frentista não identificado — {self.motivo_frentista}"
+        return f"{self.nome_frentista or 'nome indisponível'} ({self.frentista})"
 
 
 class Abastecimento(_Frozen):
@@ -51,6 +66,7 @@ class Abastecimento(_Frozen):
     valor: Decimal
     frentista: int | None          # codigoFrentista (identfid)
     venda_item_codigo: int | None
+    nome_frentista: str | None = None
 
 
 class Atribuicao(str, Enum):
@@ -73,12 +89,30 @@ class Investigacao(_Frozen):
     frentista: int | None             # so preenchido quando ATRIBUIDO
     candidatos: tuple[Candidato, ...]
     troca_de_forma: bool              # venda do abastecimento lancada como dinheiro
+    nome_frentista: str | None = None
+    motivo_frentista: str = "sem abastecimento atribuível com segurança"
+
+    @property
+    def responsavel(self) -> str:
+        if self.frentista is None:
+            return f"frentista não identificado — {self.motivo_frentista}"
+        return f"{self.nome_frentista or 'nome indisponível'} ({self.frentista})"
 
 
 class Casamento(_Frozen):
     transacao: TransacaoAdquirente
     cartao: CartaoErp
     chave: str                        # "nsu" | "autorizacao" | "valor_hora"
+    valor_divergente: bool = False
+    diferenca: Decimal = Decimal(0)
+
+
+class AlertaCartao(_Frozen):
+    codigo: str
+    severidade: str
+    mensagem: str
+    valor: Decimal
+    cartoes: tuple[CartaoErp, ...] = ()
 
 
 class ParProvavel(_Frozen):
@@ -101,4 +135,6 @@ class ResultadoCartoes(_Frozen):
     a_menor: tuple[CartaoErp, ...]     # lancado no webPosto, nao recebido na adquirente
     pares_provaveis: tuple[ParProvavel, ...] = ()
     grupos_provaveis: tuple[GrupoProvavel, ...] = ()
+    cancelados: tuple[TransacaoAdquirente, ...] = ()
+    alertas: tuple[AlertaCartao, ...] = ()
     proveniencia: Proveniencia
