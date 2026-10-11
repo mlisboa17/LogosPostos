@@ -38,6 +38,12 @@ Abrir o relatório (e cada unidade no Telegram e no Painel) com um bloco de stat
 4. Exemplos que o teste tem de reproduzir (10/10/2026): **Casa Caiada** — PagBank ✅ 109 · R$ 8.983,98; Premmia ✅ 14 · R$ 1.032,57; Mais Pagamentos ⏳ R$ 3.702,54; Dinheiro ❌ falta R$ 11,71 → "1 diferença (R$ 11,71) e 1 fonte sem conferência". **Doze** — PagBank ❌ R$ 36.541,86 × R$ 36.291,79 → R$ 250,07 (duplicidade); Premmia ✅ 32 · R$ 2.570,17; Mais Pagamentos ⏳ R$ 23.881,93; Dinheiro ❌ falta R$ 84,80.
 5. Painel: selo por unidade/dia (✅ / ❌ / ⚠) com link para o relatório.
 
+## PARTE A3 — Direção da diferença, sincronização manual e validação de valores altos (diretor, 11/10/2026)
+
+1. **Sempre mostrar o lado maior** em cada fonte: "**PagBank maior** que o webPosto → cartão não reconhecido automaticamente → **lançar/ajustar no webPosto**" (grupo 1/2); "**webPosto maior** que o PagBank → lançado sem pagamento → **apurar**" (grupo 3, mais grave). Mesma lógica para Premmia e demais fontes.
+2. **Botão "Atualizar agora"** (diretor e gerente da unidade) na tela e endpoint `POST /cash-audit/sincronizar?unidade=&dia=`: reconsulta webPosto, PagBank e Premmia (planilha; sem login extra no portal fora do robô) e recalcula o dia; mostra "Dados de dd/mm HH:mm". Limite de 1 sincronização por unidade a cada 2 minutos.
+3. **Validação antes de alertar valores altos:** diferença acima de um limite por unidade (padrão: R$ 300,00 ou 3× a mediana das diferenças dos últimos 30 dias da unidade, o que for maior) em **caixa não consolidado** ou com dado de mais de 1 h → **sincronizar automaticamente** e, se continuar, marcar "**a confirmar**" (não "cobrar") até o caixa ser consolidado. Caso real: Casa Caiada 09/10 falta R$ 816,34 com caixa não consolidado.
+
 ## PARTE B — Regras novas (CARTOES_V3_4)
 
 1. **Cobrança em duplicidade:** duas ou mais transações da adquirente com **mesmo valor, mesma maquininha (terminal), até 3 min** de diferença e **só uma** venda/cartão correspondente no webPosto → alerta vermelho `CARTAO_COBRANCA_DUPLICADA` na Sprint 14 como grupo **3 (Apurar)** com ação **"verificar estorno ao cliente"** (não "lançar"); mostrar as duas horas, autorizações (finais), terminal, a venda/cupom e o frentista. Se aparecer cancelamento/estorno da transação extra nos dias seguintes → fechar sozinho com histórico.
