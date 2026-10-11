@@ -40,6 +40,11 @@ Histórico de sprints: um prompt por sprint em docs/prompts/ (SPRINT_05 ... SPRI
   .env (11/10): CIELO_CHAVE_API_POSTOVIP e CIELO_CHAVE_API_CONVENIENCIA_24_HORAS (44 caracteres = provável chave HMAC),
   EC do VIP conveniência e da Conv. 24h. FALTAM client_id e client_secret (e confirmar se exige certificado mTLS).
   Ainda falta o manual de LAYOUT do Extrato Eletrônico (posições do CIELO03/04/16).
+  11/10 05:28: teste do token (EC como client_id + chave como secret) → 401 {"error":"missing"} = FALTA CERTIFICADO mTLS
+  (manual docs/external/cielo/integracao_apis_extc.pdf, p.7). Gerados FORA do repo, em C:\Projetos\LOGOS\certificados\cielo\:
+  logosauditoria-extc-prd-mulesoft-mtls.key (PRIVADA, nunca compartilhar/versionar) e .csr (enviar no portal Cielo →
+  Extrato Eletrônico → Integrar via API → "Envie o certificado para assinatura"). Cielo devolve o .cer em até 5 dias úteis;
+  depois, client_id/client_secret em desenvolvedores.cielo.com.br → Perfil → Client-IDs Cadastrados.
 - Próximo: CIELO_01 · MAIS_01 (quando chegar a credencial) · Sprint 15 (dossiê + medir acerto das propostas) · EXTRATOS_01.
 
 ## Em andamento
