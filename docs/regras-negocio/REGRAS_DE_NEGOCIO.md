@@ -481,6 +481,9 @@ Temas comuns em postos que **ainda não têm regra decidida** — não implement
 | Despesas do caixa | Valor máximo por despesa paga pelo caixa; planos de contas permitidos por tipo de despesa? |
 | Vales de funcionários | Limite por funcionário/mês? |
 | Conveniência (cigarro, padaria, combos) | Há exceções fiscais ou de preço a conferir? |
+| Desconto não autorizado na bomba | `V1/ABASTECIMENTOS`: preço praticado (`valorUnitario`) abaixo do `precoCadastro` sem tabela A/B/C que justifique — qual tolerância e quem pode autorizar? |
+| Sequência de encerrantes | `V1/ABASTECIMENTOS.encerrante`: buraco na sequência por bico indica abastecimento não registrado — tolerância? Usar também no LMC? |
+| Placa | `V1/ABASTECIMENTOS.placa`: localizar abastecimentos de clientes empresa e repetição da mesma placa no dia — limites? |
 | Rede / Cielo / Mais Pagamentos | Fonte dos dados: EDI via webPosto ou acesso direto? (aguarda Quality e TIVIT) |
 
 ## 13. Histórico
