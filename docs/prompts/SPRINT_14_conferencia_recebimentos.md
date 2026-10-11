@@ -86,6 +86,14 @@ Leitura: o dinheiro do dia fecha, mas foi lançado na adquirente errada (02/out:
 4. Telegram por filial: "Diferença do dia: R$ 0,00 · 2 correções prontas (R$ 60,00)" quando houver compensação.
 5. Testes: os dois dias do modelo acima com itens sintéticos → par encontrado, proposta De → Para correta, Diferença do dia 0,00; compensação com 2 itens somando o valor; caso sem par → "compensação a apurar".
 
+## PARTE B3 — Período da conferência (decisão do diretor, 11/10/2026 — RN-REDE-006)
+
+1. **Data final máxima = hoje − 2 dias** (fuso Recife). Nunca hoje nem ontem: o caixa ainda não está consolidado e as adquirentes ainda não fecharam o dia.
+2. **Período máximo de 7 dias** (início ≥ fim − 6). Padrão ao abrir: os 7 dias que terminam em hoje − 2.
+3. Validar no backend (endpoint recusa com mensagem clara) e no frontend (campos limitados).
+4. **Datas exibidas e digitadas em `dd/mm/aaaa`** (RN-REDE-001). A tela mostrou "10/01/2026" para 01/10/2026 (formato americano do navegador): não usar o formato do `<input type="date">` do navegador; usar campo `dd/mm/aaaa` ou forçar `lang="pt-BR"` e conferir na tela.
+5. Testes: hoje → recusado; ontem → recusado; 8 dias → recusado; padrão = [hoje−8, hoje−2]; exibição dd/mm/aaaa.
+
 ## PARTE C — Testes e dados reais
 
 1. Testes sintéticos de cada grupo, da busca cruzada (lançado como PagBank, pago no Premmia → grupo 2), da troca de forma, do grupo provável, da reincidência e da conferência manual (Não encontrado → grupo 3). Nenhum acesso ao portal.

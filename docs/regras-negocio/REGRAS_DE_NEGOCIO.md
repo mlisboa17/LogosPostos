@@ -381,10 +381,27 @@
 | Padrão | — |
 | Exceção | "PIX CNPJ" no webPosto = PIX feito pela **chave PIX do posto**, direto na conta PagBank do Doze, **sem maquininha**; por isso não aparece no EDI transacional do PagBank e é lançado à mão |
 | Gatilho | Lançamento com administradora "PIX CNPJ" |
-| Ação no sistema | Hoje: só aparece como cartão manual sem venda (RN-CARTAO-008). Futuro: confirmar no extrato da conta PagBank recebido por e-mail (EXTRATOS_01) |
-| Implementação | — (EXTRATOS_01, adiante) |
-| Status | proposta |
+| Ação no sistema | Conferir à mão (grupo 4, RN-CARTAO-010); nunca presumir ausência no EDI. Conferido/Não encontrado com observação e histórico local; Não encontrado encaminha para apuração. Futuro: extrato recebido por e-mail (EXTRATOS_01) |
+| Implementação | Sprint 14; EXTRATOS_01 ainda pendente |
+| Status | vigente |
 | Vigência | 11/10/2026 — informado pelo diretor (Doze 01–09/10: 7 lançamentos · R$ 2.480,41) |
+
+### RN-CARTAO-010 — Classificação acionável dos recebimentos
+| Campo | Valor |
+|---|---|
+| Unidades | Todas com recebimentos |
+| Módulo | Conferência de recebimentos |
+| Padrão | 1 LANÇAR: recebido sem lançamento/venda candidata; 2 ALTERAR: dinheiro recebido com forma/adquirente/hora/vínculo errado, par ou grupo provável; 3 APURAR: suspeita de lançamento sem lastro após busca cruzada; 4 CONFERIR À MÃO: fonte ausente ou evidência ambígua/incompleta |
+| Exceção | Totais legados sem comprovantes individuais não permitem afirmar forma/hora nem concluir busca cruzada: sinalizar lacuna e conferir à mão. Nunca inventar valores de adquirente pendente |
+| Gatilho | Resultados já calculados e gravados por unidade/dia; nenhuma consulta externa no endpoint de conferência |
+| Ação no sistema | Busca cruzada por valor/dia até 30 min, única nos dois lados, sem reutilização. Combinação única de até 4 itens usa motor existente. Diferença positiva e negativa sem correspondência identificável: compensação a apurar. Três trocas de forma/apurações por frentista no mês: REINCIDENTE, com quantidade e valor |
+| Pendências | Grupo 3 vermelho individual; grupos 1/2 laranja agrupados por caixa/dia (RN-PEND-001), sem somar alertas duplicados. Histórico append-only; justificadas/recusadas preservadas |
+| Conferência manual | Diretor/gerente da unidade registra Conferido/Não encontrado e observação no SQLite; Não encontrado cria grupo 3. Conferido não modifica o ERP |
+| Propostas | Grupo 2 gera proposta local com De → Para, lançamento/venda/caixa, evidências mascaradas e nota de certeza. Status proposta, executada pelo gerente ou descartada, com usuário/data/histórico. ADR-003 Fase 0: nenhum lançamento automático |
+| Nota de certeza | Escore de evidência, não probabilidade: troca em dinheiro reaproveita pontos do motor; chave exata 100, valor/hora com unicidade 80, busca cruzada 70, combinação cruzada 60 e par/grupo provável 50. Medir decisões humanas no histórico antes de qualquer automação |
+| Implementação | Sprint 14 · `application/classificar_recebimentos.py`, contratos Pydantic e motor CARTOES_V3_3 |
+| Status | vigente |
+| Vigência | 11/10/2026 |
 
 ---
 
@@ -508,3 +525,4 @@ Temas comuns em postos que **ainda não têm regra decidida** — não implement
 | 11/10/2026 | CARTOES_V3_3: preservar usos distintos de cupom repetido, casar por código/valor/dia e horário mais próximo; integridade original × mensal e encerramento de falsas pendências com histórico |
 | 11/10/2026 | Ajuste autorizado: Pix do portal × PREMMIA PIX usa valor exato, mesmo dia, até 10 minutos e unicidade nos dois lados, como POS PREMMIA; ambiguidade permanece para conferência |
 | 11/10/2026 | RN-CARTAO-009 (PIX CNPJ do Doze, pela chave do posto) — proposta, depende de EXTRATOS_01 |
+| 11/10/2026 | Sprint 14: RN-CARTAO-010, quatro grupos acionáveis, conferência manual auditada, compensação diária e propostas locais; RN-CARTAO-009 conferência manual até integrar extrato |
