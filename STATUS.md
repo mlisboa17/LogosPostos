@@ -45,7 +45,10 @@ Histórico de sprints: um prompt por sprint em docs/prompts/ (SPRINT_05 ... SPRI
   logosauditoria-extc-prd-mulesoft-mtls.key (PRIVADA, nunca compartilhar/versionar) e .csr (enviar no portal Cielo →
   Extrato Eletrônico → Integrar via API → "Envie o certificado para assinatura"). Cielo devolve o .cer em até 5 dias úteis;
   depois, client_id/client_secret em desenvolvedores.cielo.com.br → Perfil → Client-IDs Cadastrados.
-- Próximo: CIELO_01 · MAIS_01 (quando chegar a credencial) · Sprint 15 (dossiê + medir acerto das propostas) · EXTRATOS_01.
+- CIELO_01 PAUSADA pelo diretor (11/10): falta achar no portal Cielo onde enviar o .csr (Integrar via API →
+  "Certificado de segurança (MTLS)" / "Envie o certificado para assinatura"; senão "Agendar suporte técnico").
+  Matriz 1003946779 (VIP) é do webPosto/Quality desde 28/09 — NÃO alterar. A nossa é a 1050633722.
+- Próximo: FECHAMENTO DE CAIXA (decisão do diretor 11/10) · CIELO_01 e MAIS_01 quando houver credencial · Sprint 15 (dossiê + medir acerto das propostas) · EXTRATOS_01.
 
 ## Em andamento
 - SPRINT_12 CARTOES_V3 (prompt pronto, não executado): mesmo NSU com valor diferente; cancelamentos do EDI
