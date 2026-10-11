@@ -32,6 +32,16 @@ Já existe `adapters/ofx_reader.py` (SGML 1.02, cp1252, extrai **só depósitos 
 2. Caso real para validar quando o diretor anexar o extrato PagBank do Doze: **PIX CNPJ R$ 800,00 em 10/10/2026** (lançado à mão às 16:00) e os 7 PIX CNPJ de 01–09/10 (R$ 2.480,41).
 3. Atualizar `REGRAS_DE_NEGOCIO.md`: RN-CARTAO-009 (confirmação pelo extrato anexado) e nova RN-REDE-009 (extratos anexados: formatos, guarda, quem pode anexar); histórico.
 
+## Diagnóstico do OFX real do PagBank (arquiteto, 11/10/2026 — `C:\Projetos\LOGOS\extratos\PAGBANK\PagBank_Doze_Outubro2026.ofx.ofx`)
+
+- Cabeçalho `OFXHEADER:100 / DATA:OFXSGML / VERSION:100` mas `ENCODING:UTF-8` (OFX 1.0 SGML espera USASCII/1252) e todas as tags **com fechamento** (estilo XML) → mistura de padrões.
+- `TRNTYPE` **`IN`/`OUT`** (fora do padrão OFX: CREDIT/DEBIT/…) — causa provável da falha no webPosto. Mapear IN→crédito, OUT→débito.
+- `DTPOSTED` `AAAAMMDDHHMMSS[-3:BRT]` (com hora); `TRNAMT` com ponto; `FITID` UUID; sem `NAME`, só `MEMO`.
+- **3.566 lançamentos** em 01–11/10: cada venda aparece como "Vendas - Disponivel <DEBITO|CREDITO> <BANDEIRA>" (3.451), mais "Pix recebido" (64), "Pix enviado" (46), "QR Code Pix enviado" (3), "Rendimento da conta" (2). Alguns caracteres especiais e um `\xa0`.
+- Fixture sintética deve reproduzir exatamente isso (sem dados reais).
+
+Resultado já conferido pelo arquiteto com esse extrato (PIX CNPJ do Doze): **encontrados** 04/10 R$ 100,00 e R$ 50,00; 05/10 R$ 142,71; 06/10 R$ 1.614,64; 08/10 R$ 417,00; **10/10 R$ 800,00**. **NÃO encontrados** em lugar nenhum do extrato PagBank nem no BB: **05/10 R$ 96,28** e **07/10 R$ 59,78** (ambos lançados à mão às 01:00). O teste da Parte C tem de reproduzir esse resultado.
+
 ## PARTE D — Testes
 
 Fixtures sintéticas: OFX BB SGML cp1252; OFX XML; OFX "estilo PagBank" com defeitos comuns (sem fechamento de tags, vírgula decimal, fuso no DTPOSTED, BOM); CSV PagBank; reenvio sem duplicar; upload com extensão proibida recusado; PIX CNPJ achado/não achado/sem extrato; escopo do gerente. Nenhum dado real nos testes.
