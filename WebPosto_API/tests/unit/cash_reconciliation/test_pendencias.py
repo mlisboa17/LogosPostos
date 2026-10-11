@@ -228,6 +228,134 @@ def test_telegram_v3_diferencas_e_evento_desconhecido():
     assert "tipoInclusao=" in mensagem
 
 
+def test_v3_1_manuais_no_grupo_laranja_idempotente(tmp_path, monkeypatch):
+    from src.modules.cash_reconciliation.application.conciliar_cartoes import conciliar
+    from src.modules.cash_reconciliation.domain.recebimentos import RecebimentoAdquirente
+    from .test_cartoes import C
+
+    monkeypatch.setattr(repositorio, "BANCO_PENDENCIAS", tmp_path / "pendencias.sqlite3")
+    cartoes = [
+        C(codigo, valor, "01:00", aut="1234", dia=DIA.isoformat()).model_copy(
+            update={
+                "empresa_codigo": EMPRESA,
+                "tipo_inclusao": "Manualmente",
+                "venda_codigo": 0,
+                "caixa_codigo": 106,
+                "frentista": 7,
+                "nome_frentista": "Funcionário Sintético",
+            }
+        )
+        for codigo, valor in ((1, "150.04"), (2, "20"))
+    ]
+    resultado = conciliar(EMPRESA, "PAGBANK", DIA, [], cartoes, [], set())
+    diario = diario_com_alertas(alertas_laranja()).model_copy(
+        update={
+            "recebimentos": ResultadoRecebimentos(
+                empresa_codigo=EMPRESA,
+                dia=DIA,
+                adquirentes=(RecebimentoAdquirente.de_resultado(resultado),),
+            ),
+        }
+    )
+    entradas = pendencias_do_dia(diario)
+    grupos = [p for p in entradas if p.tipo == "caixa_alertas_laranja"]
+    assert len(grupos) == 1
+    manuais = [
+        a
+        for a in json.loads(grupos[0].mensagem)["alertas"]
+        if a["codigo"] == "CARTAO_MANUAL_SEM_VENDA"
+    ]
+    assert len(manuais) == 2
+    assert sum(Decimal(a["valor"]) for a in manuais) == Decimal("170.04")
+    assert repositorio.registrar(entradas) == len(entradas)
+    assert repositorio.registrar(pendencias_do_dia(diario)) == 0
+
+
+@pytest.mark.parametrize("disponivel", [True, False])
+def test_v3_1_aprova_so_duplicidades_abertas_invalidas(tmp_path, monkeypatch, disponivel):
+    from src.modules.cash_reconciliation.domain.cartoes import AlertaCartao, CartaoErp
+    from src.modules.cash_reconciliation.domain.recebimentos import RecebimentoAdquirente
+
+    monkeypatch.setattr(repositorio, "BANCO_PENDENCIAS", tmp_path / "pendencias.sqlite3")
+    referencias = [f"PAGBANK:CARTAO_NSU_REPETIDO:{i}" for i in range(1, 6)]
+    entradas = [
+        NovaPendencia(
+            unidade=EMPRESA,
+            dia=DIA,
+            tipo="recebimento_nsu_repetido",
+            severidade="vermelho",
+            valor=Decimal("30"),
+            referencia=ref,
+            mensagem="Autorização sintética repetida",
+        )
+        for ref in referencias
+    ]
+    repositorio.registrar(entradas)
+    antigas, _ = repositorio.listar(unidade=EMPRESA)
+    por_ref = {p.referencia: p for p in antigas}
+    for ref, status in zip(referencias[2:4], ("justificada", "recusada")):
+        repositorio.transicionar(
+            por_ref[ref].id,
+            status_esperado="aberta",
+            status_novo=status,
+            acao=status,
+            usuario="diretor",
+            justificativa="Decisão sintética",
+        )
+    diario = criar_diario(DIA)
+    cartao = CartaoErp(
+        codigo=5,
+        empresa_codigo=EMPRESA,
+        venda_codigo=11,
+        valor=Decimal("30"),
+        momento=datetime(2026, 10, 6, 23, 9),
+        administradora="PAGSEGURO",
+        nsu="uuid-sintetico",
+        nsu_tef=None,
+        autorizacao=None,
+    )
+    alerta = AlertaCartao(
+        codigo="CARTAO_NSU_REPETIDO",
+        severidade="vermelho",
+        valor=Decimal("30"),
+        mensagem="Duplicidade real sintética",
+        cartoes=(cartao,),
+    )
+    item = RecebimentoAdquirente(
+        adquirente="PAGBANK",
+        situacao="ok" if disponivel else "erro",
+        alertas=(alerta,) if disponivel else (),
+        proveniencia=diario.proveniencia.model_copy(update={"versao_regra": "CARTOES_V3_1"}),
+    )
+    diario = diario.model_copy(
+        update={
+            "recebimentos": ResultadoRecebimentos(
+                empresa_codigo=EMPRESA,
+                dia=DIA,
+                adquirentes=(item,),
+            ),
+        }
+    )
+    pendencias_do_dia(diario)
+    pendencias_do_dia(diario)
+    for ref in referencias:
+        atual = repositorio.obter(por_ref[ref].id)
+        if ref in referencias[:2] and disponivel:
+            assert atual.status == "aprovada"
+            assert len(atual.historico) == 2
+            assert atual.historico[-1].usuario == "robo"
+            assert atual.historico[-1].justificativa == (
+                "Regra CARTOES_V3_1: autorização repetida com valor/dia "
+                "diferentes não indica duplicidade"
+            )
+        elif ref in referencias[2:4]:
+            assert atual.status == ("justificada" if ref == referencias[2] else "recusada")
+            assert len(atual.historico) == 2
+        else:
+            assert atual.status == "aberta"
+            assert len(atual.historico) == 1
+
+
 def test_fragmentacao_alerta_preserva_entidades_html():
     from html import escape, unescape
     from src.modules.cash_reconciliation.application.resumo_diario import _quebrar_linha

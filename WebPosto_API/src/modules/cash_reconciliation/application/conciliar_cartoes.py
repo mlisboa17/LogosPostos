@@ -59,7 +59,8 @@ def conciliar(
     alertas = []
     motivos_repetidos = {}
     for grupo in grupos_nsu_repetido(cartoes):
-        if not any(c.momento.date() == dia for c in grupo):
+        excedentes = [c for c in grupo[1:] if c.momento.date() == dia]
+        if not excedentes:
             continue
         primeiro = grupo[0]
         mensagem = "NSU/autorização repetido: " + " · ".join(
@@ -72,12 +73,31 @@ def conciliar(
                 codigo="CARTAO_NSU_REPETIDO",
                 severidade="vermelho",
                 mensagem=mensagem,
-                valor=sum((c.valor for c in grupo[1:] if c.momento.date() == dia), Decimal(0)),
+                valor=sum((c.valor for c in excedentes), Decimal(0)),
                 cartoes=tuple(grupo),
             )
         )
         for c in grupo[1:]:
             motivos_repetidos[c.codigo] = f"NSU já usado na venda {primeiro.venda_codigo}"
+    for cartao in cartoes:
+        if (
+            cartao.momento.date() == dia
+            and cartao.tipo_inclusao == "Manualmente"
+            and not cartao.venda_codigo
+        ):
+            alertas.append(
+                AlertaCartao(
+                    codigo="CARTAO_MANUAL_SEM_VENDA",
+                    severidade="laranja",
+                    valor=cartao.valor,
+                    cartoes=(cartao,),
+                    mensagem=(
+                        f"Lançamento manual sem venda: R$ {cartao.valor:.2f}, "
+                        f"{formatar_data_hora(cartao.momento)}, {cartao.administradora} — "
+                        f"{cartao.responsavel}; tipoInclusao=Manualmente"
+                    ),
+                )
+            )
     casados, sobra_t, sobra_c = casar(transacoes, cartoes)
     for casamento in casados:
         if not casamento.valor_divergente or casamento.transacao.momento.date() != dia:

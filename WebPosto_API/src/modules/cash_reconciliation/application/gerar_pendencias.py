@@ -231,6 +231,50 @@ def pendencias_do_dia(resultado: ResultadoDiario) -> list[NovaPendencia]:
                     ),
                 )
             )
+    adquirentes_verificados = {
+        item.adquirente
+        for item in resultado.recebimentos.adquirentes
+        if item.proveniencia
+        and item.proveniencia.versao_regra == "CARTOES_V3_1"
+        and item.situacao in {"ok", "pendente"}
+    }
+    if adquirentes_verificados and repositorio_pendencias.contar_abertas_somente_leitura(
+        unidade=resultado.empresa_codigo,
+    ):
+        referencias_validas = {
+            entrada.referencia for entrada in novas if entrada.tipo == "recebimento_nsu_repetido"
+        }
+        antigas = []
+        deslocamento = 0
+        while True:
+            itens, total = repositorio_pendencias.listar(
+                unidade=resultado.empresa_codigo,
+                status="aberta",
+                tipo="recebimento_nsu_repetido",
+                limite=100,
+                deslocamento=deslocamento,
+            )
+            antigas.extend(itens)
+            deslocamento += len(itens)
+            if not itens or deslocamento >= total:
+                break
+        for pendencia in antigas:
+            if (
+                pendencia.dia == resultado.dia
+                and pendencia.referencia.partition(":")[0] in adquirentes_verificados
+                and pendencia.referencia not in referencias_validas
+            ):
+                repositorio_pendencias.transicionar(
+                    pendencia.id,
+                    status_esperado="aberta",
+                    status_novo="aprovada",
+                    acao="aprovada",
+                    usuario="robo",
+                    justificativa=(
+                        "Regra CARTOES_V3_1: autorização repetida com valor/dia "
+                        "diferentes não indica duplicidade"
+                    ),
+                )
     return novas
 
 

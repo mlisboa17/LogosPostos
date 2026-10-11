@@ -1,4 +1,4 @@
-"""Conciliacao adquirente x webPosto e investigacao por abastecimento — CARTOES_V3.
+"""Conciliacao adquirente x webPosto e investigacao por abastecimento — CARTOES_V3_1.
 
 1. Chave exata: NSU ou autorizacao (cartao). Evidencia Doze 05/10/2026: 255/255.
 2. Sem NSU (PIX via adquirente): mesmo valor e |dt| <= 10 min.
@@ -15,13 +15,15 @@
    formam um "grupo provavel" se houver uma unica combinacao (ate 4 recebimentos).
 Mudou alguma regra? Crie nova VERSAO.
 7. Mesmo NSU/autorizacao exige conferir valor; cancelamentos nao casam.
-8. NSU/autorizacao repetido: somente o primeiro lancamento pode casar.
+8. NSU repetido ou autorizacao com mesmo valor/dia: so o primeiro pode casar.
+   Autorizacao isolada com valor/dia diferentes nao indica duplicidade.
 """
 
 from __future__ import annotations
 
 from itertools import combinations
-from datetime import timedelta
+import logging
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Iterable
 
@@ -30,7 +32,8 @@ from ..domain.cartoes import (
     TransacaoAdquirente,
 )
 
-VERSAO = "CARTOES_V3"
+VERSAO = "CARTOES_V3_1"
+logger = logging.getLogger(__name__)
 CORTE_AUTOMATICO = 80
 CORTE_SUGESTAO = 50
 JANELA_ABASTECIMENTO = timedelta(minutes=15)
@@ -44,9 +47,21 @@ def _chave(v: str | None) -> str:
 
 
 def grupos_nsu_repetido(cartoes: Iterable[CartaoErp]) -> list[list[CartaoErp]]:
-    grupos: list[tuple[set[str], list[CartaoErp]]] = []
+    grupos: list[tuple[set[tuple], list[CartaoErp]]] = []
+    autorizacoes: dict[str, set[tuple[Decimal, date]]] = {}
     for cartao in sorted(cartoes, key=lambda c: (c.momento, c.codigo)):
-        chaves = {_chave(k) for k in (cartao.nsu, cartao.nsu_tef, cartao.autorizacao) if _chave(k)}
+        chaves = {("nsu", _chave(k)) for k in (cartao.nsu, cartao.nsu_tef) if _chave(k)}
+        autorizacao = _chave(cartao.autorizacao)
+        if autorizacao:
+            contexto = (cartao.valor, cartao.momento.date())
+            anteriores = autorizacoes.setdefault(autorizacao, set())
+            if anteriores and contexto not in anteriores:
+                logger.debug(
+                    "Autorizacao repetida com valor/dia diferentes ignorada cartao=%s",
+                    cartao.codigo,
+                )
+            anteriores.add(contexto)
+            chaves.add(("autorizacao", autorizacao, *contexto))
         if not chaves:
             continue
         relacionados = [grupo for grupo in grupos if grupo[0] & chaves]

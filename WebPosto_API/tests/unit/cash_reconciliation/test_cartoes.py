@@ -153,7 +153,7 @@ def test_conciliar_retorna_grupo_provavel_e_versao_cartoes_v3():
     resultado = conciliar(74014, "PAGBANK", DIA, transacoes, [C(1, "179.45", "10:05")], [], set())
     assert len(resultado.grupos_provaveis) == 1
     assert not resultado.a_maior and not resultado.a_menor
-    assert resultado.proveniencia.versao_regra == "CARTOES_V3"
+    assert resultado.proveniencia.versao_regra == "CARTOES_V3_1"
 
 
 # ---------- adapters ----------
@@ -297,6 +297,86 @@ async def test_pagbank_le_todas_as_paginas(monkeypatch):
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://t") as c:
         r = await pagbank_edi.buscar_transacoes(1, DIA, client=c)
     assert [t.identificador for t in r] == ["P1", "P2", "P3"]
+
+
+@pytest.mark.parametrize("caso", ["vip", "casa", "doze_dias", "manual"])
+def test_v3_1_quatro_casos_do_diretor(caso, caplog):
+    import logging
+
+    caplog.set_level(logging.DEBUG, logger="src.modules.cash_reconciliation.rules.cartoes")
+    if caso == "vip":
+        cartoes = [
+            C(1, "30", "23:04", nsu="uuid-sintetico", adm="PIX PREMMIA"),
+            C(2, "30", "23:09", nsu="uuid-sintetico", adm="PIX PREMMIA"),
+        ]
+    elif caso == "casa":
+        cartoes = [
+            C(1, "20", "18:25", nsu="1111", aut="1234"),
+            C(2, "30", "22:04", nsu="2222", aut="1234"),
+        ]
+    elif caso == "doze_dias":
+        cartoes = [
+            C(1, "207.67", "21:07", nsu="1111", aut="1234"),
+            C(2, "200", "10:07", nsu="2222", aut="1234", dia="2026-10-06"),
+        ]
+    else:
+        cartoes = [C(1, "150.04", "01:00", aut="1234"), C(2, "20", "01:00", aut="1234")]
+    cartoes = [
+        c.model_copy(
+            update={
+                "venda_codigo": 0 if caso == "manual" else c.codigo + 10,
+                "tipo_inclusao": "Manualmente" if caso == "manual" else "PDV-TEF",
+                "frentista": 7 if caso in {"vip", "manual"} else c.codigo + 7,
+                "nome_frentista": "Funcionário Sintético",
+                "caixa_codigo": 106,
+            }
+        )
+        for c in cartoes
+    ]
+    resultado = conciliar(74014, "PAGBANK", DIA, [], cartoes, [], set())
+    repetidos = [a for a in resultado.alertas if a.codigo == "CARTAO_NSU_REPETIDO"]
+    manuais = [a for a in resultado.alertas if a.codigo == "CARTAO_MANUAL_SEM_VENDA"]
+    assert len(repetidos) == (1 if caso == "vip" else 0)
+    assert len(manuais) == (2 if caso == "manual" else 0)
+    if repetidos:
+        assert repetidos[0].valor == Decimal("30")
+        assert repetidos[0].severidade == "vermelho"
+        assert resultado.a_menor[0].motivo == "NSU já usado na venda 11"
+    if manuais:
+        assert sum(a.valor for a in manuais) == Decimal("170.04")
+        assert all(
+            a.severidade == "laranja"
+            and "Funcionário Sintético (7)" in a.mensagem
+            and "01:00" in a.mensagem
+            and "PAGSEGURO" in a.mensagem
+            for a in manuais
+        )
+    if caso != "vip":
+        assert "valor/dia diferentes ignorada" in caplog.text
+
+
+def test_v3_1_autorizacao_mesmo_valor_dia_e_nsu_tef():
+    from src.modules.cash_reconciliation.rules.cartoes import grupos_nsu_repetido
+
+    cartoes = [
+        C(1, "30", "10:00", aut="1234"),
+        C(2, "30", "11:00", aut="1234"),
+        C(3, "40", "12:00", nsu="1234"),
+        C(4, "50", "13:00").model_copy(update={"nsu_tef": "1234"}),
+    ]
+    grupos = grupos_nsu_repetido(cartoes)
+    assert sorted(sorted(c.codigo for c in g) for g in grupos) == [[1, 2], [3, 4]]
+
+
+def test_v3_1_nsu_entre_dias_alerta_so_no_dia_do_excedente():
+    cartoes = [
+        C(1, "30", "23:59", nsu="uuid-sintetico"),
+        C(2, "30", "00:04", nsu="uuid-sintetico", dia="2026-10-06"),
+    ]
+    primeiro = conciliar(74014, "PAGBANK", DIA, [], cartoes, [], set())
+    segundo = conciliar(74014, "PAGBANK", date(2026, 10, 6), [], cartoes, [], set())
+    assert not primeiro.alertas
+    assert len(segundo.alertas) == 1 and segundo.alertas[0].valor == Decimal("30")
 
 
 async def test_pagbank_sem_credencial(monkeypatch):
