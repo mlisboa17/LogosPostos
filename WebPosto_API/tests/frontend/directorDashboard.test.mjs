@@ -32,6 +32,8 @@ const dados = {
     recebimentos_a_menor_total: "5.50",
     pendencias_abertas: 4,
     pendencias_vencidas: 2,
+    conferencia: { selo: "❌", situacao: "diferenças encontradas" },
+    relatorio_url: "/api/v1/cash-audit/relatorio-caixa?unidade=5555&dia=2026-10-08",
     adquirentes: [
       { nome: "PAGBANK", situacao: "ativo" },
       { nome: "PREMMIA", situacao: "pendente" },
@@ -81,6 +83,8 @@ test("painel mostra projeção, status do robô, pendências filtradas e escapa 
   assert.match(html, /08\/10\/2026/);
   assert.match(html, /view=pendencias&amp;unidade=5555/);
   assert.match(html, /Vencidas: 2/);
+  assert.match(html, /❌ Relatório do dia/);
+  assert.match(html, /relatorio-caixa\?unidade=5555&amp;dia=2026-10-08/);
   assert.match(html, /view=pendencias&amp;unidade=5555&amp;vencidas=true&amp;status=aberta/);
   assert.match(html, /credencial inválida/);
   assert.match(html, /&lt;script&gt;/);

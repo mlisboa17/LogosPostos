@@ -1141,6 +1141,10 @@ label.empresa-ms__row {
 .dd-metrics div { min-width: 0; padding: 0.65rem; border: 1px solid var(--dd-line); border-radius: 8px; }
 .dd-metrics dd { margin: 0.35rem 0 0; font-size: 1rem; font-weight: 700; font-variant-numeric: tabular-nums; }
 .dd-unit__footer { align-items: end; }
+.dd-unit__links { display: grid; gap: 0.35rem; justify-items: start; }
+.dd-report-link { color: #99f6e4; font-weight: 700; text-decoration: none; }
+.dd-report-link:hover,
+.dd-report-link:focus-visible { text-decoration: underline; }
 .dd-acquirers { display: flex; gap: 0.45rem; flex-wrap: wrap; margin: 0.4rem 0 0; padding: 0; list-style: none; }
 .dd-acquirers li { display: flex; gap: 0.45rem; align-items: center; font-size: 0.8rem; }
 .dd-acquirer { padding: 0.16rem 0.45rem; border-radius: 999px; }
@@ -1360,6 +1364,8 @@ label.empresa-ms__row {
 .ca-report-download:focus-visible {
   background: rgba(94, 234, 212, 0.12);
 }
+
+.ca-report-updated { color: var(--ca-muted); font-size: 0.85rem; }
 
 .ca-kpi strong small {
   font-size: 0.8rem;

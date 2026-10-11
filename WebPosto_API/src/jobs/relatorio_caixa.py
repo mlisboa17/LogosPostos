@@ -2,10 +2,18 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 from datetime import date, datetime
+from decimal import Decimal
 from pathlib import Path
 
+from dotenv import load_dotenv
 from src.modules.cash_reconciliation.adapters import pendencias, persistencia, saude_robo
+from src.modules.cash_reconciliation.application.relatorio_caixa_dia import (
+    consultar_dados_atuais,
+    limite_diferenca_alta,
+    mudancas_desde_robo,
+)
 from src.modules.cash_reconciliation.application.relatorio_caixa_dia import (
     gerar_relatorio_caixa_dia,
     planilha_relatorio_caixa_dia,
@@ -17,6 +25,7 @@ from src.modules.cash_reconciliation.domain.tempo import agora
 
 DIRETORIO_RELATORIOS = Path(__file__).resolve().parents[2] / "data" / "relatorios"
 ORDEM_UNIDADES = (74014, 5555, 11495, 118508)
+ARQUIVO_ENV = Path(__file__).resolve().parents[2] / ".env"
 
 
 def _dia(valor: str) -> date:
@@ -61,14 +70,24 @@ def _pendencias_dia(codigo: int, dia: date) -> list[tuple[object, bool]]:
     ]
 
 
-def gerar_para_unidade(codigo: int, dia: date) -> tuple[str, bytes, Path, Path]:
+def gerar_para_unidade(
+    codigo: int, dia: date, *, gravado: bool = False
+) -> tuple[str, bytes, Path, Path]:
     unidades = carregar_unidades()
     unidade = unidades.get(codigo)
     if unidade is None:
         raise ValueError(f"Unidade não configurada: {codigo}")
-    registro = persistencia.carregar_dia(codigo, dia)
-    if registro is None:
-        raise FileNotFoundError(f"Sem resultado persistido para {codigo} em {dia:%d/%m/%Y}.")
+    abastecimentos, vales_fora_caixa, nomes, falhas, mudancas = (), (), {}, (), ()
+    gravado_registro = persistencia.carregar_dia(codigo, dia)
+    if gravado:
+        registro = gravado_registro
+        if registro is None:
+            raise FileNotFoundError(f"Sem resultado persistido para {codigo} em {dia:%d/%m/%Y}.")
+    else:
+        registro, abastecimentos, vales_fora_caixa, nomes, falhas = asyncio.run(
+            consultar_dados_atuais(unidade, dia)
+        )
+        mudancas = mudancas_desde_robo(gravado_registro, registro)
     try:
         conferencia = conferencia_para_registro(registro)
     except (OSError, ValueError, pendencias.ErroPersistenciaPendencias):
@@ -77,8 +96,15 @@ def gerar_para_unidade(codigo: int, dia: date) -> tuple[str, bytes, Path, Path]:
         registro,
         unidade,
         situacao_robo=_situacao_robo(dia, codigo),
+        nomes_funcionarios=nomes,
         pendencias=_pendencias_dia(codigo, dia),
         conferencia=conferencia,
+        abastecimentos=abastecimentos,
+        vales_fora_caixa=vales_fora_caixa,
+        mudou_desde_robo=mudancas,
+        falhas_coleta=falhas,
+        dados_consultados_em=registro.proveniencia.executado_em if not gravado else None,
+        limite_diferenca_alta=limite_diferenca_alta(codigo, dia) if not gravado else Decimal("300.00"),
     )
     DIRETORIO_RELATORIOS.mkdir(parents=True, exist_ok=True)
     base = DIRETORIO_RELATORIOS / f"caixa_{dia.isoformat()}_{codigo}"
@@ -90,10 +116,12 @@ def gerar_para_unidade(codigo: int, dia: date) -> tuple[str, bytes, Path, Path]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Gera relatório diário somente com dados locais.")
+    parser = argparse.ArgumentParser(description="Gera relatório diário com dados atuais (ou snapshots com --gravado).")
     parser.add_argument("--dia", required=True, type=_dia, help="Dia no formato dd/mm/aaaa.")
     parser.add_argument("--unidade", type=int, help="Código da unidade; sem opção, gera todas.")
+    parser.add_argument("--gravado", action="store_true", help="Usa somente o resultado salvo pelo robô.")
     argumentos = parser.parse_args()
+    load_dotenv(ARQUIVO_ENV, override=False)
     unidades = carregar_unidades()
     codigos = [argumentos.unidade] if argumentos.unidade is not None else [
         codigo for codigo in ORDEM_UNIDADES if codigo in unidades
@@ -105,7 +133,9 @@ def main() -> int:
 
     for codigo in codigos:
         try:
-            markdown, _, caminho_md, caminho_xlsx = gerar_para_unidade(codigo, argumentos.dia)
+            markdown, _, caminho_md, caminho_xlsx = gerar_para_unidade(
+                codigo, argumentos.dia, gravado=argumentos.gravado
+            )
         except (FileNotFoundError, OSError, ValueError) as exc:
             parser.exit(1, f"{exc}\n")
         print(markdown, end="\n")

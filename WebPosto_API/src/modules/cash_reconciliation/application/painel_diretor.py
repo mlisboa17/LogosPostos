@@ -10,6 +10,7 @@ from ..adapters import pendencias as repositorio_pendencias
 from ..adapters import persistencia
 from ..domain.models import Unidade
 from ..domain.recebimentos import ResultadoRecebimentos
+from .relatorio_caixa_dia import resumo_status_conferencia
 
 
 class PainelDiretorErro(RuntimeError):
@@ -123,10 +124,13 @@ def obter_unidades_painel(
             continue
         fechamento = None
         recebimentos = None
+        registro_referencia = None
         for dia in _dias_com_snapshot(raiz_snapshots, codigo, hoje):
             registro = persistencia.carregar_dia(codigo, dia, diretorio=raiz_snapshots)
             if registro is None:
                 continue
+            if registro_referencia is None:
+                registro_referencia = registro
             if recebimentos is None:
                 recebimentos = registro.recebimentos
             if fechamento is None and registro.fechamento is not None:
@@ -134,6 +138,8 @@ def obter_unidades_painel(
             if recebimentos is not None and fechamento is not None:
                 break
         resumo_recebimentos = _resumo_recebimentos(recebimentos)
+        status_conferencia = resumo_status_conferencia(registro_referencia)
+        dia_referencia = registro_referencia.dia if registro_referencia else None
         status_por_adquirente = {
             item["nome"]: item["situacao"] for item in resumo_recebimentos["adquirentes"]
         }
@@ -162,5 +168,10 @@ def obter_unidades_painel(
             "recebimentos_a_menor_total": resumo_recebimentos["a_menor_total"],
             "pendencias_abertas": pendencias_abertas,
             "adquirentes": adquirentes,
+            "conferencia": status_conferencia,
+            "relatorio_url": (
+                f"/api/v1/cash-audit/relatorio-caixa?unidade={codigo}&dia={dia_referencia.isoformat()}"
+                if dia_referencia else None
+            ),
         })
     return resultado

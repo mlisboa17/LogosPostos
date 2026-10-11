@@ -7,6 +7,7 @@ const FECHAMENTO_URL = "/api/v1/cash-audit/fechamento";
 const RECEBIMENTOS_URL = "/api/v1/cash-audit/recebimentos";
 const REINCIDENCIA_URL = "/api/v1/cash-audit/reincidencia";
 const RELATORIO_URL = "/api/v1/cash-audit/relatorio-caixa";
+const SINCRONIZAR_URL = "/api/v1/cash-audit/sincronizar";
 let unidadesCarregadas = null;
 const consultas = new WeakMap();
 const consultasRecebimentos = new WeakMap();
@@ -22,6 +23,10 @@ export function consultarReincidencia(unidade, mes) {
 
 export function consultarRelatorioCaixa(unidade, dia) {
   return apiClient.get(RELATORIO_URL, { params: { unidade, dia }, timeout: 200000 });
+}
+
+export function sincronizarRelatorioCaixa(unidade, dia) {
+  return apiClient.post(SINCRONIZAR_URL, null, { params: { unidade, dia }, timeout: 200000 });
 }
 
 function renderMarkdownSeguro(texto) {
@@ -78,7 +83,8 @@ export function renderRelatorioCaixa(markdown) {
         indice += 1;
       }
     }
-    return `<details class="ca-panel ca-report-block"><summary>${renderMarkdownSeguro(titulo)}</summary>${conteudo.join("")}</details>`;
+    const aberto = titulo === "Status da conferência" ? " open" : "";
+    return `<details class="ca-panel ca-report-block"${aberto}><summary>${renderMarkdownSeguro(titulo)}</summary>${conteudo.join("")}</details>`;
   }).join("");
 }
 
@@ -103,6 +109,30 @@ export async function carregarRelatorioCaixa(container) {
     destino.innerHTML = `${renderRelatorioCaixa(relatorio.markdown)}<a class="ca-report-download" href="${RELATORIO_URL}.xlsx?unidade=${encodeURIComponent(unidade)}&dia=${encodeURIComponent(dia)}">Baixar planilha</a>`;
   } catch (error) {
     destino.innerHTML = `<p class="ca-error" role="alert">${escapeHtml(error?.message || "Falha ao carregar o relatório.")}</p>`;
+  } finally {
+    botao.disabled = false;
+  }
+}
+
+export async function atualizarRelatorioCaixa(container) {
+  const unidade = container.querySelector("#caUnidade").value;
+  const botao = container.querySelector("#caSyncButton");
+  const destino = container.querySelector("#caReportResults");
+  let dia;
+  try {
+    dia = lerDataBR(container.querySelector("#caFim").value);
+  } catch (error) {
+    showError(container, error);
+    return;
+  }
+  botao.disabled = true;
+  destino.hidden = false;
+  destino.innerHTML = '<p class="ca-empty" role="status">Sincronizando webPosto e fontes de recebimento…</p>';
+  try {
+    const resposta = await sincronizarRelatorioCaixa(unidade, dia);
+    destino.innerHTML = `<p class="ca-report-updated" role="status">Dados de ${escapeHtml(formatDateTime(resposta.dados_consultados_em))}</p>${renderRelatorioCaixa(resposta.markdown)}<a class="ca-report-download" href="${RELATORIO_URL}.xlsx?unidade=${encodeURIComponent(unidade)}&dia=${encodeURIComponent(dia)}">Baixar planilha</a>`;
+  } catch (error) {
+    destino.innerHTML = `<p class="ca-error" role="alert">${escapeHtml(error?.message || "Falha ao sincronizar o relatório.")}</p>`;
   } finally {
     botao.disabled = false;
   }
@@ -613,6 +643,7 @@ export async function renderCashAudit(container, { load = false } = {}) {
           <label>Mês da reincidência<input id="caMes" type="text" inputmode="numeric" placeholder="mm/aaaa" maxlength="7" pattern="\\d{2}/\\d{4}" value="${fim.slice(5, 7)}/${fim.slice(0, 4)}" required></label>
           <button type="submit">Consultar</button>
           <button id="caReportButton" type="button">Relatório do dia</button>
+          <button id="caSyncButton" type="button">Atualizar agora</button>
         </form>
         <p id="caError" class="ca-error hidden" role="alert"></p>
         <div id="caResults"><p class="ca-empty">Selecione uma unidade para consultar.</p></div>
@@ -631,6 +662,9 @@ export async function renderCashAudit(container, { load = false } = {}) {
     });
     container.querySelector("#caReportButton").addEventListener("click", () => {
       void carregarRelatorioCaixa(container);
+    });
+    container.querySelector("#caSyncButton").addEventListener("click", () => {
+      void atualizarRelatorioCaixa(container);
     });
   }
   const unidadeSelect = container.querySelector("#caUnidade");

@@ -83,6 +83,10 @@ function renderUnidade(unidade) {
   const fechamento = unidade.fechamento;
   const pendencias = unidade.pendencias_abertas;
   const vencidas = Number.isInteger(unidade.pendencias_vencidas) ? unidade.pendencias_vencidas : null;
+  const seloConferencia = unidade.conferencia?.selo || "⚠";
+  const linkRelatorio = unidade.relatorio_url
+    ? `<a class="dd-report-link" href="${escapeHtml(unidade.relatorio_url)}" aria-label="Relatório de caixa: ${escapeHtml(unidade.conferencia?.situacao || "sem relatório")}">${escapeHtml(seloConferencia)} Relatório do dia</a>`
+    : `<span class="dd-report-link" aria-label="Relatório indisponível">${escapeHtml(seloConferencia)} Sem relatório</span>`;
   const linkPendencias = pendencias === null
     ? '<span class="dd-muted">Pendências indisponíveis</span>'
     : `<a class="dd-link" href="/app/financial?view=pendencias&amp;unidade=${encodeURIComponent(unidade.empresa_codigo)}">Ver ${escapeHtml(pendencias)} pendência(s)</a>`;
@@ -102,7 +106,7 @@ function renderUnidade(unidade) {
       <div><dt>Recebimentos a menor</dt><dd>${moeda(unidade.recebimentos_a_menor_total)}</dd></div>
       <div><dt>Pendências abertas</dt><dd>${pendencias === null ? "—" : escapeHtml(pendencias)}</dd></div>
     </dl>
-    <div class="dd-unit__footer"><div><span class="dd-eyebrow">Adquirentes</span>${renderAdquirentes(unidade.adquirentes)}</div><div>${linkPendencias}${linkVencidas}</div></div>
+    <div class="dd-unit__footer"><div><span class="dd-eyebrow">Adquirentes</span>${renderAdquirentes(unidade.adquirentes)}</div><div class="dd-unit__links">${linkRelatorio}${linkPendencias}${linkVencidas}</div></div>
   </article>`;
 }
 

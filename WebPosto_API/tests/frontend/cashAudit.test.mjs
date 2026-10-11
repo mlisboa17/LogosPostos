@@ -14,6 +14,7 @@ const {
   consultarFechamento,
   consultarReincidencia,
   consultarRelatorioCaixa,
+  sincronizarRelatorioCaixa,
   carregarRecebimentos,
   carregarReincidencia,
 } = await import("../../frontend/pages/cashAudit.js");
@@ -71,7 +72,7 @@ test("fechamento aguarda o prazo do backend em vez do timeout padrao de 30s", as
 });
 
 test("relatório do dia usa a API protegida e renderiza blocos seguros recolhíveis", async (t) => {
-  const resultado = { dia: "2026-10-10", relatorios: [{ unidade: 321, markdown: "# Caixa\n\n## Resumo\n\n- **Atenção**\n\n## Caixas\n\n| Operador |\n|---|\n| Nome (7) |\n\n<script>inseguro</script>" }] };
+  const resultado = { dia: "2026-10-10", relatorios: [{ unidade: 321, markdown: "# Caixa\n\n## Status da conferência\n\n- **Atenção**\n\n## Caixas\n\n| Operador |\n|---|\n| Nome (7) |\n\n<script>inseguro</script>" }] };
   const get = t.mock.method(apiClient, "get", async () => resultado);
 
   assert.deepEqual(await consultarRelatorioCaixa(321, "2026-10-10"), resultado);
@@ -80,11 +81,22 @@ test("relatório do dia usa a API protegida e renderiza blocos seguros recolhív
     { params: { unidade: 321, dia: "2026-10-10" }, timeout: 200000 },
   ]);
   const html = renderRelatorioCaixa(resultado.relatorios[0].markdown);
-  assert.match(html, /<details class="ca-panel ca-report-block">/);
+  assert.match(html, /<details class="ca-panel ca-report-block" open>/);
   assert.match(html, /<strong>Atenção<\/strong>/);
   assert.match(html, /<th>Operador<\/th>/);
   assert.match(html, /&lt;script&gt;inseguro&lt;\/script&gt;/);
   assert.doesNotMatch(html, /<script>/);
+});
+
+test("sincronização manual reconsulta o relatório com a unidade e o dia selecionados", async (t) => {
+  const resposta = { unidade: 321, dia: "2026-10-10", markdown: "# Relatório" };
+  const post = t.mock.method(apiClient, "post", async () => resposta);
+  assert.deepEqual(await sincronizarRelatorioCaixa(321, "2026-10-10"), resposta);
+  assert.deepEqual(post.mock.calls[0].arguments, [
+    "/api/v1/cash-audit/sincronizar",
+    null,
+    { params: { unidade: 321, dia: "2026-10-10" }, timeout: 200000 },
+  ]);
 });
 
 test("Premmia tem bloco proprio, desconto, divergencia e aviso humano", () => {

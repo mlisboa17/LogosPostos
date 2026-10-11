@@ -4,6 +4,7 @@ import asyncio
 import calendar
 import json
 import logging
+import time
 import uuid
 from datetime import date, datetime, timedelta
 from typing import Literal
@@ -20,7 +21,13 @@ from ..application.auditar_fechamento import auditar_unidade
 from ..application.reincidencia import agregar_reincidencia
 from ..application.recebimentos import conciliar_recebimentos
 from ..application.recebimentos import conferencia_gravada
-from ..application.relatorio_caixa_dia import gerar_relatorio_caixa_dia, planilha_relatorio_caixa_dia
+from ..application.relatorio_caixa_dia import (
+    consultar_dados_atuais,
+    gerar_relatorio_caixa_dia,
+    limite_diferenca_alta,
+    mudancas_desde_robo,
+    planilha_relatorio_caixa_dia,
+)
 from ..application.painel_diretor import PainelDiretorErro, obter_unidades_painel
 from ..application.resumo_diario import conferencia_para_registro
 from ..application.serializacao import serializar_fechamento
@@ -29,13 +36,16 @@ from ..domain.fechamento import ResultadoAuditoria
 from ..domain.models import Proveniencia
 from ..domain.pendencias import Pendencia, calcular_prazo_pendencia
 from ..domain.recebimentos import ResultadoRecebimentos
-from ..domain.tempo import agora
+from ..domain.tempo import agora, formatar_data_hora
 from ...webposto_integration.funcionarios import buscar_nomes_funcionarios
 from src.interfaces.http.dependencies import get_current_user, require_unit_access
 
 router = APIRouter(prefix="/api/v1/cash-audit", tags=["cash-audit"])
 logger = logging.getLogger(__name__)
 TIMEOUT_FECHAMENTO = 180
+INTERVALO_SINCRONIZACAO_SEGUNDOS = 120
+_ultima_sincronizacao: dict[int, float] = {}
+_bloqueio_sincronizacao = asyncio.Lock()
 
 
 class JustificativaPayload(BaseModel):
@@ -285,10 +295,49 @@ def _compor_relatorio_caixa_dia(unidade: int, dia: date) -> tuple[str, str]:
     return texto, configuracao.apelido or configuracao.nome
 
 
+async def _compor_relatorio_caixa_atual(unidade: int, dia: date) -> tuple[str, str]:
+    configuracao = carregar_unidades()[unidade]
+    try:
+        gravado = carregar_dia(unidade, dia)
+    except PersistenciaErro:
+        raise HTTPException(status_code=500, detail="Falha ao ler auditoria persistida.") from None
+    registro, abastecimentos, vales_fora_caixa, nomes, falhas = await consultar_dados_atuais(
+        configuracao, dia
+    )
+    try:
+        conferencia = conferencia_para_registro(registro)
+    except (PersistenciaErro, repositorio_pendencias.ErroPersistenciaPendencias, ValueError):
+        logger.exception("Falha ao compor classificação do relatório atual unidade=%s", unidade)
+        conferencia = None
+    pendencias = _listar_pendencias_com_prazo(
+        unidade=unidade,
+        status="aberta",
+        tipo=None,
+        instante=agora(),
+        prazos=_carregar_prazos_pendencia(),
+    )
+    texto = gerar_relatorio_caixa_dia(
+        registro,
+        configuracao,
+        situacao_robo="reconsultado agora",
+        nomes_funcionarios=nomes,
+        pendencias=[item for item in pendencias if item["dia"] == dia.isoformat()],
+        conferencia=conferencia,
+        abastecimentos=abastecimentos,
+        vales_fora_caixa=vales_fora_caixa,
+        mudou_desde_robo=mudancas_desde_robo(gravado, registro),
+        falhas_coleta=falhas,
+        dados_consultados_em=registro.proveniencia.executado_em,
+        limite_diferenca_alta=limite_diferenca_alta(unidade, dia),
+    )
+    return texto, configuracao.apelido or configuracao.nome
+
+
 @router.get("/relatorio-caixa")
-def obter_relatorio_caixa_dia(
+async def obter_relatorio_caixa_dia(
     dia: date,
     unidade: int | None = Query(default=None),
+    gravado: bool = Query(default=False),
     current_user: dict = Depends(get_current_user),
 ) -> dict:
     unidades = carregar_unidades()
@@ -310,22 +359,61 @@ def obter_relatorio_caixa_dia(
 
     relatorios = []
     for codigo in codigos:
-        markdown, nome = _compor_relatorio_caixa_dia(codigo, dia)
+        if gravado:
+            markdown, nome = _compor_relatorio_caixa_dia(codigo, dia)
+        else:
+            markdown, nome = await _compor_relatorio_caixa_atual(codigo, dia)
         relatorios.append({"unidade": codigo, "nome": nome, "markdown": markdown})
     return {"dia": dia.isoformat(), "relatorios": relatorios}
 
 
-@router.get("/relatorio-caixa.xlsx")
-def exportar_relatorio_caixa_dia(
+@router.post("/sincronizar")
+async def sincronizar_relatorio_caixa(
     unidade: int,
     dia: date,
+    current_user: dict = Depends(get_current_user),
+) -> dict:
+    if current_user.get("role") not in {"diretor", "gerente"}:
+        raise HTTPException(status_code=403, detail="Somente diretor/gerente pode atualizar o relatório.")
+    if unidade not in carregar_unidades():
+        raise HTTPException(status_code=404, detail="Unidade não encontrada.")
+    require_unit_access(current_user, unidade)
+    async with _bloqueio_sincronizacao:
+        instante = time.monotonic()
+        ultima = _ultima_sincronizacao.get(unidade)
+        if ultima is not None and instante - ultima < INTERVALO_SINCRONIZACAO_SEGUNDOS:
+            aguardar = int(INTERVALO_SINCRONIZACAO_SEGUNDOS - (instante - ultima))
+            raise HTTPException(
+                status_code=429,
+                detail=f"Aguarde {aguardar} segundos para atualizar esta unidade novamente.",
+                headers={"Retry-After": str(aguardar)},
+            )
+        _ultima_sincronizacao[unidade] = instante
+    markdown, nome = await _compor_relatorio_caixa_atual(unidade, dia)
+    return {
+        "unidade": unidade,
+        "nome": nome,
+        "dia": dia.isoformat(),
+        "markdown": markdown,
+        "dados_consultados_em": formatar_data_hora(agora()),
+    }
+
+
+@router.get("/relatorio-caixa.xlsx")
+async def exportar_relatorio_caixa_dia(
+    unidade: int,
+    dia: date,
+    gravado: bool = Query(default=False),
     current_user: dict = Depends(get_current_user),
 ) -> Response:
     unidades = carregar_unidades()
     if unidade not in unidades:
         raise HTTPException(status_code=404, detail="Unidade não encontrada.")
     require_unit_access(current_user, unidade)
-    markdown, _ = _compor_relatorio_caixa_dia(unidade, dia)
+    if gravado:
+        markdown, _ = _compor_relatorio_caixa_dia(unidade, dia)
+    else:
+        markdown, _ = await _compor_relatorio_caixa_atual(unidade, dia)
     return Response(
         planilha_relatorio_caixa_dia(markdown),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

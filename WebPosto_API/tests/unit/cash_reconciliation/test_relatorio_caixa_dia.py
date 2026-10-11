@@ -15,7 +15,12 @@ from src.modules.cash_reconciliation.domain.fechamento import (
     ValeFuncionario,
 )
 from src.modules.cash_reconciliation.domain.models import Sangria, Unidade
-from src.modules.cash_reconciliation.domain.recebimentos import ResultadoRecebimentos
+from src.modules.cash_reconciliation.domain.recebimentos import (
+    RecebimentoAdquirente,
+    ResultadoRecebimentos,
+    ResumoCasados,
+    ResumoForma,
+)
 from src.modules.cash_reconciliation.interfaces import http
 
 from .test_http import resultado_sintetico
@@ -191,6 +196,146 @@ def test_relatorio_mascara_nsu_e_formata_data_hora():
     assert all(f"### {grupo}:" in relatorio for grupo in ("Lançar", "Alterar", "Apurar", "Conferir à mão"))
 
 
+def test_status_do_relatorio_reflete_casa_caiada_e_doze_10_outubro():
+    from src.modules.cash_reconciliation.domain.cartoes import AlertaCartao, CartaoErp
+    from src.modules.cash_reconciliation.domain.fechamento import LinhaModalidade
+
+    def adquirente(nome, qtd_fonte, total_fonte, qtd_erp, total_erp, *, situacao="ok", **kwargs):
+        return RecebimentoAdquirente(
+            adquirente=nome,
+            situacao=situacao,
+            evidencias_completas=situacao == "ok",
+            formas=(
+                ResumoForma(
+                    forma="Cartão",
+                    portal=ResumoCasados(quantidade=qtd_fonte, total=Decimal(total_fonte)),
+                    webposto=ResumoCasados(quantidade=qtd_erp, total=Decimal(total_erp)),
+                    diferenca=Decimal(total_fonte) - Decimal(total_erp),
+                ),
+            ) if situacao == "ok" else (),
+            **kwargs,
+        )
+
+    def registro_do_dia(codigo, modalidades, fontes):
+        dia = date(2026, 10, 10)
+        base = _registro(alertas=())
+        audit = base.fechamento.caixas[0].model_copy(
+            update={
+                "caixa": base.fechamento.caixas[0].caixa.model_copy(
+                    update={"empresa_codigo": codigo, "data": dia, "consolidado": False}
+                ),
+                "modalidades": tuple(modalidades),
+            }
+        )
+        fechamento = base.fechamento.model_copy(
+            update={"empresa_codigo": codigo, "inicio": dia, "fim": dia, "caixas": (audit,)}
+        )
+        return base.model_copy(
+            update={
+                "empresa_codigo": codigo,
+                "dia": dia,
+                "fechamento": fechamento,
+                "recebimentos": ResultadoRecebimentos(
+                    empresa_codigo=codigo,
+                    dia=dia,
+                    adquirentes=tuple(fontes),
+                ),
+            }
+        )
+
+    def linhas(apresentado, apurado, transferencia):
+        return (
+            LinhaModalidade(
+                modalidade="dinheiro",
+                rotulo="Dinheiro",
+                apresentado=Decimal(apresentado),
+                apurado=Decimal(apurado),
+                diferenca=Decimal(apresentado) - Decimal(apurado),
+            ),
+            LinhaModalidade(
+                modalidade="transfBanc",
+                rotulo="PIX / Transferência",
+                apresentado=Decimal(transferencia),
+                apurado=Decimal(transferencia),
+                diferenca=Decimal(0),
+            ),
+        )
+
+    casa = registro_do_dia(
+        5555,
+        linhas("1000.00", "1011.71", "3702.54"),
+        (
+            adquirente("PAGBANK", 109, "8983.98", 109, "8983.98"),
+            adquirente("PREMMIA", 14, "1032.57", 14, "1032.57"),
+            adquirente("MAIS_PAGAMENTOS", 0, "0", 0, "0", situacao="pendente"),
+        ),
+    )
+    relatorio_casa = gerar_relatorio_caixa_dia(
+        casa,
+        Unidade(
+            empresa_codigo=5555,
+            nome="AP CASA CAIADA",
+            apelido="Casa Caiada",
+            chave_env="NAO_USADA",
+            destinos=(),
+        ),
+    )
+    assert "- ✅ **PagBank (EDI):** 109 · R$ 8.983,98" in relatorio_casa
+    assert "- ✅ **Premmia (portal):** 14 · R$ 1.032,57" in relatorio_casa
+    assert "Mais Pagamentos × Transferência Bancária:** R$ 3.702,54" in relatorio_casa
+    assert "Dinheiro:** apresentado R$ 1.000,00 × apurado R$ 1.011,71 → falta R$ 11,71" in relatorio_casa
+    assert "1 diferença, R$ 11,71 e 1 fonte sem conferência" in relatorio_casa
+    assert relatorio_casa.index("## Status da conferência") < relatorio_casa.index("## Resumo")
+
+    pix = CartaoErp(
+        codigo=800,
+        empresa_codigo=74014,
+        venda_codigo=None,
+        valor=Decimal("800.00"),
+        momento=datetime(2026, 10, 10, 16, 0),
+        administradora="PIX CNPJ",
+        nsu=None,
+        nsu_tef=None,
+        autorizacao=None,
+        tipo_inclusao="Manualmente",
+        caixa_codigo=10,
+        frentista=299246,
+    )
+    doze = registro_do_dia(
+        74014,
+        linhas("21793.00", "21877.80", "23881.93"),
+        (
+            adquirente(
+                "PAGBANK", 495, "36541.86", 494, "36291.79",
+                alertas=(AlertaCartao(
+                    codigo="CARTAO_COBRANCA_DUPLICADA",
+                    severidade="vermelho",
+                    mensagem="duplicidade Visa 19:12",
+                    valor=Decimal("250.07"),
+                ),),
+            ).model_copy(update={"sem_fonte": (pix,)}),
+            adquirente("PREMMIA", 32, "2570.17", 32, "2570.17"),
+            adquirente("MAIS_PAGAMENTOS", 0, "0", 0, "0", situacao="pendente"),
+        ),
+    )
+    relatorio_doze = gerar_relatorio_caixa_dia(
+        doze,
+        Unidade(
+            empresa_codigo=74014,
+            nome="POSTO DOZE FILIAL II",
+            apelido="Doze",
+            chave_env="NAO_USADA",
+            destinos=(),
+        ),
+        mudou_desde_robo=("Novo lançamento PIX CNPJ R$ 800,00 manual 16:00.",),
+    )
+    assert "495 · R$ 36.541,86 × 494 · R$ 36.291,79 → diferença R$ 250,07" in relatorio_doze
+    assert "verificar estorno ao cliente" in relatorio_doze
+    assert "Dinheiro:** apresentado R$ 21.793,00 × apurado R$ 21.877,80 → falta R$ 84,80" in relatorio_doze
+    assert "PIX CNPJ × extrato:** 1 · R$ 800,00" in relatorio_doze
+    assert "Novo lançamento PIX CNPJ R$ 800,00 manual 16:00" in relatorio_doze
+
+
 def _cliente_api(monkeypatch, *, role: str, company_id: int | None = None):
     unidade = Unidade(
         empresa_codigo=EMPRESA,
@@ -223,13 +368,13 @@ def _cliente_api(monkeypatch, *, role: str, company_id: int | None = None):
     return client
 
 
-def test_api_relatorio_usa_somente_persistencia_e_aplica_escopo_do_gerente(monkeypatch):
+def test_api_relatorio_gravado_aplica_escopo_do_gerente(monkeypatch):
     client = _cliente_api(monkeypatch, role="gerente", company_id=EMPRESA)
 
-    response = client.get("/api/v1/cash-audit/relatorio-caixa?dia=2026-10-09")
+    response = client.get("/api/v1/cash-audit/relatorio-caixa?dia=2026-10-09&gravado=true")
     proibido = client.get(
         "/api/v1/cash-audit/relatorio-caixa",
-        params={"dia": "2026-10-09", "unidade": 654},
+        params={"dia": "2026-10-09", "unidade": 654, "gravado": True},
     )
 
     assert response.status_code == 200
@@ -243,10 +388,43 @@ def test_api_relatorio_baixa_xlsx_com_abas_por_bloco(monkeypatch):
 
     response = client.get(
         "/api/v1/cash-audit/relatorio-caixa.xlsx",
-        params={"dia": "2026-10-09", "unidade": EMPRESA},
+        params={"dia": "2026-10-09", "unidade": EMPRESA, "gravado": True},
     )
 
     workbook = load_workbook(BytesIO(response.content), read_only=True)
     assert response.status_code == 200
     assert {"Resumo", "Caixas", "Recebimentos", "Pendências do dia"}.issubset(workbook.sheetnames)
     workbook.close()
+
+
+def test_api_relatorio_padrao_reconsulta_fontes(monkeypatch):
+    client = _cliente_api(monkeypatch, role="diretor")
+
+    async def consultar(unidade, dia):
+        return _registro(alertas=()), (), (), {}, ()
+
+    monkeypatch.setattr(http, "consultar_dados_atuais", consultar)
+    response = client.get(
+        "/api/v1/cash-audit/relatorio-caixa",
+        params={"dia": "2026-10-09", "unidade": EMPRESA},
+    )
+
+    assert response.status_code == 200
+    assert "Dados consultados em:" in response.json()["relatorios"][0]["markdown"]
+
+
+def test_api_sincronizar_aplica_limite_de_dois_minutos(monkeypatch):
+    client = _cliente_api(monkeypatch, role="diretor")
+    monkeypatch.setattr(http, "_ultima_sincronizacao", {})
+
+    async def consultar(unidade, dia):
+        return _registro(alertas=()), (), (), {}, ()
+
+    monkeypatch.setattr(http, "consultar_dados_atuais", consultar)
+    params = {"dia": "2026-10-09", "unidade": EMPRESA}
+    primeira = client.post("/api/v1/cash-audit/sincronizar", params=params)
+    segunda = client.post("/api/v1/cash-audit/sincronizar", params=params)
+
+    assert primeira.status_code == 200
+    assert "Dados consultados em" in primeira.json()["markdown"]
+    assert segunda.status_code == 429
