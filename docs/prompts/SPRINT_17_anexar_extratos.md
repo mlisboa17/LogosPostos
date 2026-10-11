@@ -32,6 +32,15 @@ Já existe `adapters/ofx_reader.py` (SGML 1.02, cp1252, extrai **só depósitos 
 2. Caso real para validar quando o diretor anexar o extrato PagBank do Doze: **PIX CNPJ R$ 800,00 em 10/10/2026** (lançado à mão às 16:00) e os 7 PIX CNPJ de 01–09/10 (R$ 2.480,41).
 3. Atualizar `REGRAS_DE_NEGOCIO.md`: RN-CARTAO-009 (confirmação pelo extrato anexado) e nova RN-REDE-009 (extratos anexados: formatos, guarda, quem pode anexar); histórico.
 
+## PARTE C2 — Sangrias do Banco 24h × depósitos no BB (incluída pelo diretor em 11/10/2026)
+
+O diretor autorizou conferir **sangria para o Banco 24h × depósito em dinheiro no caixa eletrônico** (muda a RN-REDE-004 só para esse caso; depósitos de outras origens continuam fora).
+1. Para cada unidade com conta de **depósito direto** em `units.json` (Doze: conta 86248 "Banco 24h", terminal "POSTO REAL FOSFATO ATMR"), casar cada sangria com um depósito do extrato anexado: **mesmo valor**, depósito de até 8 h antes a 24 h depois (preferir o mais próximo; um para um). O horário real do depósito está no MEMO do BB (`dd/mm hh:mm`).
+2. **Sangria depois da meia-noite:** o webPosto grava com a data do caixa (ex.: "10/10 00:01" feita em 11/10 00:01); se o horário for anterior à abertura do caixa, somar 1 dia.
+3. Classificar: **sangria sem depósito** (vermelho, com frentista); **sangria lançada na conta errada** (lançada como cofre 86081 e depositada no Banco 24h — laranja, "corrigir conta"); **depósito sem sangria** (lotes seguidos em poucos minutos = provável **depósito do cofre** — informativo "confirmar com o diretor"; isolado = laranja).
+4. Caso real (Doze, 01–10/10, conferido pelo arquiteto): 160 sangrias Banco 24h · R$ 125.757,00; 159 depositadas; **sem depósito: 05/10 23:06 R$ 267,00 — Alberis Henrique da Silva Massa (299240)**; **conta errada:** 07/10 16:26 R$ 600 (299240), 09/10 22:56 R$ 850 (299240), 10/10 13:46 R$ 1.070 (Almir Carlos Ferreira 302093), 10/10 18:31 R$ 1.050 (Jeymerson Vitor Medeiros da Siva 299241); **depósitos sem sangria R$ 12.170,00** em lotes (01/10 R$ 3.200; 03/10 R$ 1.300; 06/10 R$ 2.850; 08/10 R$ 150 e R$ 4.670). O teste tem de reproduzir isso.
+5. Atualizar RN-REDE-004 (exceção: Banco 24h) e criar RN-SANGRIA-006 no `REGRAS_DE_NEGOCIO.md`.
+
 ## Diagnóstico do OFX real do PagBank (arquiteto, 11/10/2026 — `C:\Projetos\LOGOS\extratos\PAGBANK\PagBank_Doze_Outubro2026.ofx.ofx`)
 
 - Cabeçalho `OFXHEADER:100 / DATA:OFXSGML / VERSION:100` mas `ENCODING:UTF-8` (OFX 1.0 SGML espera USASCII/1252) e todas as tags **com fechamento** (estilo XML) → mistura de padrões.
