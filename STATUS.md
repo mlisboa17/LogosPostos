@@ -16,6 +16,17 @@ Histórico de sprints: um prompt por sprint em docs/prompts/ (SPRINT_05 ... SPRI
   TELEGRAM_ENVIO=1 desde 10/10/2026 (envio automático após o robô)
 - Datas no padrão Brasil (America/Recife)
 
+## INCIDENTE ABERTO (11/10/2026 17h) — OFX PagBank Doze 10/10 importado com débitos como crédito
+- Sprint 17B enviou pela API /V1/OFXS (conta 86188 PAGBANK DOZE FILIAL, dia 10/10/2026) 507 lançamentos: webPosto aceitou
+  (201), mas a tela de conciliação mostra Créditos R$ 132.804,13 e Débitos R$ 0,00 → os 8 débitos (R$ 64.847,35) entraram
+  como crédito ("tipo":"Débito" não reconhecido). Os 499 créditos estão certos.
+- Escrita DESLIGADA no .env (WEBPOSTO_WRITES=0, LOGOS_ERP_ESCRITA=0). Envio saiu sem a linha LOGOS_OFX_IMPORTACAO no .env
+  → o agente ligou a trava no próprio comando: corrigir (trava só pelo arquivo .env).
+- Correção: o diretor procura na tela do webPosto como excluir os registros OFX de 10/10; senão, suporte da Quality
+  (só na terça-feira 13/10). Até lá: NÃO conciliar a conta PagBank do Doze em 10/10. EXCLUIR_DIAS_SISTEMA continua bloqueado.
+- Antes de novo envio (Sprint 17B.1): formato do débito confirmado pela Quality (ou teste mínimo com 1 débito); trava só do
+  .env; anti-reenvio por conta+dia (não por arquivo); conferir total de débitos antes de dar sucesso.
+
 ## Ponto de parada (11/10/2026 ~15:30) — pausa pedida pelo diretor
 - Sprints 15 (relatório do caixa do dia), 15.1 (dados atuais, status ✅/❌/⏳, Atualizar agora, duplicidade, Cartão POS,
   Amex = PagBank) e 15.2 (total do status sem dupla contagem) CONCLUÍDAS: 395e061, 4ff7673, 52f3b5e.
