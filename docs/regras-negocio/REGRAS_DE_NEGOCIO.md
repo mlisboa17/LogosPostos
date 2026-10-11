@@ -604,6 +604,21 @@
 #### Histórico do Incidente de 10/10/2026 (Conta 86188 PagBank Doze)
 No teste autorizado de 10/10/2026, 507 lançamentos foram enviados e o webPosto respondeu HTTP 201 Created. Porém, na tela de conciliação bancária do ERP, os créditos somaram R$ 132.804,13 e os débitos R$ 0,00: os 8 débitos (R$ 64.847,35) entraram convertidos como crédito ("tipo": "Débito" não foi reconhecido pelo ERP). Os 499 créditos (R$ 67.956,78) foram processados corretamente. A Sprint 17B.1 implementou os 4 reforços definitivos para blindar a barreira.
 
+### RN-ERP-003 — Contas pagas a partir do comprovante (proposta)
+| Campo | Valor |
+|---|---|
+| Unidades | Todas (cada unidade paga pelas próprias contas bancárias) |
+| Módulo | ERP · Contas a pagar |
+| Padrão | O diretor envia o comprovante (PIX, transferência, boleto) ao bot; a IA lê valor, data, favorecido (CNPJ/CPF/chave), linha digitável e conta de origem. **Antes de lançar, procurar o título** (`GET /V1/TITULOS_PAGAR`: primeiro pela linha digitável; senão fornecedor por CNPJ/CPF em `GET /V1/FORNECEDORES` + valor + vencimento próximo): **(a) existe e já está pago** → não lança nada, só registra (e alerta se parecer pagamento em dobro); **(b) existe e está em aberto** → dá baixa (`PATCH /V1/TITULOS_PAGAR/PAGAR`) na conta de onde saiu o dinheiro; **(c) não existe** → lança (`POST /V1/TITULOS_PAGAR`) e dá baixa. Em todos os casos anexa o comprovante (`POST /V1/ARQUIVOS/...`) e confere o débito no extrato OFX da conta |
+| Exceção | **Comprovante com pouca informação** (ex.: PIX para pessoa física): lança mesmo assim, com plano de contas/centro de custo "a classificar" e observação "LOGOS — revisar", e entra na fila de revisão do diretor — melhor lançado com menos informação do que não lançado |
+| Gatilho | Comprovante recebido pelo bot (Telegram) |
+| Ação no sistema | **Unidade** = dona da conta bancária que pagou. **Classificação** (plano de contas, centro de custo) sugerida pela IA com base nos lançamentos anteriores do mesmo fornecedor; treinada até ficar confiante (RN-REDE-008 / ADR-005); antes disso, aprovação do diretor com um toque. Escrita só com travas, prévia, auditoria e desfazer (ADR-003) |
+| Implementação | — (após Sprints 18a/18b) |
+| Status | **proposta** — condições de casamento a verificar com dados reais (somente leitura) |
+| Vigência | 11/10/2026 — decisão do diretor |
+
+**Condições a verificar (somente leitura, antes de qualquer sprint de escrita):** como a linha digitável aparece em `TITULOS_PAGAR`; se títulos de NF (DUPLICATAS) e títulos avulsos são distinguíveis; tolerância quando o valor pago difere do título (juros, multa, desconto); janela de vencimento; o que fazer com pagamento parcial; se existe (ou precisa ser criado pelo diretor) um plano de contas/centro de custo "A CLASSIFICAR" por unidade.
+
 ---
 
 ## 12. A definir
@@ -647,4 +662,5 @@ Temas comuns em postos que **ainda não têm regra decidida** — não implement
 | 11/10/2026 | RN-REDE-007 (setores por centro de custo; FECHAMENTO = ajuste de NF), RN-REDE-008 (período de aprendizado), novos itens "A definir" (fluxo de respostas, limites proporcionais, despesa × NF-e, grupos, IA); ADR-004 e ADR-005 propostas |
 | 11/10/2026 | Sprint 15: RN-CAIXA-006 — relatório diário por unidade, CLI/API/tela e XLSX, somente sobre dados persistidos e sem acesso a portais |
 | 11/10/2026 | Sprint 15.1: relatório atualizável com status por fonte, CARTOES_V3_4, RN-CARTAO-011/012 e RN-CAIXA-007; sem envio ao Telegram |
+| 11/10/2026 | RN-ERP-003 (proposta): contas pagas a partir do comprovante — procurar título, baixar se aberto, lançar se não existir, lançar com "a classificar" quando faltar informação |
 | 11/10/2026 | RN-ERP-002: importação de OFX no webPosto com barreira estrita (somente OFX, dias inexistentes, dupla trava no .env, prévia obrigatória, deduplicação e limite de 7 dias no passado) · SPRINT 17B |
