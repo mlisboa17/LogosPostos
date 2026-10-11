@@ -5,6 +5,7 @@ import { formatCurrency, formatNumber } from "../services/format.js";
 import { fetchExecutiveSnapshot, postExecutiveRefresh } from "../services/api.js";
 import { computeAlerts, computeTopN } from "../services/analyticsEngine.js";
 import { APP_CONFIG } from "../config.js";
+import { formatarData, formatarDataHora } from "../utils/datas.js";
 
 const FRIENDLY_FALLBACK_MSG = "Não foi possível atualizar agora. Exibindo último dado disponível.";
 const STALE_THRESHOLD_MS = 30 * 60 * 1000;
@@ -17,15 +18,7 @@ let lastAutoRefreshKey = "";
 
 function formatSnapshotDate(iso) {
   if (!iso) return "—";
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleString("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatarDataHora(iso);
 }
 
 function isSnapshotStale(lastUpdated) {
@@ -57,7 +50,7 @@ window._execShowAudit = (auditData) => {
   const d = auditData || {};
   alert(
     `Auditoria Gerencial (Calculado no Backend - LOGOS SPACE Analytics)\n\n` +
-    `Período: ${d.periodoInicial} → ${d.periodoFinal}\n` +
+    `Período: ${formatarData(d.periodoInicial)} → ${formatarData(d.periodoFinal)}\n` +
     `Origem: ${d.origemSistema || "webpostos"}\n` +
     `Empresas: ${(d.empresasCodigos || []).join(", ") || "Rede completa"}\n\n` +
     `Lineage:\n` +

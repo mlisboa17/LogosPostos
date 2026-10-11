@@ -1,6 +1,7 @@
 import { renderTable } from "../components/table.js";
 import { formatMissing, formatNumber } from "../services/formatters.js";
 import { resolveFilialFromRow } from "../components/filiais.js";
+import { dataRecifeISO } from "../utils/datas.js";
 
 export function renderStock(container, payload, onPageChange, options = {}) {
   const rows = payload?.data || [];
@@ -52,7 +53,7 @@ export function renderStock(container, payload, onPageChange, options = {}) {
       showClearFilters: true,
       onClearFilters: options.onClearFilters,
       title: "Estoque",
-      exportName: options.exportName || `estoque_${new Date().toISOString().slice(0, 10)}`,
+      exportName: options.exportName || `estoque_${dataRecifeISO()}`,
       pdfDescription: "Estoque de produtos e tanques por filial no período filtrado.",
     }
   );

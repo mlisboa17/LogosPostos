@@ -1,5 +1,6 @@
 import { formatMissing } from "./formatters.js";
 import { APP_CONFIG } from "../config.js";
+import { formatarData, formatarDataHora } from "../utils/datas.js";
 
 function parseExportNumber(value) {
   if (value === null || value === undefined || value === "") return null;
@@ -50,7 +51,7 @@ function escapeCsv(value) {
   return `"${text.replace(/"/g, '""')}"`;
 }
 
-function buildCsv(columns, rows) {
+export function buildCsv(columns, rows) {
   const header = columns.map((column) => escapeCsv(column.label)).join(";");
   const lines = rows.map((row) =>
     columns
@@ -60,7 +61,7 @@ function buildCsv(columns, rows) {
           ? column.exportFormatter(rawValue, row)
           : column.formatter
             ? column.formatter(rawValue, row)
-            : rawValue;
+            : column.type === "date" ? formatarData(rawValue) : rawValue;
         return escapeCsv(formatted);
       })
       .join(";")
@@ -95,7 +96,7 @@ export function openPdfPreview(title, columns, rows, meta = {}) {
               ? column.exportFormatter(rawValue, row)
               : column.formatter
                 ? column.formatter(rawValue, row)
-                : rawValue;
+                : column.type === "date" ? formatarData(rawValue) : rawValue;
             return `<td>${formatMissing(formatted)}</td>`;
           })
           .join("")}</tr>`
@@ -120,7 +121,7 @@ export function openPdfPreview(title, columns, rows, meta = {}) {
       <body>
         <h1>${title}</h1>
         <div class="meta">${meta.subtitle || meta.description || "Exportação da visão atual"}</div>
-        <div class="meta">Gerado em: ${new Date().toLocaleString("pt-BR")}</div>
+        <div class="meta">Gerado em: ${formatarDataHora(new Date())}</div>
         <table>
           <thead><tr>${columns.map((column) => `<th>${column.label}</th>`).join("")}</tr></thead>
           <tbody>${rowsHtml}</tbody>

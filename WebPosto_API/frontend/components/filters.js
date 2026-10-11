@@ -3,6 +3,7 @@ import {
   readEmpresaCodigoFromMultiSelectLogos,
   updateMultiSelectLogos,
 } from "./MultiSelectLogos.js";
+import { campoDataBR, ativarCamposDataBR, lerDataBR } from "../utils/datas.js";
 
 function normalizeMultiValue(value) {
   if (Array.isArray(value)) return value.filter((item) => String(item || "").trim() !== "");
@@ -52,7 +53,7 @@ export function renderFilters(container, state, onChange, onClear, options = {})
       ? `
         <div class="field">
           <label for="dataInicial">Data inicial</label>
-          <input id="dataInicial" type="date" value="${state.dataInicial}" />
+          ${campoDataBR({ nome: "dataInicial", valor: state.dataInicial })}
         </div>
       `
       : "",
@@ -60,7 +61,7 @@ export function renderFilters(container, state, onChange, onClear, options = {})
       ? `
         <div class="field">
           <label for="dataFinal">Data final</label>
-          <input id="dataFinal" type="date" value="${state.dataFinal}" />
+          ${campoDataBR({ nome: "dataFinal", valor: state.dataFinal })}
         </div>
       `
       : "",
@@ -117,14 +118,29 @@ export function renderFilters(container, state, onChange, onClear, options = {})
         <button id="clearFilters" type="button">Limpar filtros</button>
       </div>
     </div>
+    <p class="small" data-date-error role="alert"></p>
   `;
+  ativarCamposDataBR(container);
 
   const emitChange = debounce(() => {
+    const errorNode = container.querySelector("[data-date-error]");
+    const inicial = container.querySelector("#dataInicial");
+    const final = container.querySelector("#dataFinal");
+    let dataInicial, dataFinal;
+    try {
+      dataInicial = inicial ? lerDataBR(inicial.value) : state.dataInicial;
+      dataFinal = final ? lerDataBR(final.value) : state.dataFinal;
+      if (dataInicial && dataFinal && dataInicial > dataFinal) throw new Error("A data inicial deve ser anterior ou igual à final.");
+      errorNode.textContent = "";
+    } catch (error) {
+      errorNode.textContent = error.message;
+      return;
+    }
     const host = container.querySelector("#empresaMultiselectHost");
     const nextState = {
       ...state,
-      dataInicial: container.querySelector("#dataInicial")?.value || state.dataInicial,
-      dataFinal: container.querySelector("#dataFinal")?.value || state.dataFinal,
+      dataInicial,
+      dataFinal,
       empresaCodigo: host ? readEmpresaCodigoFromMultiSelectLogos(host) : state.empresaCodigo,
       centroCusto: valueFromCommaInput(container.querySelector("#centroCusto")?.value || ""),
       tipoDespesa: valueFromCommaInput(container.querySelector("#tipoDespesa")?.value || ""),
@@ -146,7 +162,14 @@ export function renderFilters(container, state, onChange, onClear, options = {})
   });
 
   container.querySelector("#clearFilters")?.addEventListener("click", () => onClear?.());
-  container.querySelector("#applyFilters")?.addEventListener("click", () => options.onRefresh?.());
+  container.querySelector("#applyFilters")?.addEventListener("click", () => {
+    const datas = container.querySelectorAll("[data-data-br]");
+    for (const input of datas) {
+      try { lerDataBR(input.value); }
+      catch (error) { container.querySelector("[data-date-error]").textContent = error.message; return; }
+    }
+    options.onRefresh?.();
+  });
 }
 
 export function updateCompanyOptions(container, companies, selectedValue) {

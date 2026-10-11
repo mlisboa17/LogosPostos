@@ -1,5 +1,5 @@
 import { apiClient } from "../services/apiClient.js";
-import { formatDate } from "../services/format.js";
+import { formatarData as formatDate, formatarDataHora } from "../utils/datas.js";
 
 const PAINEL_URL = "/api/v1/cash-audit/painel-diretor";
 const PLACAR_URL = "/api/v1/commercial/painel-resumo";
@@ -22,13 +22,7 @@ function moeda(valor) {
 
 function dataHora(valor) {
   if (!valor) return "Sem execução registrada";
-  const data = new Date(valor);
-  if (Number.isNaN(data.getTime())) return "Data indisponível";
-  return new Intl.DateTimeFormat("pt-BR", {
-    dateStyle: "short",
-    timeStyle: "short",
-    timeZone: "America/Recife",
-  }).format(data);
+  return formatarDataHora(valor);
 }
 
 function rotuloNivel(nivel) {
@@ -141,7 +135,7 @@ export function renderPainelDiretor(dados, papel = "") {
     <header class="dd-header"><div><span class="dd-eyebrow">Visão executiva</span>
       <h2>Painel do Diretor</h2><p>Indicadores provenientes dos resultados persistidos; sem consulta ao ERP.</p>
       <a class="dd-link" href="/app/financial?view=conferencia-recebimentos">Conferência de Recebimentos</a></div>
-      <span class="dd-stamp">Dados carregados ${escapeHtml(dataHora(new Date().toISOString()))}</span>
+      <span class="dd-stamp">Dados carregados ${escapeHtml(dataHora(new Date()))}</span>
     </header>
     ${renderSaude(dados.saude_robo, papel)}
     <section class="dd-section"><div class="dd-section-heading"><div><span class="dd-eyebrow">Último dia fechado</span><h3>Hoje por unidade</h3></div></div>

@@ -25,6 +25,7 @@ import {
   fetchCashFlow,
 } from "./services/api.js";
 import { APP_CONFIG } from "./config.js";
+import { dataRecifeISO, somarDias } from "./utils/datas.js";
 import { renderFilters, updateCompanyOptions } from "./components/filters.js";
 import { FILIAIS, getFiliaisBaseCodWebSet, hydrateFiliaisCodigoMap, mergeFiliais } from "./components/filiais.js";
 import { renderDashboard } from "./pages/dashboard.js";
@@ -52,10 +53,8 @@ import {
 } from "./services/productCatalog.js";
 
 const now = new Date();
-const end = now.toISOString().slice(0, 10);
-const startDate = new Date(now.getTime() - 1000 * 60 * 60 * 24 * 5)
-  .toISOString()
-  .slice(0, 10);
+const end = dataRecifeISO(now);
+const startDate = somarDias(end, -5);
 
 const MULTI_FILTER_KEYS = new Set(["empresaCodigo", "centroCusto", "tipoDespesa"]);
 

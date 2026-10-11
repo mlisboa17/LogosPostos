@@ -6,6 +6,7 @@ function dataLocal(value) {
   if (value instanceof Date) return value;
   const raw = String(value).trim();
   const iso = /^\d{2}\/\d{2}\/\d{4}$/.test(raw) ? lerDataBR(raw) : raw;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) lerDataBR(`${iso.slice(8)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`);
   const completo = /^\d{4}-\d{2}-\d{2}$/.test(iso) ? `${iso}T00:00:00-03:00`
     : /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(iso) ? `${iso}-03:00` : iso;
   const date = new Date(completo);
@@ -41,10 +42,10 @@ export function somarDias(iso, dias) {
   date.setUTCDate(date.getUTCDate() + dias);
   return dataRecifeISO(date);
 }
-export function campoDataBR({ nome, valor = "", obrigatorio = true } = {}) {
-  if (!/^[a-zA-Z][\w-]*$/.test(nome)) throw new Error("Nome de campo de data inválido.");
+export function campoDataBR({ nome, valor = "", obrigatorio = true, id = nome } = {}) {
+  if (!/^[a-zA-Z][\w-]*$/.test(nome) || !/^[a-zA-Z][\w-]*$/.test(id)) throw new Error("Nome de campo de data inválido.");
   const exibido = valor ? formatarData(valor) : "";
-  return `<input name="${nome}" type="text" inputmode="numeric" placeholder="dd/mm/aaaa" maxlength="10" pattern="\\d{2}/\\d{2}/\\d{4}" value="${exibido}" ${obrigatorio ? "required" : ""} data-data-br aria-label="${nome} dd/mm/aaaa">`;
+  return `<input id="${id}" name="${nome}" type="text" inputmode="numeric" placeholder="dd/mm/aaaa" maxlength="10" pattern="\\d{2}/\\d{2}/\\d{4}" value="${exibido}" ${obrigatorio ? "required" : ""} data-data-br aria-label="${nome} dd/mm/aaaa">`;
 }
 export function ativarCamposDataBR(container) {
   for (const input of container.querySelectorAll("[data-data-br]")) {

@@ -1,5 +1,6 @@
 import { renderTable } from "../components/table.js";
-import { formatCurrency, formatDate, formatMissing } from "../services/formatters.js";
+import { formatCurrency, formatMissing } from "../services/formatters.js";
+import { formatarData as formatDate, dataRecifeISO } from "../utils/datas.js";
 import { resolveFilialFromRow } from "../components/filiais.js";
 
 export function renderAccountsPayable(container, payload, onPageChange, options = {}) {
@@ -40,7 +41,7 @@ export function renderAccountsPayable(container, payload, onPageChange, options 
       showClearFilters: true,
       onClearFilters: options.onClearFilters,
       title: "Contas a Pagar",
-      exportName: options.exportName || `contas_pagar_${String(rows[0]?.vencimento || new Date().toISOString().slice(0, 10))}`,
+      exportName: options.exportName || `contas_pagar_${String(rows[0]?.vencimento || dataRecifeISO())}`,
       pdfDescription: "Contas a pagar filtradas da visão atual.",
     }
   );

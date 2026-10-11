@@ -1,5 +1,6 @@
 import { renderTable } from "../components/table.js";
-import { formatCurrency, formatDate, formatMissing } from "../services/formatters.js";
+import { formatCurrency, formatMissing } from "../services/formatters.js";
+import { formatarData as formatDate, dataRecifeISO } from "../utils/datas.js";
 import { resolveFilialFromRow } from "../components/filiais.js";
 
 export function renderExpenses(container, payload, onPageChange, options = {}) {
@@ -52,7 +53,7 @@ export function renderExpenses(container, payload, onPageChange, options = {}) {
       showClearFilters: true,
       onClearFilters: options.onClearFilters,
       title: "Despesas",
-      exportName: options.exportName || `despesas_${String(rows[0]?.data || new Date().toISOString().slice(0, 10))}`,
+      exportName: options.exportName || `despesas_${String(rows[0]?.data || dataRecifeISO())}`,
       pdfDescription: "Despesas filtradas da visão atual.",
     }
   );

@@ -1,5 +1,6 @@
 import { renderTable } from "../components/table.js";
-import { formatCurrency, formatDate, formatMissing } from "../services/formatters.js";
+import { formatCurrency, formatMissing } from "../services/formatters.js";
+import { formatarData as formatDate, dataRecifeISO } from "../utils/datas.js";
 import { resolveFilialFromRow } from "../components/filiais.js";
 
 // Função helper para formatar números decimais comuns de forma amigável no Brasil (ex: 12.500 ou 12.500,5)
@@ -103,7 +104,7 @@ export function renderSales(container, payload, onPageChange, options = {}) {
           showClearFilters: true,
           onClearFilters: options.onClearFilters,
           title: "Vendas",
-          exportName: options.exportName || `vendas_${String(rows[0]?.data || new Date().toISOString().slice(0, 10))}`,
+          exportName: options.exportName || `vendas_${String(rows[0]?.data || dataRecifeISO())}`,
           pdfDescription: "Vendas detalhadas por filial para o período filtrado.",
         }
       );

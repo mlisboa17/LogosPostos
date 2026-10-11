@@ -70,8 +70,8 @@
 | Padrão | Fuso America/Recife; exibição `dd/mm/aaaa HH:mm`; ISO só no transporte técnico |
 | Exceção | — |
 | Gatilho | Qualquer data exibida, gravada ou comparada |
-| Ação no sistema | Helpers de `domain/tempo.py` |
-| Implementação | `cash_reconciliation/domain/tempo.py` |
+| Ação no sistema | Helpers de `domain/tempo.py`; frontend com helper único `utils/datas.js` e campos de texto mascarados `dd/mm/aaaa`, nunca `input type=date`; CSV/PDF em português e Excel com datas reais |
+| Implementação | `cash_reconciliation/domain/tempo.py` · frontend/utils/datas.js (format.js mantém aliases compatíveis) |
 | Status | vigente |
 | Vigência | 08/10/2026 — decisão do diretor |
 
@@ -540,3 +540,4 @@ Temas comuns em postos que **ainda não têm regra decidida** — não implement
 | 11/10/2026 | RN-CARTAO-009 (PIX CNPJ do Doze, pela chave do posto) — proposta, depende de EXTRATOS_01 |
 | 11/10/2026 | Sprint 14: RN-CARTAO-010, quatro grupos acionáveis, conferência manual auditada, compensação diária e propostas locais; RN-CARTAO-009 conferência manual até integrar extrato |
 | 11/10/2026 | Sprint 14: RN-REDE-002 com sugestão, empate e responsável do caixa; detalhes individuais dos pagamentos, RN-REDE-006 (D−2, 7 dias) e campo brasileiro compartilhado na conferência |
+| 11/10/2026 | Sprint 14 B4: filtros gerais, fechamento, painéis, contas, vendas, despesas, estoque, exportações e snapshots usam o mesmo helper brasileiro, preservando ISO apenas no transporte técnico |

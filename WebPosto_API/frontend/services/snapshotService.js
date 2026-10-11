@@ -1,5 +1,6 @@
 import { APP_CONFIG } from "../config.js";
 import { fetchSales, fetchFinancialExpenses, fetchStock } from "./api.js";
+import { somarDias } from "../utils/datas.js";
 
 /**
  * Snapshots Service (Etapa 6) - Snapshot History Engine
@@ -9,40 +10,25 @@ import { fetchSales, fetchFinancialExpenses, fetchStock } from "./api.js";
 class SnapshotService {
   constructor() {}
 
-  _formatISO(dateObj) {
-    return dateObj.toISOString().slice(0, 10);
-  }
-
-  _dateAddDays(dateObj, days) {
-    const d = new Date(dateObj.getTime());
-    d.setDate(d.getDate() + days);
-    return d;
-  }
-
   /**
    * Pega o offset de uma data para snapshots comparativos. 
    * @param {string} hojeISO Data de hoje no formato YYYY-MM-DD 
    */
   async getSnapshot(type, hojeISO, empresaCodigo) {
-    const hojeDate = new Date(hojeISO + "T00:00:00Z");
-
-    let dIni, dFim;
+    let dias;
 
     if (type === "ontem") {
-      dIni = this._dateAddDays(hojeDate, -1);
-      dFim = dIni;
+      dias = -1;
     } else if (type === "7dias") {
-      dIni = this._dateAddDays(hojeDate, -7);
-      dFim = dIni;
+      dias = -7;
     } else if (type === "30dias") {
-      dIni = this._dateAddDays(hojeDate, -30);
-      dFim = dIni;
+      dias = -30;
     } else {
       return null;
     }
 
-    const start = this._formatISO(dIni);
-    const end = this._formatISO(dFim);
+    const start = somarDias(hojeISO, dias);
+    const end = start;
     
     try {
       const filters = { dataInicial: start, dataFinal: end, empresaCodigo: empresaCodigo || "" };

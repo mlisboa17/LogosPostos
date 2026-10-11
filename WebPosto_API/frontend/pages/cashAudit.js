@@ -1,5 +1,6 @@
 import { apiClient } from "../services/apiClient.js";
-import { formatCurrency, formatDate, formatTime, formatDateTime, recifeDateISO } from "../services/format.js";
+import { formatCurrency } from "../services/format.js";
+import { formatarData as formatDate, formatarHora as formatTime, formatarDataHora as formatDateTime, dataRecifeISO as recifeDateISO, campoDataBR, ativarCamposDataBR, lerDataBR } from "../utils/datas.js";
 
 const UNIDADES_URL = "/api/v1/cash-audit/unidades";
 const FECHAMENTO_URL = "/api/v1/cash-audit/fechamento";
@@ -386,9 +387,9 @@ export function renderReincidencia(resultado) {
   const semFechamento = resultado?.dias_sem_fechamento || [];
   const semRecebimentos = resultado?.dias_sem_recebimentos || [];
   const coberturaHtml = `<p class="ca-hint">${cobertura} dia(s) com snapshots; ${semDados.length} dia(s) sem arquivo` +
-    `${semDados.length ? `: ${semDados.map(escapeHtml).join(", ")}` : ""}.</p>` +
-    `<p class="ca-hint">Fechamento indisponível: ${semFechamento.map(escapeHtml).join(", ") || "nenhum"} · ` +
-    `PagBank indisponível: ${semRecebimentos.map(escapeHtml).join(", ") || "nenhum"}.</p>`;
+    `${semDados.length ? `: ${semDados.map(d => escapeHtml(formatDate(d))).join(", ")}` : ""}.</p>` +
+    `<p class="ca-hint">Fechamento indisponível: ${semFechamento.map(d => escapeHtml(formatDate(d))).join(", ") || "nenhum"} · ` +
+    `PagBank indisponível: ${semRecebimentos.map(d => escapeHtml(formatDate(d))).join(", ") || "nenhum"}.</p>`;
   if (!funcionarios.length) {
     return `${coberturaHtml}<p class="ca-empty">Sem recorrências registradas nos snapshots disponíveis.</p>`;
   }
@@ -455,13 +456,15 @@ async function carregarAuditoria(container) {
 
 async function executarConsulta(container) {
   const unidade = container.querySelector("#caUnidade").value;
-  const inicio = container.querySelector("#caInicio").value;
-  const fim = container.querySelector("#caFim").value;
-  const mes = container.querySelector("#caMes").value;
+  let inicio, fim;
+  let mes;
   const mensagem = container.querySelector("#caError");
   const conteudo = container.querySelector("#caResults");
   let dias;
   try {
+    inicio = lerDataBR(container.querySelector("#caInicio").value);
+    fim = lerDataBR(container.querySelector("#caFim").value);
+    mes = lerDataBR(`01/${container.querySelector("#caMes").value}`).slice(0, 7);
     dias = diasDoPeriodo(inicio, fim);
   } catch (error) {
     showError(container, error);
@@ -516,9 +519,9 @@ export async function renderCashAudit(container, { load = false } = {}) {
         <header class="ca-header"><div><h2>Fechamento do Dia</h2><p>Auditoria de caixa por unidade, período e modalidade.</p></div></header>
         <form id="caFilters" class="ca-filters">
           <label>Unidade<select id="caUnidade" required></select></label>
-          <label>Data início<input id="caInicio" type="date" lang="pt-BR" value="${inicio}" required></label>
-          <label>Data fim<input id="caFim" type="date" lang="pt-BR" value="${fim}" required></label>
-          <label>Mês da reincidência<input id="caMes" type="month" lang="pt-BR" value="${fim.slice(0, 7)}" required></label>
+          <label>Data início${campoDataBR({ nome: "caInicio", valor: inicio })}</label>
+          <label>Data fim${campoDataBR({ nome: "caFim", valor: fim })}</label>
+          <label>Mês da reincidência<input id="caMes" type="text" inputmode="numeric" placeholder="mm/aaaa" maxlength="7" pattern="\\d{2}/\\d{4}" value="${fim.slice(5, 7)}/${fim.slice(0, 4)}" required></label>
           <button type="submit">Consultar</button>
         </form>
         <p id="caError" class="ca-error hidden" role="alert"></p>
@@ -530,6 +533,7 @@ export async function renderCashAudit(container, { load = false } = {}) {
         </section>
         <footer id="caProveniencia" class="ca-provenance">Proveniência disponível após a consulta.</footer>
       </div>`;
+    ativarCamposDataBR(container.querySelector("#caFilters"));
     container.querySelector("#caFilters").addEventListener("submit", (event) => {
       event.preventDefault();
       void carregarAuditoria(container);
