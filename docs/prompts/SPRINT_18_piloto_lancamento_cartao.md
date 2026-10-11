@@ -11,7 +11,7 @@ Repositório `C:\Projetos\LOGOS\LogosPostos`, branch `feature/cash-audit-fechame
 O diretor lançou à mão 4 cartões que o Logos tinha apontado (tipo `Manualmente`, **sem venda e sem NSU**):
 - Antes: dinheiro apurado **R$ 2.296,19**; cartão R$ 14.609,98. Depois: dinheiro apurado **R$ 2.167,44** (−R$ 128,75) e cartão **R$ 14.738,73** (+R$ 128,75). **Incluir o cartão no caixa reduz o dinheiro esperado — não conta em dobro.** (Confirmar isso no teste; pode depender de `vendaCodigo`.)
 - Como foram lançados sem NSU/venda e com bandeira diferente (Elo R$ 30,00 lançado como Maestro; Amex R$ 34,75 como Elo Débito, 15:28 em vez de 15:26), o Logos só consegue casá-los como "par provável". **O lançamento automático deve gravar NSU, autorização, bandeira/administradora certa, venda e hora** para que a conciliação seguinte case por NSU.
-- O Amex de R$ 100,00 lançado como "AMERICAN EXPRESS" (administradora fora do PagSeguro) continua como diferença de R$ 100,00 → candidato a **correção de administradora** (PATCH), fora do piloto.
+- A administradora "AMERICAN EXPRESS" nessas unidades **é do PagBank** (confirmado pelo diretor em 11/10/2026): não é erro e não precisa de correção.
 
 ## API (spec oficial, `docs/external/webposto/openapi_integracao_2026-10-06.json`)
 
