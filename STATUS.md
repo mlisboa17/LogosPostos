@@ -48,6 +48,10 @@ Histórico de sprints: um prompt por sprint em docs/prompts/ (SPRINT_05 ... SPRI
 - CIELO_01 PAUSADA pelo diretor (11/10): falta achar no portal Cielo onde enviar o .csr (Integrar via API →
   "Certificado de segurança (MTLS)" / "Envie o certificado para assinatura"; senão "Agendar suporte técnico").
   Matriz 1003946779 (VIP) é do webPosto/Quality desde 28/09 — NÃO alterar. A nossa é a 1050633722.
+- 11/10 (debate com o diretor): ADR-004 (grupos → unidades → setores por centro de custo; VIP = PISTA | CONVENIÊNCIA → FOOD;
+  FECHAMENTO = ajuste de NF fora das despesas) e ADR-005 (aprendizado por unidade/setor, período de aprendizado,
+  IA só como assistente) — ambas Proposed. Regras RN-REDE-007/008 e novos "A definir" (fluxo de respostas dos
+  responsáveis, limites proporcionais de despesa, despesa × NF-e/DF-e). Nada implementado ainda.
 - Próximo: FECHAMENTO DE CAIXA (decisão do diretor 11/10) · CIELO_01 e MAIS_01 quando houver credencial · Sprint 15 (dossiê + medir acerto das propostas) · EXTRATOS_01.
 
 ## Em andamento
