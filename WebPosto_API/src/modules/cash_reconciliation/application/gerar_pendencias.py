@@ -346,7 +346,7 @@ def pendencias_do_dia(resultado: ResultadoDiario) -> list[NovaPendencia]:
         item.adquirente
         for item in resultado.recebimentos.adquirentes
         if item.proveniencia
-        and item.proveniencia.versao_regra == "CARTOES_V3_1"
+        and item.proveniencia.versao_regra in {"CARTOES_V3_1", "CARTOES_V3_2"}
         and item.situacao in {"ok", "pendente"}
     }
     if adquirentes_verificados and repositorio_pendencias.contar_abertas_somente_leitura(
@@ -386,6 +386,57 @@ def pendencias_do_dia(resultado: ResultadoDiario) -> list[NovaPendencia]:
                         "diferentes não indica duplicidade"
                     ),
                 )
+    verificados_v32 = [
+        a for a in resultado.recebimentos.adquirentes
+        if a.situacao == "ok" and a.proveniencia
+        and a.proveniencia.versao_regra == "CARTOES_V3_2"
+    ]
+    if verificados_v32:
+        referencias_conferidas = {
+            f"{a.adquirente}:cartao:{codigo}"
+            for a in verificados_v32 for codigo in a.codigos_conferidos
+        }
+        grupos_ativos = {
+            p.referencia for p in novas
+            if p.tipo == "caixa_alertas_laranja" and json.loads(p.mensagem)["alertas"]
+        }
+        # Grupos podem incluir fechamento e outros adquirentes: so encerrar com coleta completa.
+        grupos_verificados = (
+            resultado.fechamento is not None
+            and all(a.situacao == "ok" for a in resultado.recebimentos.adquirentes)
+        )
+        for tipo in ("recebimento_a_menor", "caixa_alertas_laranja"):
+            if tipo == "caixa_alertas_laranja" and not grupos_verificados:
+                continue
+            deslocamento = 0
+            antigas = []
+            while True:
+                itens, total = repositorio_pendencias.listar(
+                    unidade=resultado.empresa_codigo, status="aberta",
+                    tipo=tipo, limite=100, deslocamento=deslocamento,
+                )
+                antigas.extend(itens)
+                deslocamento += len(itens)
+                if not itens or deslocamento >= total:
+                    break
+            for p in antigas:
+                if p.dia != resultado.dia:
+                    continue
+                resolvida = (
+                    p.referencia in referencias_conferidas
+                    if tipo == "recebimento_a_menor"
+                    else p.referencia not in grupos_ativos
+                )
+                if resolvida:
+                    repositorio_pendencias.transicionar(
+                        p.id, status_esperado="aberta", status_novo="aprovada",
+                        acao="aprovada", usuario="robo",
+                        justificativa=(
+                            "Regra CARTOES_V3_2: lançamento conferido por NSU/cupom/POS."
+                            if tipo == "recebimento_a_menor"
+                            else "Regra CARTOES_V3_2: grupo sem alertas laranja ativos no reprocessamento completo."
+                        ),
+                    )
     return novas
 
 

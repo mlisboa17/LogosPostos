@@ -1,4 +1,4 @@
-"""Conciliacao adquirente x webPosto e investigacao por abastecimento — CARTOES_V3_1.
+"""Conciliacao adquirente x webPosto e investigacao por abastecimento — CARTOES_V3_2.
 
 1. Chave exata: NSU ou autorizacao (cartao). Evidencia Doze 05/10/2026: 255/255.
 2. Sem NSU (PIX via adquirente): mesmo valor e |dt| <= 10 min.
@@ -32,7 +32,7 @@ from ..domain.cartoes import (
     TransacaoAdquirente,
 )
 
-VERSAO = "CARTOES_V3_1"
+VERSAO = "CARTOES_V3_2"
 logger = logging.getLogger(__name__)
 CORTE_AUTOMATICO = 80
 CORTE_SUGESTAO = 50
@@ -44,6 +44,16 @@ CENTAVO = Decimal("0.01")
 
 def _chave(v: str | None) -> str:
     return str(v or "").strip().lstrip("0").upper()
+
+
+def candidato_pos(t: TransacaoAdquirente, c: CartaoErp) -> bool:
+    return (
+        t.adquirente.upper() == "PREMMIA"
+        and c.administradora.strip().upper() == "POS PREMMIA"
+        and c.valor == t.valor
+        and c.momento.date() == t.momento.date()
+        and abs(c.momento - t.momento) <= JANELA_SEM_NSU
+    )
 
 
 def grupos_nsu_repetido(cartoes: Iterable[CartaoErp]) -> list[list[CartaoErp]]:
@@ -110,10 +120,44 @@ def casar(
                 )
                 break
 
-    # so transacoes sem NSU/autorizacao (PIX): cartao com NSU nunca casa por valor (esconderia divergencia)
+    for t in list(livres_t):
+        codigo = str(t.nsu or "").strip().upper()
+        cands = [
+            c for c in livres_c
+            if codigo and c.nsu and "-" in c.nsu
+            and c.nsu.rsplit("-", 1)[1].strip().upper() == codigo
+            and c.valor == t.valor and c.momento.date() == t.momento.date()
+        ]
+        if len(cands) == 1 and sum(
+            str(outro.nsu or "").strip().upper() == codigo
+            and outro.valor == t.valor and outro.momento.date() == t.momento.date()
+            for outro in livres_t
+        ) == 1:
+            c = cands[0]
+            livres_t.remove(t)
+            livres_c.remove(c)
+            casados.append(Casamento(transacao=t, cartao=c, chave="cupom"))
+
+    elegiveis_pos = {
+        t.identificador: [c for c in livres_c if candidato_pos(t, c)]
+        for t in livres_t
+    }
+    for t in list(livres_t):
+        cands = elegiveis_pos[t.identificador]
+        if len(cands) != 1:
+            continue
+        c = cands[0]
+        if sum(c in cs for cs in elegiveis_pos.values()) != 1:
+            continue
+        livres_t.remove(t)
+        livres_c.remove(c)
+        casados.append(Casamento(transacao=t, cartao=c, chave="valor_hora"))
+
+    # Preserve o casamento legado de PIX sem NSU, exceto POS ambiguo.
     for t in sorted((t for t in livres_t if not _chave(t.nsu) and not _chave(t.autorizacao)), key=lambda t: t.momento):
         cands = [c for c in livres_c
-                 if abs(c.valor - t.valor) < CENTAVO and abs(c.momento - t.momento) <= JANELA_SEM_NSU]
+                 if c.administradora.strip().upper() != "POS PREMMIA"
+                 and abs(c.valor - t.valor) < CENTAVO and abs(c.momento - t.momento) <= JANELA_SEM_NSU]
         if cands:
             c = min(cands, key=lambda c: abs(c.momento - t.momento))
             livres_t.remove(t)

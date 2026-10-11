@@ -287,13 +287,13 @@
 |---|---|
 | Unidades | Unidades com adquirente ativo |
 | Módulo | TEF/Cartões |
-| Padrão | Chave exata NSU (ou NSU TEF) ou autorização. PIX sem NSU: mesmo valor e até 10 min |
+| Padrão | Chave exata NSU (ou NSU TEF) ou autorização. Cupom: NSU ERP termina em `-<código portal>`, sem diferenciar maiúsculas, mesmo valor e dia; chave `cupom`. POS PREMMIA: mesmo valor/dia e até 10 min, candidato único nos dois lados; chave `valor_hora`. Ambiguidade POS fica provável, nunca conferida automaticamente. PIX sem NSU mantém regra existente |
 | Exceção | — |
 | Gatilho | Robô noturno |
 | Ação no sistema | Casado / a maior (na adquirente, não no ERP) / a menor (no ERP, não na adquirente) |
-| Implementação | `rules/cartoes.py` · CARTOES_V3_1 |
+| Implementação | `rules/cartoes.py` · CARTOES_V3_2 |
 | Status | vigente |
-| Vigência | 10/10/2026 |
+| Vigência | 11/10/2026 |
 
 ### RN-CARTAO-003 — Lançado e não recebido
 | Campo | Valor |
@@ -383,10 +383,10 @@
 | Unidades | Todas com Premmia |
 | Módulo | Premmia |
 | Padrão | Formas no portal: Cartão APP, Pix, Desconto, Vale-Premmia. **"Desconto" é pago pela Vibra ao posto (recebível)** e é conciliado como as demais |
-| Exceção | Lançamentos até 09/10/2026 podem estar em forma "não identificada"; forma própria cadastrada no webPosto em 10/10/2026 |
+| Exceção | Lançamentos até 09/10/2026 podem estar em forma "não identificada"; forma própria `PREMMIA DESCONTO CUPOM` cadastrada no webPosto em 10/10/2026 |
 | Gatilho | Conciliação Premmia |
-| Ação no sistema | Casamento por "Código Transação" do portal = `nsu` do `V1/CARTOES` |
-| Implementação | Sprint 13 (PREMMIA_01) |
+| Ação no sistema | Casamento por NSU exato ou sufixo de cupom, mesmo valor/dia; POS PREMMIA por valor/hora com unicidade. Quantidades sempre acompanhadas de R$; por forma, portal × webPosto e diferença |
+| Implementação | Sprint 13.1 · CARTOES_V3_2 |
 | Status | vigente |
 | Vigência | 10/10/2026 — decisão do diretor |
 
@@ -491,3 +491,4 @@ Temas comuns em postos que **ainda não têm regra decidida** — não implement
 | Data | Mudança |
 |---|---|
 | 10/10/2026 | Criação do documento com as regras vigentes do projeto (Sprints 01 a 13) e ADR-003 |
+| 11/10/2026 | CARTOES_V3_2: cupom no sufixo do NSU, POS PREMMIA com unicidade, forma PREMMIA DESCONTO CUPOM e valores junto às quantidades |

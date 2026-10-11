@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 import httpx
@@ -28,6 +28,90 @@ def C(cod, valor, hora, nsu=None, aut=None, adm="VISA CREDITO PAGSEGURO", dia="2
 def A(cod, valor, hora, frentista=7, item=None):
     return Abastecimento(codigo=cod, empresa_codigo=74014, momento=datetime.fromisoformat(f"2026-10-05T{hora}"),
                          bico=1, valor=Decimal(valor), frentista=frentista, venda_item_codigo=item)
+
+
+def test_sete_cupons_sinteticos_casam_pelo_final_do_nsu():
+    codigos = [f"CUPOM{i:03d}" for i in range(7)]
+    transacoes = [
+        T(str(5 + i), f"{i:02d}:45:22", nsu=codigo, dia="2026-10-06")
+        for i, codigo in enumerate(codigos)
+    ]
+    cartoes = [
+        C(i, str(5 + i), f"{i:02d}:45:54", nsu=f"uuid-sintetico-{codigo.lower()}",
+          adm="PREMMIA DESCONTO CUPOM", dia="2026-10-06")
+        for i, codigo in enumerate(codigos)
+    ]
+    casados, maior, menor = casar(transacoes, cartoes)
+    assert len(casados) == 7 and not maior and not menor
+    assert all(c.chave == "cupom" for c in casados)
+
+
+@pytest.mark.parametrize("nsu,valor,dia", [
+    ("prefixo-CUPOM001-outro", "10", "2026-10-05"),
+    ("prefixo-CUPOM001", "11", "2026-10-05"),
+    ("prefixo-CUPOM001", "10", "2026-10-06"),
+])
+def test_cupom_exige_sufixo_valor_e_dia(nsu, valor, dia):
+    casados, maior, menor = casar(
+        [T("10", "10:00", nsu="CUPOM001")],
+        [C(1, valor, "10:00", nsu=nsu, dia=dia)],
+    )
+    assert not casados and len(maior) == len(menor) == 1
+
+
+def test_cupom_ambiguo_nao_casa():
+    assert not casar(
+        [T("10", "10:00", nsu="CUPOM001")],
+        [C(i, "10", "10:00", nsu=f"{i}-CUPOM001") for i in (1, 2)],
+    )[0]
+    t = T("10", "10:00", nsu="CUPOM001")
+    assert not casar([t, t.model_copy(update={"identificador": "outro"})], [
+        C(1, "10", "10:00", nsu="uuid-CUPOM001"),
+    ])[0]
+
+
+def test_pos_premmia_unico_casa_e_ambiguo_fica_provavel():
+    from src.modules.cash_reconciliation.domain.recebimentos import RecebimentoAdquirente
+
+    t = T("200.02", "10:00", nsu="portal-sintetico").model_copy(update={"adquirente": "PREMMIA"})
+    cartoes = [C(i, "200.02", "10:05", nsu=f"erp-{i}", adm="POS PREMMIA") for i in (1, 2)]
+    unico = conciliar(74014, "PREMMIA", DIA, [t], cartoes[:1], [], set())
+    assert unico.casados[0].chave == "valor_hora"
+    ambiguo = conciliar(74014, "PREMMIA", DIA, [t], cartoes, [], set())
+    assert not ambiguo.casados and not ambiguo.a_maior and not ambiguo.a_menor
+    assert {p.cartao.codigo for p in ambiguo.pares_provaveis} == {1, 2}
+    formas = RecebimentoAdquirente.de_resultado(ambiguo).formas
+    assert sum(f.portal.quantidade for f in formas) == 1
+    assert sum((f.portal.total for f in formas), Decimal(0)) == Decimal("200.02")
+    assert sum(f.webposto.quantidade for f in formas) == 2
+
+
+def test_pos_exige_janela_dia_adquirente_e_unicidade_reversa():
+    t = T("10", "10:00", nsu="portal").model_copy(update={"adquirente": "PREMMIA"})
+    for c in [C(1, "10", "10:11", nsu="erp", adm="POS PREMMIA"),
+              C(1, "10", "10:00", nsu="erp", adm="POS PREMMIA", dia="2026-10-06"),
+              C(1, "10", "10:00", nsu="erp", adm="PREMMIA PIX")]:
+        assert not casar([t], [c])[0]
+    c = C(1, "10", "10:00", nsu="erp", adm="POS PREMMIA")
+    assert not casar([t, t.model_copy(update={"identificador": "segundo", "nsu": "outro"})], [c])[0]
+    limite = c.model_copy(update={"momento": t.momento + timedelta(minutes=10)})
+    assert casar([t], [limite])[0][0].chave == "valor_hora"
+
+
+def test_resultado_v31_antigo_abre_e_formas_novas_tem_valores():
+    from src.modules.cash_reconciliation.domain.recebimentos import RecebimentoAdquirente
+
+    t = T("10", "10:00", nsu="CUPOM001").model_copy(update={"bandeira": "Desconto", "adquirente": "PREMMIA"})
+    resultado = conciliar(74014, "PREMMIA", DIA, [t], [
+        C(1, "10", "10:01", nsu="uuid-CUPOM001", adm="PREMMIA DESCONTO CUPOM"),
+    ], [], set())
+    item = RecebimentoAdquirente.de_resultado(resultado)
+    assert item.formas[0].portal.quantidade == item.formas[0].webposto.quantidade == 1
+    assert item.formas[0].portal.total == Decimal("10") and item.formas[0].diferenca == 0
+    antigo = item.model_dump(mode="json")
+    antigo.pop("formas")
+    antigo["proveniencia"]["versao_regra"] = "CARTOES_V3_1"
+    assert RecebimentoAdquirente.model_validate(antigo).formas == ()
 
 
 # ---------- casamento ----------
@@ -153,7 +237,7 @@ def test_conciliar_retorna_grupo_provavel_e_versao_cartoes_v3():
     resultado = conciliar(74014, "PAGBANK", DIA, transacoes, [C(1, "179.45", "10:05")], [], set())
     assert len(resultado.grupos_provaveis) == 1
     assert not resultado.a_maior and not resultado.a_menor
-    assert resultado.proveniencia.versao_regra == "CARTOES_V3_1"
+    assert resultado.proveniencia.versao_regra == "CARTOES_V3_2"
 
 
 # ---------- adapters ----------

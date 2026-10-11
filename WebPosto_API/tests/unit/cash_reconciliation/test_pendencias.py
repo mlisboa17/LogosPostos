@@ -777,6 +777,47 @@ def test_legada_ausente_arquivada_sem_inventar_detalhe(tmp_path, monkeypatch):
     assert next(p for p in itens if p.tipo == "caixa_alertas_laranja").status == "aprovada"
 
 
+def test_v32_encerra_so_vermelhas_abertas_conferidas_e_grupo_resolvido(tmp_path, monkeypatch):
+    from src.modules.cash_reconciliation.domain.recebimentos import RecebimentoAdquirente
+
+    monkeypatch.setattr(repositorio, "BANCO_PENDENCIAS", tmp_path / "pendencias.sqlite3")
+    for codigo in (1, 2, 3):
+        repositorio.registrar([NovaPendencia(
+            unidade=EMPRESA, dia=DIA, tipo="recebimento_a_menor", severidade="vermelho",
+            valor=Decimal("12"), referencia=f"PREMMIA:cartao:{codigo}", mensagem="Sintético",
+        )])
+    itens = repositorio.listar()[0]
+    protegida = next(p for p in itens if p.referencia.endswith(":2"))
+    repositorio.transicionar(
+        protegida.id, status_esperado="aberta", status_novo="justificada",
+        acao="justificada", usuario="gerente", justificativa="Justificativa sintética",
+    )
+    repositorio.registrar([NovaPendencia(
+        unidade=EMPRESA, dia=DIA, tipo="caixa_alertas_laranja", severidade="laranja",
+        valor=Decimal("12"), referencia="caixa:106:laranja",
+        mensagem=json.dumps({"alertas": [{"codigo": "X", "valor": "12", "mensagem": "Sintético"}]}),
+        identidade=f"{EMPRESA}|{DIA.isoformat()}|caixa:106|laranja",
+    )])
+    diario = criar_diario(DIA)
+    auditoria = diario.fechamento.caixas[0].model_copy(update={"alertas": ()})
+    diario = diario.model_copy(update={
+        "fechamento": diario.fechamento.model_copy(update={"caixas": (auditoria,)}),
+        "recebimentos": ResultadoRecebimentos(
+            empresa_codigo=EMPRESA, dia=DIA, adquirentes=(RecebimentoAdquirente(
+                adquirente="PREMMIA", situacao="ok", codigos_conferidos=(1, 2),
+                proveniencia=diario.proveniencia.model_copy(update={"versao_regra": "CARTOES_V3_2"}),
+            ),),
+        ),
+    })
+    assert pendencias_do_dia(diario) == []
+    assert pendencias_do_dia(diario) == []
+    por_ref = {p.referencia: p for p in repositorio.listar()[0]}
+    assert por_ref["PREMMIA:cartao:1"].status == "aprovada"
+    assert len(por_ref["PREMMIA:cartao:1"].historico) == 2
+    assert por_ref["PREMMIA:cartao:2"].status == "justificada"
+    assert por_ref["PREMMIA:cartao:3"].status == "aberta"
+    assert por_ref["caixa:106:laranja"].status == "aprovada"
+
 def test_laranjas_individuais_abertas_sao_substituidas_com_historico(tmp_path):
     banco = tmp_path / "pendencias.sqlite3"
     resultado = diario_com_alertas(alertas_laranja())

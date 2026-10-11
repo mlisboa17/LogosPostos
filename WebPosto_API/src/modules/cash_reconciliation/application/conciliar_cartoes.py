@@ -14,6 +14,7 @@ from ..domain.cartoes import (
     Abastecimento,
     AlertaCartao,
     CartaoErp,
+    ParProvavel,
     ResultadoCartoes,
     TransacaoAdquirente,
 )
@@ -24,6 +25,7 @@ from ..rules.cartoes import (
     _chave,
     agrupar_sobras,
     casar,
+    candidato_pos,
     grupos_nsu_repetido,
     investigar,
     parear_sobras,
@@ -153,6 +155,14 @@ def conciliar(
     if adquirente != "PREMMIA":
         a_maior, a_menor, pares = parear_sobras(a_maior, a_menor)
         a_maior, a_menor, grupos = agrupar_sobras(a_maior, a_menor)
+    else:
+        for inv in list(a_maior):
+            candidatos = [c for c in a_menor if candidato_pos(inv.transacao, c) and c.codigo not in motivos_repetidos]
+            if candidatos:
+                pares.extend(ParProvavel(investigacao=inv, cartao=c) for c in candidatos)
+                a_maior.remove(inv)
+        candidatos_provaveis = {p.cartao.codigo for p in pares}
+        a_menor = [c for c in a_menor if c.codigo not in candidatos_provaveis]
     return ResultadoCartoes(
         empresa_codigo=empresa_codigo,
         adquirente=adquirente,
