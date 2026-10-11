@@ -40,7 +40,8 @@ Já existe `adapters/ofx_reader.py` (SGML 1.02, cp1252, extrai **só depósitos 
 - **3.566 lançamentos** em 01–11/10: cada venda aparece como "Vendas - Disponivel <DEBITO|CREDITO> <BANDEIRA>" (3.451), mais "Pix recebido" (64), "Pix enviado" (46), "QR Code Pix enviado" (3), "Rendimento da conta" (2). Alguns caracteres especiais e um `\xa0`.
 - Fixture sintética deve reproduzir exatamente isso (sem dados reais).
 
-Resultado já conferido pelo arquiteto com esse extrato (PIX CNPJ do Doze): **encontrados** 04/10 R$ 100,00 e R$ 50,00; 05/10 R$ 142,71; 06/10 R$ 1.614,64; 08/10 R$ 417,00; **10/10 R$ 800,00**. **NÃO encontrados** em lugar nenhum do extrato PagBank nem no BB: **05/10 R$ 96,28** e **07/10 R$ 59,78** (ambos lançados à mão às 01:00). O teste da Parte C tem de reproduzir esse resultado.
+Resultado já conferido pelo arquiteto com esse extrato (PIX CNPJ do Doze): **encontrados** 04/10 R$ 100,00 e R$ 50,00; 05/10 R$ 142,71; 06/10 R$ 1.614,64; 08/10 R$ 417,00; **10/10 R$ 800,00**. Os dois que não batiam por valor único **são somas de vários PIX do dia** (correção do diretor, conferida pelo arquiteto): **05/10 R$ 96,28 = 30,00 (18:29) + 55,28 (18:41) + 11,00 (18:17)** e **07/10 R$ 59,78 = 33,00 (13:10) + 26,78 (17:24)**. Ou seja, **todos os 8 PIX CNPJ têm lastro**.
+**Regra para a Parte C:** um PIX CNPJ lançado à mão pode ser a **soma de vários PIX recebidos no mesmo dia** → se não houver PIX de valor único, procurar **combinação única de até 4 PIX recebidos** do mesmo dia (não usados por outro lançamento) que some o valor; achou → "conferido pelo extrato (soma de N PIX)" com a lista; mais de uma combinação → "conferir à mão" mostrando as opções. O teste da Parte C tem de reproduzir os 8 casos acima.
 
 ## PARTE D — Testes
 
