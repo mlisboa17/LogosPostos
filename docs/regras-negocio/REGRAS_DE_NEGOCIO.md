@@ -140,6 +140,32 @@
 | Status | vigente |
 | Vigência | 11/10/2026 — decisão do diretor |
 
+### RN-REDE-007 — Setores por centro de custo (webPosto é a base oficial)
+| Campo | Valor |
+|---|---|
+| Unidades | VIP 11495 (pista + conveniência no mesmo CNPJ); Conv. 24h 118508 (FOOD); demais = setor único |
+| Módulo | Todos |
+| Padrão | Separar despesas, vales, vendas, recebimentos, fechamento e metas pelos **centros de custo ativos** do webPosto. VIP: PISTA = 01.0.1 PISTA (7295); CONVENIÊNCIA = 04.0.1 LOJA (21650) + 05.0.1 CONVENIÊNCIA (22310); FOOD = 09.0.1 FOOD (24423), subdivisão da CONVENIÊNCIA. Centros inativos/duplicados devolvidos pela API são ignorados |
+| Exceção | 03.0.1 FECHAMENTO (18713) = ajuste de nota fiscal criado pelo diretor; **não é despesa real**: fica fora de despesas e limites, exibido à parte como "ajuste de NF" |
+| Gatilho | Qualquer registro com centro de custo |
+| Ação no sistema | Visões e alertas por setor; metas de litros só no setor PISTA |
+| Implementação | Pendente (ver ADR-004) |
+| Status | vigente (decisão) — implementação pendente |
+| Vigência | 11/10/2026 — decisão do diretor (o diretor pretende unificar LOJA e CONVENIÊNCIA num só centro) |
+
+### RN-REDE-008 — Unidade nova: período de aprendizado
+| Campo | Valor |
+|---|---|
+| Unidades | Unidades recém-migradas ou recém-cadastradas (hoje: Conv. 24h 118508) |
+| Módulo | Todos |
+| Padrão | Sem histórico suficiente (~60–90 dias), usar regras padrão do grupo e desligar/afrouxar alertas de "fora do padrão" |
+| Exceção | — |
+| Gatilho | Data de migração/cadastro da unidade |
+| Ação no sistema | Régua própria passa a valer depois do período |
+| Implementação | Pendente (ver ADR-005) |
+| Status | vigente (decisão) — implementação pendente |
+| Vigência | 11/10/2026 — Conv. 24h migrada recentemente, sem despesas históricas |
+
 ---
 
 ## 5. Caixa e fechamento (RN-CAIXA)
@@ -527,6 +553,11 @@ Temas comuns em postos que **ainda não têm regra decidida** — não implement
 | Desconto não autorizado na bomba | `V1/ABASTECIMENTOS`: preço praticado (`valorUnitario`) abaixo do `precoCadastro` sem tabela A/B/C que justifique — qual tolerância e quem pode autorizar? |
 | Sequência de encerrantes | `V1/ABASTECIMENTOS.encerrante`: buraco na sequência por bico indica abastecimento não registrado — tolerância? Usar também no LMC? |
 | Placa | `V1/ABASTECIMENTOS.placa`: localizar abastecimentos de clientes empresa e repetição da mesma placa no dia — limites? |
+| Fluxo de respostas dos responsáveis | Quem é o responsável por unidade/setor (gerente, chefe de pista)? Opções de resposta (Corrigido → Logos confere na noite seguinte; Descontado → confere o vale; Justificado → diretor aprova; Ajuda → sobe ao diretor)? Resumo diário por unidade com link para o Painel primeiro, botões no Telegram só com servidor fixo? Aviso imediato para vermelhos graves? |
+| Limites de despesa proporcionais | Base (média móvel do faturamento ou da margem, por setor), % do teto mensal, alçada por despesa, teto absoluto em R$ e regras por plano de contas (ex.: combustível pago a pessoa e Uber sempre sobem; gelo/água rotina). Definir **depois** do levantamento dos últimos 3 meses por unidade/setor |
+| Despesa × NF-e (DF-e) | Conferir despesa do caixa com NF-e emitida contra o CNPJ (notas de entrada / manifestação DF-e no webPosto): janela de dias, tolerância de valor; tipos que nunca têm NF-e (gelo, diarista, Uber) pedem comprovante acima de qual valor? |
+| Grupos de outros donos (ADR-004) | Cadastro de grupos, diretores e responsáveis quando chegar a primeira unidade de outro dono |
+| IA no Logos (ADR-005) | Quais tarefas liberar primeiro para a IA (ex.: conferir plano de contas pela descrição, redigir dossiês) e quais dados podem ser enviados |
 | Rede / Cielo / Mais Pagamentos | Fonte dos dados: EDI via webPosto ou acesso direto? (aguarda Quality e TIVIT) |
 
 ## 13. Histórico
@@ -543,3 +574,4 @@ Temas comuns em postos que **ainda não têm regra decidida** — não implement
 | 11/10/2026 | Sprint 14: RN-REDE-002 com sugestão, empate e responsável do caixa; detalhes individuais dos pagamentos, RN-REDE-006 (D−2, 7 dias) e campo brasileiro compartilhado na conferência |
 | 11/10/2026 | Sprint 14 B4: filtros gerais, fechamento, painéis, contas, vendas, despesas, estoque, exportações e snapshots usam o mesmo helper brasileiro, preservando ISO apenas no transporte técnico |
 | 11/10/2026 | Sprint 14.1: Premmia invisível com fallback visível apenas antes do login, uma tentativa de login por noite; qualquer falha de coleta é aviso com etapa e data dos últimos dados; novas abas da planilha diária formatadas em R$ |
+| 11/10/2026 | RN-REDE-007 (setores por centro de custo; FECHAMENTO = ajuste de NF), RN-REDE-008 (período de aprendizado), novos itens "A definir" (fluxo de respostas, limites proporcionais, despesa × NF-e, grupos, IA); ADR-004 e ADR-005 propostas |
