@@ -29,6 +29,91 @@ class TransicaoPendenciaInvalida(RuntimeError):
     pass
 
 
+def eventos_recebimentos(unidade: int, *, banco: Path | None = None) -> dict[str, dict]:
+    caminho = banco or BANCO_PENDENCIAS
+    if not caminho.is_file():
+        return {}
+    try:
+        with sqlite3.connect(f"{caminho.resolve().as_uri()}?mode=ro", uri=True) as conexao:
+            conexao.row_factory = sqlite3.Row
+            if not conexao.execute("SELECT 1 FROM sqlite_master WHERE name='eventos_recebimentos'").fetchone():
+                return {}
+            rows = conexao.execute(
+                "SELECT * FROM eventos_recebimentos WHERE unidade=? ORDER BY id", (unidade,),
+            ).fetchall()
+            return {row["acao_id"]: dict(row) for row in rows}
+    except sqlite3.Error:
+        logger.exception("Falha ao ler conferencias unidade=%s", unidade)
+        raise ErroPersistenciaPendencias("Falha ao ler conferências de recebimentos.") from None
+
+
+def registrar_conferencia(acao, decisao: str, observacao: str, usuario: str, *, banco: Path | None = None) -> None:
+    if acao.grupo != 4 or decisao not in {"conferido", "nao_encontrado"} or not observacao.strip():
+        raise TransicaoPendenciaInvalida("Conferência manual inválida.")
+    try:
+        with _conectar(banco) as conexao:
+            conexao.execute("BEGIN IMMEDIATE")
+            anterior = conexao.execute(
+                "SELECT decisao, observacao FROM eventos_recebimentos WHERE unidade=? AND acao_id=? ORDER BY id DESC LIMIT 1",
+                (acao.unidade, acao.id),
+            ).fetchone()
+            if anterior and anterior["decisao"] == decisao and anterior["observacao"] == observacao:
+                return
+            if anterior and anterior["decisao"] == "nao_encontrado":
+                raise TransicaoPendenciaInvalida("Item já encaminhado para apuração; use a fila de pendências.")
+            instante = agora().isoformat()
+            conexao.execute(
+                "INSERT INTO eventos_recebimentos(unidade,acao_id,tipo,decisao,observacao,usuario,registrado_em) VALUES (?,?,'manual',?,?,?,?)",
+                (acao.unidade, acao.id, decisao, observacao, usuario, instante),
+            )
+            if decisao == "nao_encontrado":
+                identidade = hashlib.sha256(f"{acao.unidade}|{acao.momento.date()}|recebimento_apurar|{acao.id}".encode()).hexdigest()
+                pendencia_id = uuid.uuid4().hex
+                cursor = conexao.execute(
+                    """INSERT OR IGNORE INTO pendencias
+                    (id,identidade,unidade,dia,tipo,severidade,valor,referencia,mensagem,status,responsavel,criada_em)
+                    VALUES (?,?,?,?,'recebimento_apurar','vermelho',?,?,?,'aberta',?,?)""",
+                    (pendencia_id, identidade, acao.unidade, acao.momento.date().isoformat(),
+                     str(acao.valor), acao.id,
+                     f"RN-CARTAO-010: SUSPEITA DE LANÇAMENTO SEM LASTRO — {acao.responsavel}. {observacao}",
+                     usuario, instante),
+                )
+                if cursor.rowcount:
+                    conexao.execute(
+                        """INSERT INTO historico_pendencias
+                        (pendencia_id,acao,status_anterior,status_novo,usuario,justificativa,registrado_em)
+                        VALUES (?,'criada',NULL,'aberta',?,?,?)""",
+                        (pendencia_id, usuario, observacao, instante),
+                    )
+    except sqlite3.Error:
+        logger.exception("Falha ao registrar conferencia unidade=%s", acao.unidade)
+        raise ErroPersistenciaPendencias("Falha ao registrar conferência.") from None
+
+
+def substituir_por_acao(unidade: int, dia: date, referencias: tuple[str, ...], acao_id: str) -> None:
+    if not BANCO_PENDENCIAS.is_file():
+        return
+    try:
+        with _conectar() as conexao:
+            for referencia in referencias:
+                antigas = conexao.execute(
+                    """SELECT id FROM pendencias WHERE unidade=? AND dia=? AND referencia=?
+                    AND status='aberta' AND tipo IN ('recebimento_a_maior','recebimento_a_menor')""",
+                    (unidade, dia.isoformat(), referencia),
+                ).fetchall()
+                for p in antigas:
+                    conexao.execute("UPDATE pendencias SET status='substituida' WHERE id=?", (p["id"],))
+                    conexao.execute(
+                        """INSERT INTO historico_pendencias
+                        (pendencia_id,acao,status_anterior,status_novo,usuario,justificativa,registrado_em)
+                        VALUES (?,'substituida','aberta','substituida','robo',?,?)""",
+                        (p["id"], f"RN-CARTAO-010: conferir à mão, ação {acao_id}; evidência incompleta não comprova falta.", agora().isoformat()),
+                    )
+    except sqlite3.Error:
+        logger.exception("Falha ao substituir pendencias unidade=%s", unidade)
+        raise ErroPersistenciaPendencias("Falha ao substituir pendência legada.") from None
+
+
 @contextmanager
 def _conectar(banco: Path | None = None) -> Iterator[sqlite3.Connection]:
     caminho = banco or BANCO_PENDENCIAS
@@ -79,6 +164,24 @@ def _conectar(banco: Path | None = None) -> Iterator[sqlite3.Connection]:
                 BEGIN SELECT RAISE(ABORT, 'historico imutavel'); END;
             CREATE TRIGGER IF NOT EXISTS historico_pendencias_nao_apaga
                 BEFORE DELETE ON historico_pendencias
+                BEGIN SELECT RAISE(ABORT, 'historico imutavel'); END;
+            CREATE TABLE IF NOT EXISTS eventos_recebimentos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                unidade INTEGER NOT NULL,
+                acao_id TEXT NOT NULL,
+                tipo TEXT NOT NULL CHECK(tipo IN ('manual','proposta')),
+                decisao TEXT NOT NULL,
+                observacao TEXT NOT NULL,
+                usuario TEXT NOT NULL,
+                registrado_em TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_eventos_recebimentos
+                ON eventos_recebimentos(unidade, acao_id, id);
+            CREATE TRIGGER IF NOT EXISTS eventos_recebimentos_nao_atualiza
+                BEFORE UPDATE ON eventos_recebimentos
+                BEGIN SELECT RAISE(ABORT, 'historico imutavel'); END;
+            CREATE TRIGGER IF NOT EXISTS eventos_recebimentos_nao_apaga
+                BEFORE DELETE ON eventos_recebimentos
                 BEGIN SELECT RAISE(ABORT, 'historico imutavel'); END;
             """)
         schema = conexao.execute(
@@ -331,6 +434,30 @@ def registrar(
                                     registrado_em,
                                 ),
                             )
+                for referencia in nova.substitui:
+                    antigas = conexao.execute(
+                        """SELECT id FROM pendencias WHERE unidade=? AND dia=? AND referencia=?
+                        AND status='aberta' AND tipo IN ('recebimento_a_maior','recebimento_a_menor')""",
+                        (nova.unidade, nova.dia.isoformat(), referencia),
+                    ).fetchall()
+                    for antiga in antigas:
+                        conexao.execute("UPDATE pendencias SET status='substituida' WHERE id=?", (antiga["id"],))
+                        conexao.execute(
+                            """INSERT INTO historico_pendencias
+                            (pendencia_id,acao,status_anterior,status_novo,usuario,justificativa,registrado_em)
+                            VALUES (?,'substituida','aberta','substituida',?,?,?)""",
+                            (antiga["id"], usuario, f"RN-CARTAO-010: substituída pela ação {nova.referencia}.", agora().isoformat()),
+                        )
+                if nova.encerrar_se_vazia and detalhes_grupo is not None and not detalhes_grupo["alertas"]:
+                    existente = conexao.execute("SELECT id FROM pendencias WHERE identidade=? AND status='aberta'", (identidade,)).fetchone()
+                    if existente:
+                        conexao.execute("UPDATE pendencias SET status='aprovada' WHERE id=?", (existente["id"],))
+                        conexao.execute(
+                            """INSERT INTO historico_pendencias
+                            (pendencia_id,acao,status_anterior,status_novo,usuario,justificativa,registrado_em)
+                            VALUES (?,'aprovada','aberta','aprovada',?,?,?)""",
+                            (existente["id"], usuario, "RN-CARTAO-010: grupo sem ações laranja ativas; histórico preservado.", agora().isoformat()),
+                        )
     except sqlite3.Error as exc:
         logger.error("Falha ao registrar pendências tipo=%s", type(exc).__name__)
         raise ErroPersistenciaPendencias("Falha ao registrar pendências.") from None

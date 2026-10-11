@@ -67,6 +67,7 @@ class Abastecimento(_Frozen):
     frentista: int | None          # codigoFrentista (identfid)
     venda_item_codigo: int | None
     nome_frentista: str | None = None
+    venda_codigo: int | None = None
 
 
 class Atribuicao(str, Enum):
@@ -138,3 +139,4 @@ class ResultadoCartoes(_Frozen):
     cancelados: tuple[TransacaoAdquirente, ...] = ()
     alertas: tuple[AlertaCartao, ...] = ()
     proveniencia: Proveniencia
+    sem_fonte: tuple[CartaoErp, ...] = ()

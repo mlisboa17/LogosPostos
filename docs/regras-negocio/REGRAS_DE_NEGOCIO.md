@@ -80,8 +80,8 @@
 |---|---|
 | Unidades | Todas |
 | Módulo | Todos |
-| Padrão | Toda ocorrência (pendência, tela, Telegram, planilha) mostra "Nome do frentista (código)" |
-| Exceção | Sem frentista identificável → "frentista não identificado" + motivo |
+| Padrão | Toda ocorrência (pendência, tela, Telegram, planilha) mostra "Nome do frentista (código)". Na conferência: atribuído único (≥80); melhor sugestão (50–79) com nota e motivos; empate lista todos; sem abastecimento usa todos os responsáveis pelos caixas abertos no horário |
+| Exceção | Só "frentista não identificado" quando não houver candidato nem caixa no horário; informar o motivo. Nome ausente nos dados gravados aparece como indisponível, nunca consultar o ERP no endpoint |
 | Gatilho | Criação de alerta/pendência |
 | Ação no sistema | Nome via `buscar_nomes_funcionarios`; nomes só em `data/` (fora do Git) |
 | Implementação | `webposto_integration/funcionarios.py` · CARTOES_V3_1 |
@@ -126,6 +126,19 @@
 | Implementação | `src/jobs/noturno.py` · `resumo_diario.py` |
 | Status | vigente |
 | Vigência | 10/10/2026 |
+
+### RN-REDE-006 — Período da conferência
+| Campo | Valor |
+|---|---|
+| Unidades | Todas |
+| Módulo | Conferência de recebimentos |
+| Padrão | Fim máximo hoje − 2 dias (Recife); até 7 dias inclusivos; padrão hoje − 8 a hoje − 2 |
+| Exceção | Relatório histórico local de 01–09/10 gerado da persistência, fora da consulta interativa |
+| Gatilho | Consulta/exportação/decisão da conferência |
+| Ação no sistema | Backend e tela recusam datas futuras/ontem/hoje ou mais de 7 dias, com mensagem clara |
+| Implementação | interfaces/http.py · frontend/utils/datas.js · conferenciaRecebimentos.js |
+| Status | vigente |
+| Vigência | 11/10/2026 — decisão do diretor |
 
 ---
 
@@ -526,3 +539,4 @@ Temas comuns em postos que **ainda não têm regra decidida** — não implement
 | 11/10/2026 | Ajuste autorizado: Pix do portal × PREMMIA PIX usa valor exato, mesmo dia, até 10 minutos e unicidade nos dois lados, como POS PREMMIA; ambiguidade permanece para conferência |
 | 11/10/2026 | RN-CARTAO-009 (PIX CNPJ do Doze, pela chave do posto) — proposta, depende de EXTRATOS_01 |
 | 11/10/2026 | Sprint 14: RN-CARTAO-010, quatro grupos acionáveis, conferência manual auditada, compensação diária e propostas locais; RN-CARTAO-009 conferência manual até integrar extrato |
+| 11/10/2026 | Sprint 14: RN-REDE-002 com sugestão, empate e responsável do caixa; detalhes individuais dos pagamentos, RN-REDE-006 (D−2, 7 dias) e campo brasileiro compartilhado na conferência |

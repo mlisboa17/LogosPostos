@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import calendar
 import logging
 from datetime import date
 
@@ -11,6 +12,7 @@ from ..adapters.webposto_http import WebPostoErro
 from ..config import carregar_unidades
 from ..domain.models import AdquirenteConfigurada, SituacaoAdquirente
 from ..domain.recebimentos import RecebimentoAdquirente, ResultadoRecebimentos
+from ..domain.acoes_recebimentos import ConferenciaRecebimentos
 from .conciliar_cartoes import conciliar_pagbank, conciliar_premmia, verificar_repetidos_premmia
 
 logger = logging.getLogger(__name__)
@@ -94,3 +96,30 @@ async def conciliar_recebimentos(empresa_codigo: int, dia: date) -> ResultadoRec
         for adquirente in unidade.adquirentes
     ]
     return ResultadoRecebimentos(empresa_codigo=empresa_codigo, dia=dia, adquirentes=tuple(resultados))
+
+
+def conferencia_gravada(empresa_codigo: int, inicio: date, fim: date) -> ConferenciaRecebimentos:
+    """Le o mes para reincidencia; nao consulta fontes nem grava decisoes."""
+    from datetime import timedelta
+    from ..adapters.persistencia import carregar_dia
+    from ..adapters.pendencias import eventos_recebimentos
+    from ..adapters.webposto_cartoes import ler_pix_cnpj_gravado
+    from .classificar_recebimentos import montar_conferencia
+
+    if fim < inicio or (fim - inicio).days > 30:
+        raise ValueError("O período deve conter no máximo 31 dias.")
+    primeiro = inicio.replace(day=1)
+    ultimo = fim.replace(day=calendar.monthrange(fim.year, fim.month)[1])
+    registros = [
+        r for indice in range((ultimo - primeiro).days + 1)
+        if (r := carregar_dia(empresa_codigo, primeiro + timedelta(days=indice))) is not None
+    ]
+    registros = [
+        r.model_copy(update={"recebimentos": r.recebimentos.model_copy(update={"adquirentes": tuple(
+            a.model_copy(update={"sem_fonte": tuple({
+                c.codigo: c for c in (*a.sem_fonte, *ler_pix_cnpj_gravado(empresa_codigo, r.dia))
+            }.values())}) if a.adquirente == "PAGBANK" else a
+            for a in r.recebimentos.adquirentes
+        )})}) for r in registros
+    ]
+    return montar_conferencia(empresa_codigo, inicio, fim, registros, eventos_recebimentos(empresa_codigo))

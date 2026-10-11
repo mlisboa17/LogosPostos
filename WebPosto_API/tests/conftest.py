@@ -18,7 +18,7 @@ _tentativas_portal = []
 
 
 @pytest.fixture(autouse=True)
-def bloquear_navegadores_e_portal_premmia(monkeypatch):
+def bloquear_navegadores_e_portal_premmia(monkeypatch, tmp_path):
     import httpx
     from playwright.sync_api import BrowserType as SyncBrowserType
     from playwright.async_api import BrowserType as AsyncBrowserType
@@ -28,6 +28,8 @@ def bloquear_navegadores_e_portal_premmia(monkeypatch):
     )
 
     tentativas = []
+    from src.modules.cash_reconciliation.adapters import propostas_lancamento
+    monkeypatch.setattr(propostas_lancamento, "DIRETORIO", tmp_path / "propostas_lancamento")
 
     def bloquear(*args, **kwargs):
         tentativas.append("Playwright/portal")

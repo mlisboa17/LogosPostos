@@ -21,6 +21,7 @@ class ResultadoDiario(BaseModel):
     recebimentos: ResultadoRecebimentos
     proveniencia: Proveniencia
     versoes_regras: tuple[str, ...]
+    conferencia_recebimentos: bool = False
 
     @model_validator(mode="after")
     def validar_escopo(self) -> ResultadoDiario:

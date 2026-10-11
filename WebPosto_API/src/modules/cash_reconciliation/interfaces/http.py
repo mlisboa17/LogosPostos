@@ -9,6 +9,7 @@ from datetime import date, datetime, timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi.responses import Response
 from pydantic import BaseModel, Field, field_validator
 
 from ..adapters.webposto_http import WebPostoErro
@@ -18,6 +19,7 @@ from ..adapters import saude_robo
 from ..application.auditar_fechamento import auditar_unidade
 from ..application.reincidencia import agregar_reincidencia
 from ..application.recebimentos import conciliar_recebimentos
+from ..application.recebimentos import conferencia_gravada
 from ..application.painel_diretor import PainelDiretorErro, obter_unidades_painel
 from ..application.serializacao import serializar_fechamento
 from ..config import ARQUIVO as ARQUIVO_CONFIG_UNIDADES, carregar_unidades
@@ -58,6 +60,92 @@ class DecisaoPayload(BaseModel):
         if not valor:
             raise ValueError("A observação não pode ficar vazia.")
         return valor
+
+
+class ConferenciaPayload(BaseModel):
+    unidade: int
+    dia: date
+    decisao: Literal["conferido", "nao_encontrado", "executada pelo gerente", "descartada"]
+    observacao: str = Field(min_length=1, max_length=2000)
+
+    @field_validator("observacao")
+    @classmethod
+    def validar_observacao(cls, valor: str) -> str:
+        if not valor.strip():
+            raise ValueError("Informe uma observação.")
+        return valor.strip()
+
+
+def _conferencia(unidade: int, inicio: date, fim: date, usuario: dict):
+    if unidade not in carregar_unidades():
+        raise HTTPException(status_code=404, detail="Unidade não encontrada.")
+    require_unit_access(usuario, unidade)
+    if fim > agora().date() - timedelta(days=2):
+        raise HTTPException(status_code=422, detail="A data final deve ser até anteontem (hoje − 2 dias, Recife).")
+    if fim < inicio or (fim-inicio).days > 6:
+        raise HTTPException(status_code=422, detail="O período deve conter de 1 a 7 dias.")
+    try:
+        return conferencia_gravada(unidade, inicio, fim)
+    except (PersistenciaErro, repositorio_pendencias.ErroPersistenciaPendencias, ValueError, OSError):
+        logger.exception("Falha ao ler conferencia unidade=%s", unidade)
+        raise HTTPException(status_code=500, detail="Falha ao ler conferência gravada.") from None
+
+
+@router.get("/conferencia-recebimentos")
+async def obter_conferencia_recebimentos(
+    unidade: int, inicio: date, fim: date, current_user: dict = Depends(get_current_user),
+) -> dict:
+    conferencia = _conferencia(unidade, inicio, fim, current_user)
+    dados = conferencia.model_dump(mode="json")
+    dados["itens"] = [
+        {**i.model_dump(mode="json"), "nsu": f"…{i.nsu[-4:]}" if i.nsu else None, "responsavel": i.responsavel}
+        for i in conferencia.itens
+    ]
+    return dados
+
+
+@router.get("/conferencia-recebimentos.xlsx")
+async def exportar_conferencia_recebimentos(
+    unidade: int, inicio: date, fim: date, current_user: dict = Depends(get_current_user),
+) -> Response:
+    from io import BytesIO
+    from openpyxl import Workbook
+    from ..application.resumo_diario import abas_conferencia_recebimentos
+
+    conferencia = _conferencia(unidade, inicio, fim, current_user)
+    workbook = Workbook()
+    workbook.remove(workbook.active)
+    abas_conferencia_recebimentos(workbook, [conferencia])
+    stream = BytesIO()
+    workbook.save(stream)
+    workbook.close()
+    return Response(
+        stream.getvalue(), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="recebimentos_{unidade}_{inicio}_{fim}.xlsx"'},
+    )
+
+
+@router.post("/conferencia-recebimentos/{acao_id}")
+async def marcar_conferencia_recebimentos(
+    acao_id: str, payload: ConferenciaPayload, current_user: dict = Depends(get_current_user),
+) -> dict:
+    if current_user.get("role") not in {"diretor", "gerente"}:
+        raise HTTPException(status_code=403, detail="Somente diretor/gerente pode conferir recebimentos.")
+    conferencia = _conferencia(payload.unidade, payload.dia, payload.dia, current_user)
+    acao = next((i for i in conferencia.itens if i.id == acao_id), None)
+    if acao is None:
+        raise HTTPException(status_code=404, detail="Ação não encontrada neste escopo.")
+    try:
+        if payload.decisao in {"conferido", "nao_encontrado"}:
+            repositorio_pendencias.registrar_conferencia(acao, payload.decisao, payload.observacao, current_user["sub"])
+        else:
+            from ..adapters.propostas_lancamento import decidir_proposta
+            decidir_proposta(acao, payload.decisao, payload.observacao, current_user["sub"])
+    except repositorio_pendencias.TransicaoPendenciaInvalida as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from None
+    except repositorio_pendencias.ErroPersistenciaPendencias:
+        raise HTTPException(status_code=500, detail="Falha ao registrar decisão local.") from None
+    return {"situacao": "registrada", "erp_alterado": False}
 
 
 def _escopo_pendencias(usuario: dict, unidade: int | None) -> int | None:
@@ -157,7 +245,8 @@ async def _auditar_com_limite(unidade: int, inicio: date, fim: date, prazo: floa
         raise HTTPException(status_code=504, detail="Tempo limite ao consultar fechamento. Reduza o período e tente novamente.") from None
 
 
-@router.get("/recebimentos", response_model=ResultadoRecebimentos)
+@router.get("/recebimentos", response_model=ResultadoRecebimentos,
+            response_model_exclude={"adquirentes": {"__all__": {"detalhes_casados"}}})
 async def obter_recebimentos(
     unidade: int = Query(...),
     dia: date = Query(...),

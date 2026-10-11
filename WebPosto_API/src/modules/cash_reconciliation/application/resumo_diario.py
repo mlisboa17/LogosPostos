@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from html import escape
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 
 from ..config import carregar_unidades
@@ -81,6 +81,109 @@ def gerar_resumo_diario(
         )
         linhas.append("")
     return "\n".join(linhas).rstrip() + "\n"
+
+
+def conferencia_para_registro(registro: ResultadoDiario):
+    import calendar
+    from datetime import timedelta
+    from ..adapters.persistencia import carregar_dia
+    from ..adapters.pendencias import eventos_recebimentos
+    from .classificar_recebimentos import montar_conferencia
+
+    primeiro = registro.dia.replace(day=1)
+    registros = [
+        r for indice in range(calendar.monthrange(primeiro.year, primeiro.month)[1])
+        if primeiro + timedelta(days=indice) != registro.dia
+        and (r := carregar_dia(registro.empresa_codigo, primeiro + timedelta(days=indice))) is not None
+    ]
+    return montar_conferencia(registro.empresa_codigo, registro.dia, registro.dia, [*registros, registro],
+                             eventos_recebimentos(registro.empresa_codigo))
+
+
+def linhas_acoes_recebimentos(conferencia) -> list[str]:
+    linhas = [f"Recebimentos: {conferencia.conferidos.quantidade} conferidos · {moeda_br(conferencia.conferidos.total)}"]
+    nomes = {1: "Lançar", 2: "Alterar", 3: "Apurar", 4: "Conferir à mão"}
+    ativos = [i for i in conferencia.itens if i.conferencia != "conferido"]
+    linhas.append(" · ".join(
+        f"{g} {nome} {sum(i.grupo == g for i in ativos)} · {moeda_br(sum((i.valor for i in ativos if i.grupo == g), Decimal(0)))}"
+        for g, nome in nomes.items()
+    ))
+    for i in ativos:
+        if i.grupo == 3:
+            linhas.append(f"3 Apurar: 1 · {moeda_br(i.valor)} · {i.momento:%H:%M} — {escape(i.responsavel)} · {i.regra}")
+    reincidentes = {i.frentista: i for i in ativos if i.reincidente}
+    for i in reincidentes.values():
+        linhas.append(f"REINCIDENTE: {escape(i.responsavel)} · {i.reincidencia_quantidade} · {moeda_br(i.reincidencia_total)}")
+    for dia in conferencia.diario:
+        if dia.compensacao != "sem compensacao":
+            propostas = [i for i in ativos if i.grupo == 2 and i.momento.date() == dia.dia]
+            diferenca = moeda_br(dia.diferenca) if dia.diferenca is not None else "pendente"
+            linhas.append(f"Diferença do dia: {diferenca} · {len(propostas)} correções prontas ({moeda_br(sum((i.valor for i in propostas), Decimal(0)))}) · {dia.compensacao}")
+    return linhas
+
+
+def _data_hora_excel(momento: datetime) -> datetime:
+    # Excel has no timezone support; serialize the Recife wall clock only at this boundary.
+    from ..domain.tempo import para_local
+    local = para_local(momento)
+    return datetime.combine(local.date(), local.time())
+
+
+def abas_conferencia_recebimentos(workbook, conferencias) -> None:
+    acoes = workbook.create_sheet("Ações de recebimento")
+    prontas = workbook.create_sheet("Correções prontas")
+    detalhes = workbook.create_sheet("Detalhes por pagamento")
+    detalhes.append(["Unidade", "Grupo", "Regra", "Data/hora pagamento", "Valor pagamento", "Adquirente", "Forma",
+                     "NSU final", "Terminal final", "Lançamento", "Venda", "Caixa", "Data/hora lançada", "Valor lançado", "Inclusão",
+                     "Abastecimento", "Data/hora abastecimento", "Valor abastecimento", "Bico", "Item", "Forma venda", "Responsável / nota / motivos"])
+    acoes.append(["Unidade", "Grupo", "Data/hora", "Valor", "De", "Para", "Frentista", "Regra", "Reincidente", "Conferido (S/N)", "Observação"])
+    prontas.append(["Unidade", "Lançamento", "Venda", "Caixa", "Data/hora", "Valor", "De", "Para", "Frentista", "Evidências", "Nota de certeza", "Status"])
+    for conferencia in conferencias:
+        diario = workbook.create_sheet(f"Dia {conferencia.unidade}")
+        nomes = [t.adquirente for t in conferencia.totais_adquirentes]
+        diario.append(["Data", *(v for n in nomes for v in (f"Webposto {n}", n, "Dif.")), "Diferença do dia"])
+        for d in conferencia.diario:
+            por_nome = {t.adquirente: t for t in d.adquirentes}
+            valores = []
+            for n in nomes:
+                t = por_nome.get(n)
+                valores.extend([float(t.webposto), float(t.recebido), float(t.diferenca)]
+                               if t and t.diferenca is not None else ["pendente"] * 3)
+            diario.append([d.dia, *valores, float(d.diferenca) if d.diferenca is not None else "pendente"])
+            diario.cell(diario.max_row, 1).number_format = "dd/mm/yyyy"
+        diario.append(["Total", *(v for t in conferencia.totais_adquirentes for v in (
+            (float(t.webposto), float(t.recebido), float(t.diferenca)) if t.diferenca is not None else ("pendente",) * 3
+        )), float(conferencia.diferenca_periodo) if conferencia.diferenca_periodo is not None else "pendente"])
+        formas = workbook.create_sheet(f"Formas {conferencia.unidade}")
+        formas.append(["Adquirente", "Forma", "Adquirente (qtd)", "Adquirente (R$)", "webPosto (qtd)", "webPosto (R$)", "Diferença"])
+        for f in conferencia.formas:
+            r = f.resumo
+            formas.append([f.adquirente, r.forma, r.portal.quantidade, float(r.portal.total),
+                           r.webposto.quantidade, float(r.webposto.total), float(r.diferenca)])
+        for i in conferencia.itens:
+            acoes.append([i.unidade, i.grupo, _data_hora_excel(i.momento), float(i.valor), i.de, i.para, i.responsavel,
+                          i.regra, "REINCIDENTE" if i.reincidente else "", "S" if i.conferencia == "conferido" else "N", i.observacao])
+            if i.grupo == 2:
+                prontas.append([i.unidade, i.lancamento, i.venda, i.caixa, _data_hora_excel(i.momento), float(i.valor),
+                               i.de, i.para, i.responsavel, "; ".join(i.evidencias),
+                               f"{i.nota_certeza}/100 (não é probabilidade). {i.certeza}", i.proposta_status])
+            for p in i.pagamentos or (None,):
+                a = p.abastecimento if p else None
+                detalhes.append([i.unidade, i.grupo, i.regra, _data_hora_excel(p.momento) if p else None,
+                    float(p.valor) if p else None, p.adquirente if p else None, p.forma if p else None,
+                    p.nsu if p else None, p.terminal if p else None, i.lancamento, i.venda or (a.venda_codigo if a else None),
+                    i.caixa, _data_hora_excel(i.momento_lancamento) if i.momento_lancamento else None,
+                    float(i.valor_lancamento) if i.valor_lancamento is not None else None, i.tipo_inclusao,
+                    a.codigo if a else None, _data_hora_excel(a.momento) if a else None,
+                    float(a.valor) if a else None, a.bico if a else None, a.venda_item_codigo if a else None,
+                    p.forma_venda if p else None, "; ".join(r.descricao for r in p.responsaveis) if p and p.responsaveis else i.responsavel])
+    for sheet in workbook:
+        for row in sheet:
+            for cell in row:
+                if isinstance(cell.value, str):
+                    cell.data_type = "s"
+                elif isinstance(cell.value, datetime):
+                    cell.number_format = "dd/mm/yyyy hh:mm"
 
 
 def _total_mapeado(valores: dict[int, int | None], unidades: list[int]) -> int | None:
@@ -190,6 +293,8 @@ def gerar_mensagem_curta(
                     for item in registro.recebimentos.adquirentes
                     if item.adquirente == "PREMMIA" and item.erro
                 )
+                if registro.conferencia_recebimentos:
+                    linhas_unidade.extend(linhas_acoes_recebimentos(conferencia_para_registro(registro)))
             blocos.append((True, linhas_unidade))
             continue
 
@@ -349,6 +454,8 @@ def gerar_mensagem_curta(
                     "tipoInclusao=não aplicável (sem lançamento ERP)"
                 )
 
+        if registro.conferencia_recebimentos:
+            linhas_unidade.extend(linhas_acoes_recebimentos(conferencia_para_registro(registro)))
         despesas = [despesa for caixa in caixas for despesa in caixa.despesas]
         if despesas:
             ordenadas = sorted(despesas, key=lambda item: (-item.valor, item.codigo))

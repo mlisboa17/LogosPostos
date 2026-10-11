@@ -102,6 +102,8 @@ def _entrada(
 
 
 def pendencias_do_dia(resultado: ResultadoDiario) -> list[NovaPendencia]:
+    if resultado.conferencia_recebimentos:
+        return _pendencias_conferencia(resultado)
     novas: list[NovaPendencia] = []
     referencias_legadas = set()
     detalhes_legados = {}
@@ -137,6 +139,8 @@ def pendencias_do_dia(resultado: ResultadoDiario) -> list[NovaPendencia]:
                     elif tipo == "caixa_alertas_laranja":
                         caixa = p.referencia.split(":")[1]
                         for h in json.loads(p.mensagem).get("historicos", []):
+                            if h.get("codigo") not in {"RECEBIMENTO_A_MAIOR", "RECEBIMENTO_A_MAIOR_HISTORICO"}:
+                                continue
                             referencias_legadas.add(h["referencia"])
                             detalhes_legados[h["referencia"]] = h
                             caixas_legadas[h["referencia"]] = int(caixa) if caixa.isdigit() else None
@@ -444,6 +448,87 @@ def pendencias_do_dia(resultado: ResultadoDiario) -> list[NovaPendencia]:
                         acao="aprovada", usuario="robo",
                         justificativa=justificativa,
                     )
+    return novas
+
+
+def _pendencias_conferencia(resultado: ResultadoDiario) -> list[NovaPendencia]:
+    from .classificar_recebimentos import montar_conferencia
+    from ..adapters.propostas_lancamento import salvar_proposta
+    from ..domain.recebimentos import ResultadoRecebimentos
+
+    base = resultado.model_copy(update={
+        "conferencia_recebimentos": False,
+        "recebimentos": ResultadoRecebimentos(empresa_codigo=resultado.empresa_codigo, dia=resultado.dia, adquirentes=()),
+    })
+    novas = pendencias_do_dia(base)
+    conferencia = montar_conferencia(
+        resultado.empresa_codigo, resultado.dia, resultado.dia, [resultado],
+        repositorio_pendencias.eventos_recebimentos(resultado.empresa_codigo),
+    )
+    por_caixa = defaultdict(list)
+    historicos_por_caixa = defaultdict(list)
+    if repositorio_pendencias.BANCO_PENDENCIAS.is_file():
+        offset = 0
+        while True:
+            pagina, total = repositorio_pendencias.listar(
+                unidade=resultado.empresa_codigo, tipo="caixa_alertas_laranja", limite=100, deslocamento=offset,
+            )
+            for p in pagina:
+                if p.dia != resultado.dia or p.status != "aberta":
+                    continue
+                caixa_id = p.referencia.split(":")[1]
+                caixa = int(caixa_id) if caixa_id.isdigit() else None
+                antigos = json.loads(p.mensagem)
+                atuais = {i.id for i in conferencia.itens}
+                historicos_por_caixa[caixa].extend(antigos.get("historicos", []))
+                historicos_por_caixa[caixa].extend(
+                    {**a, "classificacao_atual": "Substituído pela classificação RN-CARTAO-010; fora do valor ativo"}
+                    for a in antigos["alertas"] if a.get("acao_id") not in atuais
+                )
+            offset += len(pagina)
+            if not pagina or offset >= total:
+                break
+    for i in conferencia.itens:
+        if i.grupo == 2:
+            salvar_proposta(i)
+        if i.grupo in {1, 2}:
+            por_caixa[i.caixa].append({
+                "codigo": "ACAO_RECEBIMENTO", "acao_id": i.id, "grupo": i.grupo,
+                "referencia": i.id, "valor": str(i.valor), "hora": i.momento.strftime("%H:%M:%S"),
+                "referencias_legadas": i.referencias_legadas,
+                "forma": i.forma, "frentista": i.frentista, "nome_frentista": i.nome_frentista,
+                "mensagem": f"{i.regra}: {i.motivo} — {i.responsavel}; {i.de or ''} → {i.para or ''}",
+            })
+        elif i.grupo == 3:
+            novas.append(_entrada(
+                unidade=i.unidade, dia=i.momento.date(), tipo="recebimento_apurar", severidade="vermelho",
+                valor=i.valor, referencia=i.id,
+                mensagem=f"{i.regra}: {i.motivo} — {i.responsavel}",
+            ).model_copy(update={"substitui": i.referencias_legadas}))
+        elif i.grupo == 4:
+            repositorio_pendencias.substituir_por_acao(i.unidade, resultado.dia, i.referencias_legadas, i.id)
+    for caixa in dict.fromkeys((*por_caixa, *historicos_por_caixa)):
+        itens = por_caixa[caixa]
+        caixa_grupo = caixa if caixa is not None else "sem caixa"
+        referencia = f"caixa:{caixa_grupo}:laranja"
+        existente = next((p for p in novas if p.tipo == "caixa_alertas_laranja" and p.referencia == referencia), None)
+        detalhes = json.loads(existente.mensagem) if existente else {"alertas": [], "historicos": []}
+        if existente:
+            novas.remove(existente)
+        detalhes["alertas"].extend(itens)
+        detalhes["historicos"] = list({
+            json.dumps(h, sort_keys=True, ensure_ascii=False): h
+            for h in historicos_por_caixa[caixa]
+        }.values())
+        novas.append(_entrada(
+            unidade=resultado.empresa_codigo, dia=resultado.dia, tipo="caixa_alertas_laranja",
+            severidade="laranja", referencia=referencia,
+            valor=sum((Decimal(a["valor"]) for a in detalhes["alertas"] if a.get("valor") is not None), Decimal(0)),
+            mensagem=json.dumps(detalhes, ensure_ascii=False),
+            identidade=f"{resultado.empresa_codigo}|{resultado.dia}|caixa:{caixa_grupo}|laranja",
+        ).model_copy(update={"substitui": tuple(
+            ref for a in itens for ref in a.get("referencias_legadas", ())
+        ), "encerrar_se_vazia": True}))
     return novas
 
 

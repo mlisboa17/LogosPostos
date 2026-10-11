@@ -57,6 +57,8 @@ def conciliar(
 ) -> ResultadoCartoes:
     """transacoes e cartoes podem cobrir D-1..D+1 (virada do dia); o relatorio e so do dia D."""
     transacoes, cartoes = list(transacoes), list(cartoes)
+    sem_fonte = [c for c in cartoes if "PIX CNPJ" in c.administradora.upper() and c.momento.date() == dia]
+    cartoes = [c for c in cartoes if "PIX CNPJ" not in c.administradora.upper()]
     cancelados = [t for t in transacoes if t.situacao is not None]
     casados, sobra_t, sobra_c = casar(transacoes, cartoes)
     codigos_casados = {c.cartao.codigo for c in casados}
@@ -192,6 +194,7 @@ def conciliar(
                 "webPosto/INTEGRACAO/V1/VENDAS",
             ),
         ),
+        sem_fonte=tuple(sem_fonte),
     )
 
 

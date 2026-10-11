@@ -25,6 +25,8 @@ class NovaPendencia(BaseModel):
     referencia: str
     mensagem: str
     identidade: str | None = None
+    substitui: tuple[str, ...] = ()
+    encerrar_se_vazia: bool = False
 
 
 class EventoPendencia(BaseModel):

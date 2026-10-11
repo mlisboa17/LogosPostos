@@ -68,6 +68,9 @@ class RecebimentoAdquirente(_Frozen):
     proveniencia: Proveniencia | None = None
     formas: tuple[ResumoForma, ...] = ()
     codigos_conferidos: tuple[int, ...] = ()
+    detalhes_casados: tuple[Casamento, ...] = ()
+    sem_fonte: tuple[CartaoErp, ...] = ()
+    evidencias_completas: bool = False
 
     @classmethod
     def de_resultado(cls, resultado: ResultadoCartoes) -> RecebimentoAdquirente:
@@ -129,6 +132,9 @@ class RecebimentoAdquirente(_Frozen):
             proveniencia=resultado.proveniencia,
             formas=tuple(resumos),
             codigos_conferidos=tuple(c.cartao.codigo for c in resultado.casados if not c.valor_divergente),
+            detalhes_casados=resultado.casados,
+            sem_fonte=resultado.sem_fonte,
+            evidencias_completas=True,
         )
 
 
