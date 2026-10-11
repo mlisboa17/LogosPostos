@@ -43,7 +43,8 @@ Arquivos:
 
 1. Testes: mesmo NSU e valor igual → casado sem alerta; mesmo NSU e webPosto maior → vermelho com a diferença; PagBank maior → laranja; cancelada com mesmo NSU de um "a menor" → motivo de cancelamento; resultado V2 antigo abre; pendência não duplica.
 2. Reprocessar **01 a 09/10/2026** para Doze (74014) e Casa Caiada (5555) (`python -m src.modules.cash_reconciliation.jobs.noturno --dia dd/mm/aaaa`, um dia por vez; não envia Telegram).
-3. Antes de mapear o item A.3, liste os valores distintos de `status_pagamento` e `tipo_evento` encontrados no EDI desses dias, com a quantidade de cada um (só agregados).
+3. **Teste de aceitação com dado real:** reprocessar também o VIP (11495) em 05/10/2026 — o PIX Premmia de R$ 30,00 com NSU repetido nas vendas 376185045 e 376185515 **tem que** aparecer como `CARTAO_NSU_REPETIDO` (vermelho) mesmo sem o portal Premmia integrado (a regra olha só o webPosto). Se não aparecer, a sprint não está pronta.
+4. Antes de mapear o item A.3, liste os valores distintos de `status_pagamento` e `tipo_evento` encontrados no EDI desses dias, com a quantidade de cada um (só agregados).
 
 ## Ao terminar
 
