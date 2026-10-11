@@ -13,6 +13,7 @@ from pathlib import Path
 from ..adapters.persistencia import carregar_dia, salvar_dia
 from ..adapters import pendencias as repositorio_pendencias
 from ..adapters import saude_robo
+from ..adapters import premmia_portal
 from ..application.auditar_fechamento import auditar_unidade
 from ..application.gerar_pendencias import (
     executar_reincidencia_mes,
@@ -39,7 +40,12 @@ class FormatoLogBrasil(logging.Formatter):
 
 
 async def coletar_unidade(
-    unidade: Unidade, dia: date, execucao_id: str, *, timeout: float = TIMEOUT_ETAPA,
+    unidade: Unidade,
+    dia: date,
+    execucao_id: str,
+    *,
+    timeout: float = TIMEOUT_ETAPA,
+    aviso_premmia: str | None = None,
 ) -> ResultadoDiario:
     empresa = unidade.empresa_codigo
     fechamento = None
@@ -62,7 +68,16 @@ async def coletar_unidade(
     )
     adquirentes = []
     for configurada in unidade.adquirentes:
-        item = await conciliar_adquirente(empresa, dia, configurada, timeout=timeout)
+        if configurada.nome == "PREMMIA" and aviso_premmia:
+            item = await conciliar_adquirente(
+                empresa,
+                dia,
+                configurada,
+                timeout=timeout,
+                aviso_premmia=aviso_premmia,
+            )
+        else:
+            item = await conciliar_adquirente(empresa, dia, configurada, timeout=timeout)
         adquirentes.append(item)
         logger.info(
             "Recebimentos unidade=%s adquirente=%s situacao=%s casados=%s maior=%s menor=%s pares=%s",
@@ -106,7 +121,32 @@ async def executar(
     resultados = []
     for unidade in unidades.values():
         try:
-            resultado = await coletar_unidade(unidade, dia, execucao_id, timeout=timeout)
+            aviso_premmia = None
+            if unidade.premmia_ativo:
+                try:
+                    await premmia_portal.coletar(unidade)
+                except premmia_portal.PremmiaVerificacaoHumana:
+                    aviso_premmia = premmia_portal.AVISO_HUMANO
+                    unidades_com_aviso.add(unidade.empresa_codigo)
+                except (premmia_portal.PremmiaErro, OSError) as exc:
+                    logger.error(
+                        "Premmia coleta unidade=%s tipo=%s",
+                        unidade.empresa_codigo,
+                        type(exc).__name__,
+                    )
+                    aviso_premmia = "Premmia: falha na coleta; consultar log da etapa."
+                    falhas += 1
+                    unidades_com_falha.add(unidade.empresa_codigo)
+            if aviso_premmia:
+                resultado = await coletar_unidade(
+                    unidade,
+                    dia,
+                    execucao_id,
+                    timeout=timeout,
+                    aviso_premmia=aviso_premmia,
+                )
+            else:
+                resultado = await coletar_unidade(unidade, dia, execucao_id, timeout=timeout)
             salvar_dia(resultado, diretorio=diretorio)
             resultados.append(resultado)
             novas = pendencias_do_dia(resultado)

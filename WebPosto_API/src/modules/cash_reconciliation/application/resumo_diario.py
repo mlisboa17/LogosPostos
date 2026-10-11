@@ -184,6 +184,12 @@ def gerar_mensagem_curta(
         apelido_html = escape(apelido.upper())
         if registro is None or registro.fechamento is None:
             linhas_unidade = [f"<b>⚠ {apelido_html}</b>", "Fechamento indisponível"]
+            if registro:
+                linhas_unidade.extend(
+                    f"Premmia: {escape(item.erro)}"
+                    for item in registro.recebimentos.adquirentes
+                    if item.adquirente == "PREMMIA" and item.erro
+                )
             blocos.append((True, linhas_unidade))
             continue
 
@@ -204,7 +210,7 @@ def gerar_mensagem_curta(
             or quebras
             or unidade in unidades_com_falha
             or any(
-                item.alertas or item.a_menor or item.a_maior
+                item.alertas or item.a_menor or item.a_maior or item.erro
                 for item in registro.recebimentos.adquirentes
             )
         )
@@ -241,12 +247,14 @@ def gerar_mensagem_curta(
         cancelados = [
             transacao
             for adquirente in registro.recebimentos.adquirentes
+            if adquirente.adquirente == "PAGBANK"
             for transacao in adquirente.transacoes_canceladas
             if transacao.situacao in {"cancelada", "estornada"}
         ]
         outros_eventos = sum(
             transacao.situacao not in {"cancelada", "estornada"}
             for adquirente in registro.recebimentos.adquirentes
+            if adquirente.adquirente == "PAGBANK"
             for transacao in adquirente.transacoes_canceladas
         )
         if divergencias:
@@ -259,6 +267,20 @@ def gerar_mensagem_curta(
         if outros_eventos:
             linhas_unidade.append(f"{outros_eventos} eventos não aprovados/ajustes no PagBank")
         for adquirente in registro.recebimentos.adquirentes:
+            if adquirente.adquirente == "PREMMIA":
+                if adquirente.situacao == "ok" and adquirente.casados:
+                    divergencias_premmia = (
+                        len(adquirente.a_menor)
+                        + len(adquirente.a_maior)
+                        + len(adquirente.divergencias_valor)
+                        + sum(a.codigo == "CARTAO_NSU_REPETIDO" for a in adquirente.alertas)
+                    )
+                    linhas_unidade.append(
+                        f"Premmia: {adquirente.casados.quantidade} conferidos · "
+                        f"{moeda_br(adquirente.casados.total)} · {divergencias_premmia} divergências"
+                    )
+                elif adquirente.erro:
+                    linhas_unidade.append(f"Premmia: {escape(adquirente.erro)}")
             linhas_unidade.extend(escape(alerta.mensagem) for alerta in adquirente.alertas)
             linhas_unidade.extend(
                 f"A menor: {moeda_br(c.valor)} — {escape(c.responsavel)} — "
@@ -266,11 +288,23 @@ def gerar_mensagem_curta(
                 f"tipoInclusao={escape(c.tipo_inclusao or 'não informado')}"
                 for c in adquirente.a_menor
             )
-            linhas_unidade.extend(
-                f"A maior: {moeda_br(inv.transacao.valor)} — {escape(inv.responsavel)} — "
-                "tipoInclusao=não aplicável (sem lançamento ERP)"
-                for inv in adquirente.a_maior
-            )
+            for inv in adquirente.a_maior:
+                sugeridos = "; ".join(
+                    f"{c.abastecimento.nome_frentista or 'nome indisponível'} ({c.abastecimento.frentista})"
+                    for c in inv.candidatos if c.abastecimento.frentista is not None
+                )
+                responsavel = (
+                    f"Sugestão: {sugeridos}"
+                    if inv.atribuicao.value == "sugestao" and sugeridos
+                    else inv.responsavel
+                )
+                nsu = inv.transacao.nsu
+                linhas_unidade.append(
+                    f"A maior: {moeda_br(inv.transacao.valor)} · {inv.transacao.momento:%H:%M} · "
+                    f"{escape(inv.transacao.bandeira or 'forma não informada')} · "
+                    f"NSU {escape(nsu[-4:] if nsu else 'não informado')} — {escape(responsavel)} — "
+                    "tipoInclusao=não aplicável (sem lançamento ERP)"
+                )
 
         despesas = [despesa for caixa in caixas for despesa in caixa.despesas]
         if despesas:

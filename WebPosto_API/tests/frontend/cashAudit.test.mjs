@@ -68,6 +68,30 @@ test("fechamento aguarda o prazo do backend em vez do timeout padrao de 30s", as
   ]);
 });
 
+test("Premmia tem bloco proprio, desconto, divergencia e aviso humano", () => {
+  const item = {
+    adquirente: "PREMMIA", situacao: "ok", casados: {quantidade: 1, total: "30"},
+    a_maior: [], pares_provaveis: [],
+    a_menor: [{
+      valor: "5", momento: "2026-10-05T10:00:00",
+      administradora: "PREMMIA DESCONTO CUPOM", tipo_inclusao: "PDV-TEF",
+      frentista: 7, nome_frentista: "Funcionário Sintético",
+      motivo: "Lançado no webPosto e não encontrado no portal Premmia",
+    }],
+  };
+  const html = renderRecebimentos([{dia: "2026-10-05", adquirentes: [item]}]);
+  assert.match(html, /<h4>Premmia/);
+  assert.match(html, /PREMMIA DESCONTO CUPOM/);
+  assert.match(html, /ca-row--vermelho/);
+  assert.match(html, /Funcionário Sintético \(7\)/);
+  const aviso = renderRecebimentos([{dia: "2026-10-05", adquirentes: [{
+    adquirente: "PREMMIA", situacao: "pendente",
+    erro: "Premmia pediu verificação humana / credencial recusada",
+  }]}]);
+  assert.match(aviso, /verificação humana/);
+  assert.doesNotMatch(aviso, /ca-kpis/);
+});
+
 test("auditoria mostra os chips novos e os detalhes de desconto e despesas", () => {
   const auditoria = {
     caixa: {

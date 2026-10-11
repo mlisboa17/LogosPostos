@@ -86,7 +86,17 @@ test("detalhe da pendência agrupada mostra alertas com conteúdo escapado", () 
       alertas: [
         { codigo: "SANGRIA_ALTERADA", mensagem: "Sangria <alterada>", valor: "10.00" },
         { codigo: "DESPESA_SEM_PLANO", mensagem: "Sem plano", valor: "15.00" },
+        {
+          codigo: "RECEBIMENTO_A_MAIOR", mensagem: "Sugestão: Funcionário A (7)",
+          valor: "10.00", adquirente: "PREMMIA", hora: "10:01:00",
+          forma: "Pix <teste>", nsu: "123456781",
+        },
       ],
+      historicos: [{
+        codigo: "RECEBIMENTO_A_MAIOR_HISTORICO", mensagem: "Funcionário B (8)",
+        valor: "20.00", adquirente: "PAGBANK", hora: "12:00:00", forma: "Pix",
+        nsu: "123456782", classificacao_atual: "par provável",
+      }],
     }),
   })], "auditor");
   assert.match(html, /Alertas laranja do caixa/);
@@ -94,6 +104,12 @@ test("detalhe da pendência agrupada mostra alertas com conteúdo escapado", () 
   assert.match(html, /Sangria &lt;alterada&gt;/);
   assert.match(html, /DESPESA_SEM_PLANO/);
   assert.doesNotMatch(html, /Sangria <alterada>/);
+  assert.match(html, /10:01:00/);
+  assert.match(html, /Pix &lt;teste&gt;/);
+  assert.match(html, /NSU 123456781/);
+  assert.match(html, /Sugestão: Funcionário A \(7\)/);
+  assert.match(html, /Histórico: par provável \(fora do valor ativo\)/);
+  assert.match(html, /12:00:00/);
 });
 
 test("filtro de vencidas é aplicado à consulta da fila", async (t) => {

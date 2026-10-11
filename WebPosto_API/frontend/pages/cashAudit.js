@@ -140,13 +140,14 @@ export function renderRecebimentos(dias, falhas = [], diaSelecionado = null) {
     grupos.set(item.adquirente, grupo);
   }));
   const adquirentes = [...grupos.entries()].map(([nome, itens]) => {
+    const titulo = nome === "PREMMIA" ? "Premmia" : nome;
     const ok = itens.filter((item) => item.situacao === "ok");
     const estados = [...new Set(itens.filter((item) => item.situacao !== "ok").map((item) => item.erro || item.situacao))];
     const avisos = estados.map((estado) =>
       `<span class="ca-badge ca-badge--pendente">${escapeHtml(estado)}</span>`
     ).join(" ");
     if (!ok.length) {
-      return `<article class="ca-panel"><h4>${escapeHtml(nome)} ${avisos}</h4>
+      return `<article class="ca-panel"><h4>${escapeHtml(titulo)} ${avisos}</h4>
         <p class="ca-muted">Sem conciliação disponível. Nenhum dado estimado.</p>
         ${itens.flatMap((item) => (item.alertas || []).map((a) =>
           `<p class="ca-error">${escapeHtml(a.codigo)}: ${escapeHtml(a.mensagem)}</p>`
@@ -177,7 +178,7 @@ export function renderRecebimentos(dias, falhas = [], diaSelecionado = null) {
     const fontes = ok.map((item) =>
       `${formatDate(item.dia)}: ${item.proveniencia?.versao_regra || "—"} · ${formatDateTime(item.proveniencia?.executado_em)}`
     ).join(" | ");
-    return `<article class="ca-panel"><h4>${escapeHtml(nome)} ${avisos}</h4>
+    return `<article class="ca-panel"><h4>${escapeHtml(titulo)} ${avisos}</h4>
       <p class="ca-hint">${ok.length} de ${itens.length} dias com conciliação disponível.</p>
       <div class="ca-kpis">
         <article class="ca-kpi"><span>Casados</span><strong>${resumo.casados}</strong><small>${safeCurrency(resumo.total)}</small></article>

@@ -7,7 +7,7 @@ from decimal import Decimal
 import logging
 from typing import Iterable
 
-from ..adapters import pagbank_edi
+from ..adapters import pagbank_edi, premmia_portal
 from ..adapters.webposto_cartoes import buscar_abastecimentos, buscar_cartoes, buscar_contexto_vendas
 from ..config import carregar_unidades
 from ..domain.cartoes import (
@@ -34,7 +34,7 @@ from ...webposto_integration.http import WebPostoErro
 logger = logging.getLogger(__name__)
 
 # administradoras do webPosto liquidadas por cada adquirente (V1/ADMINISTRADORAS)
-ADMINISTRADORAS = {"PAGBANK": ("PAGSEGURO", "PIX PAGBANK")}
+ADMINISTRADORAS = {"PAGBANK": ("PAGSEGURO", "PIX PAGBANK"), "PREMMIA": ("PREMMIA",)}
 # casamento usa TODOS os recebimentos do ERP (ex.: AMEX da maquininha PagBank cadastrado com outro nome);
 # o filtro por administradora so define o que e cobrado como "a menor".
 
@@ -129,28 +129,30 @@ def conciliar(
             None,
         )
         if not motivo and cancelamento:
+            nome_adquirente = "Premmia" if adquirente == "PREMMIA" else "PagBank"
             rotulo = (
-                f"{cancelamento.situacao} no PagBank"
+                f"{cancelamento.situacao} no {nome_adquirente}"
                 if cancelamento.situacao in {"cancelada", "estornada", "ajuste"}
-                else f"evento não aprovado no PagBank ({cancelamento.situacao})"
+                else f"evento não aprovado no {nome_adquirente} ({cancelamento.situacao})"
             )
             motivo = f"{rotulo} em {formatar_data_hora(cancelamento.momento)}"
+        if not motivo and adquirente == "PREMMIA":
+            motivo = "Lançado no webPosto e não encontrado no portal Premmia"
         sobras.append(c.model_copy(update={"motivo": motivo}))
     abastecimentos = list(abastecimentos)
-    a_maior, a_menor, pares = parear_sobras(
-        (
-            investigar(t, abastecimentos, itens_em_dinheiro)
-            for t in sobra_t
-            if t.momento.date() == dia
-        ),
-        (
-            c
-            for c in sobras
-            if c.momento.date() == dia
-            and (da_adquirente(c, adquirente) or c.codigo in motivos_repetidos)
-        ),
-    )
-    a_maior, a_menor, grupos = agrupar_sobras(a_maior, a_menor)
+    a_maior = [
+        investigar(t, abastecimentos, itens_em_dinheiro) for t in sobra_t if t.momento.date() == dia
+    ]
+    a_menor = [
+        c
+        for c in sobras
+        if c.momento.date() == dia
+        and (da_adquirente(c, adquirente) or c.codigo in motivos_repetidos)
+    ]
+    pares, grupos = [], []
+    if adquirente != "PREMMIA":
+        a_maior, a_menor, pares = parear_sobras(a_maior, a_menor)
+        a_maior, a_menor, grupos = agrupar_sobras(a_maior, a_menor)
     return ResultadoCartoes(
         empresa_codigo=empresa_codigo,
         adquirente=adquirente,
@@ -169,7 +171,7 @@ def conciliar(
             fonte_sangrias="",
             extratos=(),
             outras_fontes=(
-                pagbank_edi.FONTE,
+                "Premmia/planilha mensal" if adquirente == "PREMMIA" else pagbank_edi.FONTE,
                 "webPosto/INTEGRACAO/V1/CARTOES",
                 "webPosto/INTEGRACAO/V1/ABASTECIMENTOS",
                 "webPosto/INTEGRACAO/V1/VENDAS/ITENS",
@@ -227,7 +229,17 @@ async def conciliar_pagbank(empresa_codigo: int, dia: date) -> ResultadoCartoes:
         for t in await pagbank_edi.buscar_transacoes(empresa_codigo, d)
     ]
     cartoes, abastecimentos, itens = await coletar_contexto_cartoes(empresa_codigo, dia)
+    if carregar_unidades()[empresa_codigo].premmia_ativo:
+        cartoes = [c for c in cartoes if "PREMMIA" not in c.administradora.upper()]
     return conciliar(empresa_codigo, "PAGBANK", dia, transacoes, cartoes, abastecimentos, itens)
+
+
+async def conciliar_premmia(empresa_codigo: int, dia: date) -> ResultadoCartoes:
+    unidade = carregar_unidades()[empresa_codigo]
+    transacoes = premmia_portal.buscar_transacoes(unidade, dia)
+    cartoes, abastecimentos, itens = await coletar_contexto_cartoes(empresa_codigo, dia)
+    cartoes = [c for c in cartoes if da_adquirente(c, "PREMMIA")]
+    return conciliar(empresa_codigo, "PREMMIA", dia, transacoes, cartoes, abastecimentos, itens)
 
 
 async def verificar_repetidos_premmia(empresa_codigo: int, dia: date) -> ResultadoCartoes:

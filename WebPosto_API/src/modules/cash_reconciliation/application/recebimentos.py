@@ -6,11 +6,12 @@ import logging
 from datetime import date
 
 from ..adapters.pagbank_edi import PagBankCredencialInvalida
+from ..adapters.premmia_portal import PremmiaDiaNaoColetado, PremmiaVerificacaoHumana
 from ..adapters.webposto_http import WebPostoErro
 from ..config import carregar_unidades
 from ..domain.models import AdquirenteConfigurada, SituacaoAdquirente
 from ..domain.recebimentos import RecebimentoAdquirente, ResultadoRecebimentos
-from .conciliar_cartoes import conciliar_pagbank, verificar_repetidos_premmia
+from .conciliar_cartoes import conciliar_pagbank, conciliar_premmia, verificar_repetidos_premmia
 
 logger = logging.getLogger(__name__)
 TIMEOUT_ETAPA = 180.0
@@ -22,8 +23,11 @@ async def conciliar_adquirente(
     configurada: AdquirenteConfigurada,
     *,
     timeout: float = TIMEOUT_ETAPA,
+    aviso_premmia: str | None = None,
 ) -> RecebimentoAdquirente:
     nome = configurada.nome
+    if nome == "PREMMIA" and aviso_premmia:
+        return RecebimentoAdquirente(adquirente=nome, situacao="pendente", erro=aviso_premmia)
     if nome == "PREMMIA" and configurada.situacao is SituacaoAdquirente.PENDENTE:
         unidade = carregar_unidades().get(empresa_codigo)
         if unidade and any(
@@ -50,14 +54,24 @@ async def conciliar_adquirente(
                 a_menor=resultado.a_menor,
                 proveniencia=resultado.proveniencia,
             )
-        if nome != "PAGBANK":
+        if nome == "PREMMIA":
+            if not carregar_unidades()[empresa_codigo].premmia_ativo:
+                return RecebimentoAdquirente(adquirente=nome, situacao="pendente")
+            executar = conciliar_premmia
+        elif nome == "PAGBANK":
+            executar = conciliar_pagbank
+        else:
             raise ValueError("Adquirente ativa sem adaptador.")
-        resultado = await asyncio.wait_for(conciliar_pagbank(empresa_codigo, dia), timeout=timeout)
+        resultado = await asyncio.wait_for(executar(empresa_codigo, dia), timeout=timeout)
         if resultado.empresa_codigo != empresa_codigo or resultado.dia != dia or resultado.adquirente != nome:
             raise ValueError("Resultado fora do escopo solicitado.")
         return RecebimentoAdquirente.de_resultado(resultado)
     except PagBankCredencialInvalida:
         mensagem, situacao = "credencial inválida", "credencial inválida"
+    except PremmiaVerificacaoHumana as exc:
+        mensagem, situacao = str(exc), "pendente"
+    except PremmiaDiaNaoColetado as exc:
+        mensagem, situacao = str(exc), "pendente"
     except TimeoutError:
         mensagem, situacao = "tempo limite excedido", "erro"
     except WebPostoErro:

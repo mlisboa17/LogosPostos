@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import sqlite3
 import uuid
@@ -173,6 +174,13 @@ def registrar(
     try:
         with _conectar(banco) as conexao:
             for nova in novas:
+                detalhes_grupo = (
+                    json.loads(nova.mensagem) if nova.tipo == "caixa_alertas_laranja" else None
+                )
+                status_inicial = (
+                    "aprovada" if detalhes_grupo is not None and not detalhes_grupo["alertas"]
+                    else "aberta"
+                )
                 identidade_original = nova.identidade or (
                     f"{nova.unidade}|{nova.dia.isoformat()}|{nova.tipo}|{nova.referencia}"
                 )
@@ -184,7 +192,7 @@ def registrar(
                     INSERT OR IGNORE INTO pendencias
                         (id, identidade, unidade, dia, tipo, severidade, valor, referencia,
                          mensagem, status, responsavel, criada_em)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'aberta', NULL, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
                     """,
                     (
                         pendencia_id,
@@ -196,6 +204,7 @@ def registrar(
                         str(nova.valor) if nova.valor is not None else None,
                         nova.referencia,
                         nova.mensagem,
+                        status_inicial,
                         criada_em,
                     ),
                 )
@@ -204,9 +213,9 @@ def registrar(
                         """
                         INSERT INTO historico_pendencias
                             (pendencia_id, acao, status_anterior, status_novo, usuario, registrado_em)
-                        VALUES (?, 'criada', NULL, 'aberta', ?, ?)
+                        VALUES (?, 'criada', NULL, ?, ?, ?)
                         """,
-                        (pendencia_id, usuario, criada_em),
+                        (pendencia_id, status_inicial, usuario, criada_em),
                     )
                     inseridas += 1
                 elif nova.tipo != "caixa_alertas_laranja":
@@ -257,7 +266,7 @@ def registrar(
                     caixa = nova.referencia.partition(":")[2].partition(":")[0]
                     pendencias_antigas = conexao.execute(
                         """
-                        SELECT id FROM pendencias
+                        SELECT id, referencia FROM pendencias
                         WHERE unidade = ? AND dia = ? AND severidade = 'laranja'
                           AND status = 'aberta' AND tipo LIKE 'fechamento_%'
                           AND tipo != 'caixa_alertas_laranja'
@@ -270,7 +279,30 @@ def registrar(
                             f"caixa:{caixa}:%",
                         ),
                     ).fetchall()
+                    for alerta in (
+                        *detalhes_grupo["alertas"], *detalhes_grupo.get("historicos", []),
+                    ):
+                        if alerta["codigo"] not in {
+                            "RECEBIMENTO_A_MAIOR", "RECEBIMENTO_A_MAIOR_HISTORICO",
+                        }:
+                            continue
+                        pendencias_antigas.extend(conexao.execute(
+                            """
+                            SELECT id, referencia FROM pendencias
+                            WHERE unidade = ? AND dia = ? AND severidade = 'laranja'
+                              AND status = 'aberta' AND tipo = 'recebimento_a_maior'
+                              AND referencia = ?
+                            """,
+                            (nova.unidade, nova.dia.isoformat(), alerta["referencia"]),
+                        ).fetchall())
                     for antiga in pendencias_antigas:
+                        historico = next(
+                            (
+                                h for h in detalhes_grupo.get("historicos", [])
+                                if antiga["referencia"] == h["referencia"]
+                            ),
+                            None,
+                        )
                         registrado_em = agora().isoformat()
                         cursor_antiga = conexao.execute(
                             """
@@ -290,7 +322,12 @@ def registrar(
                                 (
                                     antiga["id"],
                                     usuario,
-                                    f"Substituída pela pendência agrupada {pendencia_id}.",
+                                    f"Substituída pela pendência agrupada {pendencia_id}."
+                                    + (
+                                        f" Agora {historico['classificacao_atual']}; detalhe histórico, "
+                                        "fora do valor ativo do grupo."
+                                        if historico else ""
+                                    ),
                                     registrado_em,
                                 ),
                             )

@@ -25,6 +25,7 @@ from src.modules.cash_reconciliation.domain.fechamento import (
 from src.modules.cash_reconciliation.domain.models import Proveniencia, Unidade
 from src.modules.cash_reconciliation.domain.pendencias import NovaPendencia
 from src.modules.cash_reconciliation.domain.recebimentos import ResultadoRecebimentos
+from src.modules.cash_reconciliation.domain.tempo import FUSO
 from src.modules.cash_reconciliation.interfaces import http
 
 EMPRESA = 321
@@ -550,6 +551,230 @@ def test_reprocessar_atualiza_detalhe_aberto_sem_duplicar(tmp_path):
     assert agrupada.valor == Decimal("25.00")
     assert "atualizado" in agrupada.mensagem
     assert [evento.acao for evento in agrupada.historico] == ["criada", "detalhe_atualizado"]
+
+
+def diario_com_recebimentos_a_maior():
+    from src.modules.cash_reconciliation.domain.cartoes import (
+        Abastecimento, Atribuicao, Candidato, Investigacao, TransacaoAdquirente,
+    )
+    from src.modules.cash_reconciliation.domain.recebimentos import RecebimentoAdquirente
+
+    diario = criar_diario(DIA)
+    auditoria = diario.fechamento.caixas[0]
+    caixa = auditoria.caixa.model_copy(update={
+        "fechamento": datetime(2026, 10, 6, 23, 59, tzinfo=FUSO),
+    })
+    diario = diario.model_copy(update={
+        "fechamento": diario.fechamento.model_copy(update={
+            "caixas": (auditoria.model_copy(update={"caixa": caixa, "alertas": ()}),),
+        }),
+    })
+    itens = []
+    for indice, adquirente in enumerate(("PAGBANK", "PREMMIA", "PREMMIA")):
+        transacao = TransacaoAdquirente(
+            adquirente=adquirente, identificador=f"transacao-{indice}",
+            nsu=f"12345678{indice}", autorizacao=None, valor=Decimal("10"),
+            momento=datetime(2026, 10, 6, 10, indice), bandeira="Pix",
+        )
+        candidato = Candidato(
+            abastecimento=Abastecimento(
+                codigo=indice, empresa_codigo=EMPRESA, momento=transacao.momento,
+                bico=1, valor=transacao.valor, frentista=7, venda_item_codigo=indice,
+                nome_frentista="Funcionário Sintético",
+            ),
+            pontos=70 if indice else 90, motivos=("valor e hora compatíveis",),
+            venda_em_dinheiro=False,
+        )
+        itens.append(Investigacao(
+            transacao=transacao,
+            atribuicao=Atribuicao.SUGESTAO if indice else Atribuicao.ATRIBUIDO,
+            frentista=None if indice else 7,
+            nome_frentista=None if indice else "Funcionário Sintético",
+            candidatos=(candidato,), troca_de_forma=False,
+        ))
+    return diario.model_copy(update={
+        "recebimentos": ResultadoRecebimentos(
+            empresa_codigo=EMPRESA, dia=DIA,
+            adquirentes=tuple(
+                RecebimentoAdquirente(
+                    adquirente=nome, situacao="ok",
+                    a_maior=tuple(i for i in itens if i.transacao.adquirente == nome),
+                ) for nome in ("PAGBANK", "PREMMIA")
+            ),
+        ),
+    })
+
+
+@pytest.mark.parametrize("sem_caixa", [False, True])
+def test_tres_a_maior_geram_um_grupo_idempotente_com_detalhes(tmp_path, sem_caixa):
+    diario = diario_com_recebimentos_a_maior()
+    if sem_caixa:
+        diario = diario.model_copy(update={"fechamento": None})
+    novas = pendencias_do_dia(diario)
+    assert len(novas) == 1
+    grupo = novas[0]
+    assert grupo.tipo == "caixa_alertas_laranja"
+    assert grupo.referencia == f"caixa:{'sem caixa' if sem_caixa else 106}:laranja"
+    assert grupo.valor == Decimal("30")
+    detalhes = json.loads(grupo.mensagem)["alertas"]
+    assert len(detalhes) == 3
+    for indice, item in enumerate(detalhes):
+        assert item["valor"] == "10"
+        assert item["hora"] == f"10:0{indice}:00"
+        assert item["forma"] == "Pix"
+        assert item["nsu"] == f"12345678{indice}"
+        assert "Funcionário Sintético (7)" in item["mensagem"]
+    assert detalhes[1]["atribuicao"] == "sugestao"
+    assert detalhes[1]["frentista"] is None
+    assert detalhes[1]["candidatos"][0]["nome"] == "Funcionário Sintético"
+    banco = tmp_path / "pendencias.sqlite3"
+    assert repositorio.registrar(novas, banco=banco) == 1
+    assert repositorio.registrar(pendencias_do_dia(diario), banco=banco) == 0
+    itens, total = repositorio.listar(banco=banco)
+    assert total == 1
+    assert [e.acao for e in itens[0].historico] == ["criada"]
+
+
+def test_a_maior_legadas_so_abertas_substituidas_com_historico(tmp_path):
+    diario = diario_com_recebimentos_a_maior()
+    grupo = pendencias_do_dia(diario)[0]
+    detalhes = json.loads(grupo.mensagem)["alertas"]
+    banco = tmp_path / "pendencias.sqlite3"
+    for item in detalhes:
+        repositorio.registrar([NovaPendencia(
+            unidade=EMPRESA, dia=DIA, tipo="recebimento_a_maior",
+            severidade="laranja", valor=Decimal(item["valor"]),
+            referencia=item["referencia"], mensagem="Pendência legada sintética",
+        )], banco=banco)
+    antigas, _ = repositorio.listar(banco=banco)
+    for antiga, status in zip(antigas[1:], ("justificada", "recusada")):
+        repositorio.transicionar(
+            antiga.id, status_esperado="aberta", status_novo=status,
+            acao=status, usuario="diretor", justificativa="Decisão sintética", banco=banco,
+        )
+    assert repositorio.registrar([grupo], banco=banco) == 1
+    assert repositorio.registrar([grupo], banco=banco) == 0
+    itens, total = repositorio.listar(banco=banco)
+    assert total == 4
+    agrupada = next(i for i in itens if i.tipo == "caixa_alertas_laranja")
+    substituida = repositorio.obter(antigas[0].id, banco=banco)
+    assert substituida.status == "substituida"
+    assert substituida.referencia == agrupada.referencia
+    assert [e.acao for e in substituida.historico] == ["criada", "substituida"]
+    assert agrupada.id in substituida.historico[-1].justificativa
+    assert repositorio.obter(antigas[1].id, banco=banco).status == "justificada"
+    assert repositorio.obter(antigas[2].id, banco=banco).status == "recusada"
+
+
+def test_a_maior_caixas_sobrepostos_nao_inventa_vinculo():
+    diario = diario_com_recebimentos_a_maior()
+    auditoria = diario.fechamento.caixas[0]
+    outra = auditoria.model_copy(update={
+        "caixa": auditoria.caixa.model_copy(update={"codigo": 999}),
+    })
+    diario = diario.model_copy(update={
+        "fechamento": diario.fechamento.model_copy(update={"caixas": (auditoria, outra)}),
+    })
+    assert pendencias_do_dia(diario)[0].referencia == "caixa:sem caixa:laranja"
+
+
+def test_a_maior_telegram_preserva_detalhes_e_mascara_nsu():
+    from src.modules.cash_reconciliation.application.resumo_diario import gerar_mensagem_curta
+
+    diario = diario_com_recebimentos_a_maior()
+    mensagem = "\n".join(gerar_mensagem_curta(
+        DIA, [diario], [EMPRESA], set(), {EMPRESA: 1},
+    ))
+    assert "10:01" in mensagem and "Pix" in mensagem
+    assert "NSU 6781" in mensagem
+    assert "123456781" not in mensagem
+    assert "Sugestão: Funcionário Sintético (7)" in mensagem
+
+
+@pytest.mark.parametrize("com_ativos", [True, False])
+def test_legada_agora_provavel_vira_historico_sem_somar_ao_laranja(
+    tmp_path, monkeypatch, com_ativos,
+):
+    from src.modules.cash_reconciliation.domain.cartoes import CartaoErp, ParProvavel
+
+    banco = tmp_path / "pendencias.sqlite3"
+    monkeypatch.setattr(repositorio, "BANCO_PENDENCIAS", banco)
+    diario = diario_com_recebimentos_a_maior()
+    pagbank, premmia = diario.recebimentos.adquirentes
+    inv = premmia.a_maior[0]
+    repositorio.registrar([NovaPendencia(
+        unidade=EMPRESA, dia=DIA, tipo="recebimento_a_maior",
+        severidade="laranja", valor=inv.transacao.valor,
+        referencia="PREMMIA:transacao:transacao-1", mensagem="Alerta legado",
+    )])
+    antiga = repositorio.listar()[0][0]
+    par = ParProvavel(
+        investigacao=inv,
+        cartao=CartaoErp(
+            codigo=5, empresa_codigo=EMPRESA, venda_codigo=None, valor=Decimal("10"),
+            momento=inv.transacao.momento, administradora="PREMMIA PIX", nsu="outro",
+            nsu_tef=None, autorizacao=None,
+        ),
+    )
+    diario = diario.model_copy(update={
+        "recebimentos": diario.recebimentos.model_copy(update={
+            "adquirentes": (
+                pagbank.model_copy(update={"a_maior": pagbank.a_maior if com_ativos else ()}),
+                premmia.model_copy(update={
+                    "a_maior": premmia.a_maior[1:] if com_ativos else (),
+                    "pares_provaveis": (par,),
+                }),
+            ),
+        }),
+    })
+    novas = pendencias_do_dia(diario)
+    assert len(novas) == 1
+    assert novas[0].valor == (Decimal("20") if com_ativos else None)
+    assert repositorio.registrar(novas) == 1
+    assert repositorio.registrar(pendencias_do_dia(diario)) == 0
+    grupo = next(p for p in repositorio.listar()[0] if p.tipo == "caixa_alertas_laranja")
+    assert grupo.status == ("aberta" if com_ativos else "aprovada")
+    assert grupo.valor == (Decimal("20") if com_ativos else None)
+    detalhes = json.loads(grupo.mensagem)
+    assert len(detalhes["historicos"]) == 1
+    assert detalhes["historicos"][0]["classificacao_atual"] == "par provável"
+    assert detalhes["historicos"][0]["nsu"] == inv.transacao.nsu
+    substituida = repositorio.obter(antiga.id)
+    assert substituida.status == "substituida"
+    assert "Agora par provável" in substituida.historico[-1].justificativa
+    assert grupo.id in substituida.historico[-1].justificativa
+
+
+def test_legada_ausente_arquivada_sem_inventar_detalhe(tmp_path, monkeypatch):
+    monkeypatch.setattr(repositorio, "BANCO_PENDENCIAS", tmp_path / "pendencias.sqlite3")
+    repositorio.registrar([NovaPendencia(
+        unidade=EMPRESA, dia=DIA, tipo="recebimento_a_maior",
+        severidade="laranja", valor=Decimal("25"), referencia="PAGBANK:transacao:antiga",
+        mensagem="Funcionário Sintético (7); alerta legado",
+    )])
+    diario = criar_diario(DIA).model_copy(update={
+        "recebimentos": diario_com_recebimentos_a_maior().recebimentos.model_copy(update={
+            "adquirentes": tuple(
+                a.model_copy(update={"a_maior": ()})
+                for a in diario_com_recebimentos_a_maior().recebimentos.adquirentes
+            ),
+        }),
+    })
+    novas = pendencias_do_dia(diario)
+    assert len(novas) == 2  # Quebra vermelha e grupo somente histórico.
+    grupo = next(p for p in novas if p.tipo == "caixa_alertas_laranja")
+    assert grupo.referencia == "caixa:sem caixa:laranja"
+    assert grupo.valor is None
+    detalhe = json.loads(grupo.mensagem)["historicos"][0]
+    assert detalhe["valor"] == "25"
+    assert detalhe["hora"] is None and detalhe["forma"] is None and detalhe["nsu"] is None
+    assert "Funcionário Sintético (7)" in detalhe["mensagem"]
+    assert detalhe["classificacao_atual"] == "não consta na conciliação atual"
+    repositorio.registrar(novas)
+    assert repositorio.registrar(pendencias_do_dia(diario)) == 0
+    itens = repositorio.listar()[0]
+    assert next(p for p in itens if p.tipo == "recebimento_a_maior").status == "substituida"
+    assert next(p for p in itens if p.tipo == "caixa_alertas_laranja").status == "aprovada"
 
 
 def test_laranjas_individuais_abertas_sao_substituidas_com_historico(tmp_path):

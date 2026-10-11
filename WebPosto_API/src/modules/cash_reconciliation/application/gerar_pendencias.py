@@ -11,7 +11,7 @@ from typing import Iterable
 
 from ..adapters import pendencias as repositorio_pendencias
 from ..config import carregar_unidades
-from ..domain.cartoes import Atribuicao
+from ..domain.cartoes import Atribuicao, Investigacao
 from ..domain.execucao import ResultadoDiario
 from ..domain.pendencias import NovaPendencia
 from ..domain.tempo import formatar_data
@@ -19,6 +19,59 @@ from .reincidencia import agregar_reincidencia
 
 VERSAO_PENDENCIAS = "PENDENCIAS_V1"
 LIMITE_REINCIDENCIA = 2
+
+
+def _caixa_recebimento(resultado: ResultadoDiario, investigacao: Investigacao) -> int | None:
+    if resultado.fechamento is None:
+        return None
+    momento = investigacao.transacao.momento
+    caixas = {
+        auditoria.caixa.codigo
+        for auditoria in resultado.fechamento.caixas
+        if auditoria.caixa.abertura <= momento
+        and (auditoria.caixa.fechamento is None or momento <= auditoria.caixa.fechamento)
+    }
+    return next(iter(caixas)) if len(caixas) == 1 else None
+
+
+def _detalhe_a_maior(adquirente: str, investigacao: Investigacao) -> dict:
+    transacao = investigacao.transacao
+    identificador = transacao.identificador or transacao.nsu or transacao.autorizacao or "sem-identificador"
+    candidatos = [
+        {
+            "frentista": candidato.abastecimento.frentista,
+            "nome": candidato.abastecimento.nome_frentista,
+            "pontos": candidato.pontos,
+            "motivos": list(candidato.motivos),
+        }
+        for candidato in investigacao.candidatos
+    ]
+    sugeridos = "; ".join(
+        f"{c['nome'] or 'nome indisponível'} ({c['frentista']})"
+        for c in candidatos if c["frentista"] is not None
+    )
+    responsavel = (
+        f"Sugestão: {sugeridos}"
+        if investigacao.atribuicao == Atribuicao.SUGESTAO and sugeridos
+        else investigacao.responsavel
+    )
+    return {
+        "codigo": "RECEBIMENTO_A_MAIOR",
+        "adquirente": adquirente,
+        "referencia": f"{adquirente}:transacao:{identificador}",
+        "valor": str(transacao.valor),
+        "hora": transacao.momento.strftime("%H:%M:%S"),
+        "forma": transacao.bandeira,
+        "nsu": transacao.nsu,
+        "atribuicao": investigacao.atribuicao.value,
+        "frentista": investigacao.frentista,
+        "nome_frentista": investigacao.nome_frentista,
+        "candidatos": candidatos,
+        "mensagem": (
+            "Recebimento na adquirente sem lançamento correspondente no webPosto. "
+            f"{responsavel}; tipoInclusao=não aplicável (sem lançamento ERP)"
+        ),
+    }
 
 
 def _slug(valor: str) -> str:
@@ -50,6 +103,46 @@ def _entrada(
 
 def pendencias_do_dia(resultado: ResultadoDiario) -> list[NovaPendencia]:
     novas: list[NovaPendencia] = []
+    referencias_legadas = set()
+    detalhes_legados = {}
+    caixas_legadas = {}
+    if repositorio_pendencias.contar_abertas_somente_leitura(
+        unidade=resultado.empresa_codigo,
+    ) is not None:
+        for tipo in ("recebimento_a_maior", "caixa_alertas_laranja"):
+            deslocamento = 0
+            while True:
+                itens, total = repositorio_pendencias.listar(
+                    unidade=resultado.empresa_codigo, tipo=tipo,
+                    limite=100, deslocamento=deslocamento,
+                )
+                for p in itens:
+                    if p.dia != resultado.dia:
+                        continue
+                    if tipo == "recebimento_a_maior" and p.status in {"aberta", "substituida"}:
+                        referencias_legadas.add(p.referencia)
+                        if p.status == "aberta":
+                            detalhes_legados[p.referencia] = {
+                                "codigo": "RECEBIMENTO_A_MAIOR_HISTORICO",
+                                "adquirente": p.referencia.partition(":")[0],
+                                "referencia": p.referencia,
+                                "valor": str(p.valor) if p.valor is not None else None,
+                                "hora": None, "forma": None, "nsu": None,
+                                "mensagem": p.mensagem + (
+                                    " Hora, forma e NSU indisponíveis no registro legado; "
+                                    "não consta na conciliação atual."
+                                ),
+                                "classificacao_atual": "não consta na conciliação atual",
+                            }
+                    elif tipo == "caixa_alertas_laranja":
+                        caixa = p.referencia.split(":")[1]
+                        for h in json.loads(p.mensagem).get("historicos", []):
+                            referencias_legadas.add(h["referencia"])
+                            detalhes_legados[h["referencia"]] = h
+                            caixas_legadas[h["referencia"]] = int(caixa) if caixa.isdigit() else None
+                deslocamento += len(itens)
+                if not itens or deslocamento >= total:
+                    break
     if resultado.fechamento is not None:
         for auditoria in resultado.fechamento.caixas:
             alertas_laranja = []
@@ -146,6 +239,7 @@ def pendencias_do_dia(resultado: ResultadoDiario) -> list[NovaPendencia]:
         if adquirente.situacao != "ok" and not adquirente.alertas:
             continue
         laranja = defaultdict(list)
+        historicos = defaultdict(list)
         for alerta in adquirente.alertas:
             referencia = ":".join(str(c.codigo) for c in alerta.cartoes)
             if alerta.severidade == "laranja":
@@ -173,8 +267,37 @@ def pendencias_do_dia(resultado: ResultadoDiario) -> list[NovaPendencia]:
                     mensagem=alerta.mensagem,
                 )
             )
-        for caixa, itens_laranja in laranja.items():
-            referencia = f"caixa:{caixa}:laranja"
+        for investigacao in adquirente.a_maior:
+            caixa = _caixa_recebimento(resultado, investigacao)
+            laranja[caixa].append(_detalhe_a_maior(adquirente.adquirente, investigacao))
+        provaveis = [
+            (par.investigacao, "par provável") for par in adquirente.pares_provaveis
+        ] + [
+            (inv, "grupo provável")
+            for grupo in adquirente.grupos_provaveis for inv in grupo.investigacoes
+        ]
+        for investigacao, classificacao in provaveis:
+            detalhe = _detalhe_a_maior(adquirente.adquirente, investigacao)
+            if detalhe["referencia"] in referencias_legadas:
+                detalhe["codigo"] = "RECEBIMENTO_A_MAIOR_HISTORICO"
+                detalhe["classificacao_atual"] = classificacao
+                caixa = _caixa_recebimento(resultado, investigacao)
+                historicos[caixa].append(detalhe)
+        referencias_atuais = {
+            _detalhe_a_maior(adquirente.adquirente, inv)["referencia"]
+            for inv in (*adquirente.a_maior, *(i for i, _ in provaveis))
+        }
+        for referencia, detalhe in detalhes_legados.items():
+            if (
+                detalhe["adquirente"] == adquirente.adquirente
+                and referencia not in referencias_atuais
+            ):
+                historicos[caixas_legadas.get(referencia)].append(detalhe)
+        for caixa in dict.fromkeys((*laranja, *historicos)):
+            itens_laranja = laranja[caixa]
+            itens_historicos = historicos[caixa]
+            caixa_grupo = caixa if caixa is not None else "sem caixa"
+            referencia = f"caixa:{caixa_grupo}:laranja"
             existente = next(
                 (
                     entrada
@@ -184,7 +307,9 @@ def pendencias_do_dia(resultado: ResultadoDiario) -> list[NovaPendencia]:
                 None,
             )
             if existente is not None:
-                itens_laranja = json.loads(existente.mensagem)["alertas"] + itens_laranja
+                detalhes = json.loads(existente.mensagem)
+                itens_laranja = detalhes["alertas"] + itens_laranja
+                itens_historicos = detalhes.get("historicos", []) + itens_historicos
                 novas.remove(existente)
             valores = [Decimal(a["valor"]) for a in itens_laranja if a["valor"] is not None]
             novas.append(
@@ -195,24 +320,10 @@ def pendencias_do_dia(resultado: ResultadoDiario) -> list[NovaPendencia]:
                     severidade="laranja",
                     valor=sum(valores, Decimal(0)) if valores else None,
                     referencia=referencia,
-                    identidade=f"{resultado.empresa_codigo}|{resultado.dia.isoformat()}|caixa:{caixa}|laranja",
-                    mensagem=json.dumps({"alertas": itens_laranja}, ensure_ascii=False),
-                )
-            )
-        for investigacao in adquirente.a_maior:
-            transacao = investigacao.transacao
-            referencia = transacao.identificador or transacao.nsu or transacao.autorizacao or "sem-identificador"
-            novas.append(
-                _entrada(
-                    unidade=resultado.empresa_codigo,
-                    dia=resultado.dia,
-                    tipo="recebimento_a_maior",
-                    severidade="laranja",
-                    valor=transacao.valor,
-                    referencia=f"{adquirente.adquirente}:transacao:{referencia}",
-                    mensagem=(
-                        f"Recebimento na adquirente sem lançamento correspondente no webPosto. "
-                        f"{investigacao.responsavel}; tipoInclusao=não aplicável (sem lançamento ERP)"
+                    identidade=f"{resultado.empresa_codigo}|{resultado.dia.isoformat()}|caixa:{caixa_grupo}|laranja",
+                    mensagem=json.dumps(
+                        {"alertas": itens_laranja, "historicos": itens_historicos},
+                        ensure_ascii=False,
                     ),
                 )
             )

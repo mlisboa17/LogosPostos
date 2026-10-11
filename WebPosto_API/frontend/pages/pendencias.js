@@ -79,10 +79,19 @@ export function renderListaPendencias(itens, papel) {
     const ultimaJustificativa = [...(item.historico || [])].reverse()
       .find((evento) => ["justificada", "justificativa_corrigida"].includes(evento.acao)
         && evento.justificativa)?.justificativa || "";
+    const detalhes = item.tipo === "caixa_alertas_laranja" ? JSON.parse(item.mensagem) : null;
     const detalheGrupo = item.tipo === "caixa_alertas_laranja"
-      ? JSON.parse(item.mensagem).alertas.map((alerta) =>
-        `<li><strong>${escapeHtml(alerta.codigo)}</strong>: ${escapeHtml(alerta.mensagem)}${alerta.valor === null ? "" : ` · ${moeda(alerta.valor)}`}</li>`
-      ).join("")
+      ? [...detalhes.alertas, ...(detalhes.historicos || [])].map((alerta) => {
+        const historicoRecebimento = alerta.codigo === "RECEBIMENTO_A_MAIOR_HISTORICO";
+        const recebimento = alerta.codigo === "RECEBIMENTO_A_MAIOR"
+          || historicoRecebimento
+          ? ` · ${escapeHtml(alerta.adquirente)} · ${escapeHtml(alerta.hora || "hora indisponível")} · ${escapeHtml(alerta.forma || "forma não informada")} · NSU ${escapeHtml(alerta.nsu || "não informado")}`
+          : "";
+        const classificacao = historicoRecebimento
+          ? ` · Histórico: ${escapeHtml(alerta.classificacao_atual)} (fora do valor ativo)`
+          : "";
+        return `<li><strong>${escapeHtml(alerta.codigo)}</strong>: ${escapeHtml(alerta.mensagem)}${alerta.valor === null ? "" : ` · ${moeda(alerta.valor)}`}${recebimento}${classificacao}</li>`;
+      }).join("")
       : "";
     const mensagem = item.tipo === "caixa_alertas_laranja"
       ? "Alertas laranja agrupados para este caixa."

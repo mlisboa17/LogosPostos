@@ -415,8 +415,8 @@
 | Padrão | Cada alerta vermelho = uma pendência; alertas laranja do mesmo caixa e dia = uma pendência agrupada |
 | Exceção | — |
 | Gatilho | Robô noturno |
-| Ação no sistema | Idempotente; pendências substituídas ficam no histórico como `substituida` |
-| Implementação | `application/gerar_pendencias.py` |
+| Ação no sistema | Idempotente; inclui recebimentos a maior de PagBank e Premmia, mantendo valor, hora, forma, NSU e frentista atribuído/sugerido em cada item (NSU só com os 4 últimos dígitos no chat). Caixa único no horário do recebimento; sem vínculo inequívoco, grupo por unidade/dia "sem caixa". Individuais `recebimento_a_maior` abertas ficam no histórico como `substituida`, apontando para o grupo; justificadas/recusadas são preservadas |
+| Implementação | `application/gerar_pendencias.py`; individuais antigas agora prováveis são itens históricos do grupo, fora do valor ativo. Legada ausente do resultado atual fica histórica "sem caixa", com dados originais e lacunas explícitas, sem inferir hora/forma/NSU. Grupo só histórico nasce aprovado, sem novo alerta laranja |
 | Status | vigente |
 | Vigência | 10/10/2026 — decisão do diretor |
 
