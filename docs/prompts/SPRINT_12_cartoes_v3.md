@@ -29,7 +29,9 @@ Arquivos:
    - O casamento por valor+hora (PIX sem NSU) não muda — ele já exige valor igual.
 3. Cancelamentos: em `pagbank_edi.py`, **não descartar**; devolver separadamente as transações com `tipo_evento != "1"` ou status não aprovado, como `TransacaoAdquirente` com campo novo opcional `situacao` ("cancelada", "estornada", "ajuste" ou o código original, se desconhecido). Ver primeiro nos dados reais quais valores existem (item 6) e mapear só os confirmados. Elas **não** entram no casamento normal.
 4. Lançamento do webPosto sem par ("a menor") que tenha uma transação cancelada/estornada com o mesmo NSU/autorização → motivo "cancelada no PagBank em dd/mm/aaaa HH:mm" (continua vermelho: o webPosto registrou uma venda que não vai ser paga).
-5. Totais por adquirente no resultado: `casados_valor_divergente` (quantidade e soma das diferenças) e `cancelados` (quantidade e soma).
+5. **NSU repetido no webPosto** (caso real VIP 05/10/2026: o mesmo NSU de um PIX Premmia de R$ 30,00 foi lançado em **duas vendas** diferentes, às 23:04 e 23:09, e o portal tem **um** pagamento): antes do casamento, agrupar `CartaoErp` por NSU/autorização (ignorando vazios); grupo com 2+ lançamentos → alerta **vermelho** `CARTAO_NSU_REPETIDO` com as vendas, horários, valores e o frentista de cada venda (via abastecimento/venda, mesma lógica da atribuição). Só o primeiro entra no casamento; os demais saem como "a menor" com o motivo "NSU já usado na venda X". Isso pode ser lançamento em duplicidade ou o mesmo comprovante usado para duas vendas — é grave e precisa de tratativa.
+6. Guardar `tipoInclusao` do `V1/CARTOES` em `CartaoErp` (campo opcional; valores vistos: `PDV-TEF`, `PDV-Mobile`) e mostrá-lo no detalhe de toda divergência — permite saber se o lançamento foi automático ou manual. Liste no relatório os valores distintos encontrados.
+7. Totais por adquirente no resultado: `casados_valor_divergente` (quantidade e soma das diferenças) e `cancelados` (quantidade e soma).
 
 ## PARTE B — Pendências, tela e Telegram
 
