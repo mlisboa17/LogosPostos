@@ -15,6 +15,8 @@ Histórico de sprints: um prompt por sprint em docs/prompts/ (SPRINT_05 ... SPRI
 - Resumo diário pelo Telegram (bot @Weblogosbot, só o diretor): mensagem por filial com nomes + planilha .xlsx;
   TELEGRAM_ENVIO=1 desde 10/10/2026 (envio automático após o robô)
 - Datas no padrão Brasil (America/Recife)
+- **Sprint BAIXA_00 (Parte A — somente leitura):** identificação de títulos a pagar já quitados no banco por extrato (`titulos_pagos_sem_baixa.py`, `src/jobs/baixar_titulos.py`). Resolução de contas via `units.json` (BB 86248, PagBank 86188), deduplicação por FITID e detecção de pagamentos agrupados (tolerância ±15% no mês anterior).
+- **Sprint DESPESAS_00 (Parte A & 00.1 — somente leitura):** identificação de despesas avulsas pagas na rua sem lançamento no ERP (`despesas_sem_lancamento.py`, `src/jobs/despesas_avulsas.py`). Deduplicação por FITID, filtro de grupo/aplicações/tarifas, reconhecimento de baixas agrupadas (`pagamento[]`), e reaproveitamento do casamento da BAIXA_00 (débito com título em aberto vai para "tem título em aberto — usar baixa", nunca avulso). Sugestão de plano/centro de custo e exportação XLSX.
 
 ## INCIDENTE EM ABERTO COM A QUALITY (11/10/2026) — OFX PagBank Doze 10/10 importado com débitos como crédito
 - 11/10/2026: o DIRETOR EXCLUIU pela tela do webPosto os registros OFX de 10/10 da conta 86188 (sem Quality).

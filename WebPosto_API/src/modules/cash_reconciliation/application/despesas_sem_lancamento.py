@@ -38,6 +38,11 @@ from ..adapters.extrato_reader import ExtratoBancario, LancamentoBancario, ler_a
 from ..adapters.webposto_http import paginar
 from ..domain.models import Unidade
 from ..domain.tempo import formatar_data
+from .titulos_pagos_sem_baixa import (
+    PreviaBaixaTitulos,
+    TituloCandidato,
+    encontrar_candidatos_baixa,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -222,6 +227,20 @@ class DespesaAvulsa:
 
 
 @dataclass(frozen=True)
+class DebitoComTituloAberto:
+    data: date
+    banco: str
+    conta_sufixo: str
+    valor: Decimal
+    fitid: str
+    descricao: str
+    status_baixa: str  # "pronto", "conferir_mao", "ambiguo", "agrupado"
+    titulos_codigos: tuple[int, ...]
+    fornecedor: str
+    motivo: str
+
+
+@dataclass(frozen=True)
 class ResumoDespesasAvulsas:
     unidade_codigo: int
     unidade_nome: str
@@ -234,6 +253,9 @@ class ResumoDespesasAvulsas:
     debitos_ignorados_total: Decimal
     debitos_registrados_qtd: int
     debitos_registrados_total: Decimal
+    debitos_com_titulo: tuple[DebitoComTituloAberto, ...] = ()
+    debitos_com_titulo_qtd: int = 0
+    debitos_com_titulo_total: Decimal = Decimal("0")
 
 
 def resolver_caminhos_extratos_padrao(empresa_codigo: int) -> list[Path]:
@@ -268,7 +290,9 @@ async def identificar_despesas_sem_lancamento(
     planos_mock: Sequence[dict[str, Any]] | None = None,
     centros_mock: Sequence[dict[str, Any]] | None = None,
     fornecedores_mock: Sequence[dict[str, Any]] | None = None,
+    contas_mock: Sequence[dict[str, Any]] | None = None,
     client: httpx.AsyncClient | None = None,
+    previa_baixa: PreviaBaixaTitulos | None = None,
 ) -> ResumoDespesasAvulsas:
     """Identifica débitos do extrato sem registro correspondente no webPosto."""
 
@@ -449,6 +473,7 @@ async def identificar_despesas_sem_lancamento(
             debitos_restantes.remove(d)
 
     # 4.2 Casamento com baixas de títulos (pagamento[] de V1/TITULOS_PAGAR)
+    # 4.2a Casamento 1-a-1
     baixas_usadas: set[tuple[int, int]] = set()
     for d in list(debitos_restantes):
         v_deb = d["valor"]
@@ -479,21 +504,111 @@ async def identificar_despesas_sem_lancamento(
             registrados_total += v_deb
             debitos_restantes.remove(d)
 
-    # 4.3 Casamento com títulos em aberto (vencimento -10/+40 dias e fornecedor confere)
+    # 4.2b Casamento com baixas agrupadas já quitadas no ERP (mesmo fornecedor, mesma data e conta)
+    # Ex: 18 títulos IPSEP de R$ 275 quitados em 13/08 (soma = R$ 4.950,00)
+    from collections import defaultdict
+    pags_agrupados_por_forn_data: dict[tuple[str, date], list[dict[str, Any]]] = defaultdict(list)
+    for t in titulos_brutos:
+        fn = t.get("nomeFornecedor") or ""
+        t_cod = t.get("tituloPagarCodigo") or t.get("tituloCodigo")
+        for idx, pag in enumerate(t.get("pagamento") or []):
+            chave_pag = (t_cod, idx)
+            dp_str = pag.get("dataPagamento")
+            if dp_str:
+                try:
+                    d_p = date.fromisoformat(dp_str)
+                    pags_agrupados_por_forn_data[(fn, d_p)].append({
+                        "titulo": t,
+                        "pag": pag,
+                        "chave": chave_pag,
+                    })
+                except ValueError:
+                    pass
+
+    for (fn, d_p), itens in list(pags_agrupados_por_forn_data.items()):
+        itens_disp = [it for it in itens if it["chave"] not in baixas_usadas]
+        if len(itens_disp) > 1:
+            soma_pags = sum((Decimal(str(it["pag"].get("valor") or 0)) for it in itens_disp), Decimal("0"))
+            for d in list(debitos_restantes):
+                v_deb = d["valor"]
+                if soma_pags <= v_deb <= (soma_pags * Decimal("1.10")) and abs((d["data"] - d_p).days) <= 1:
+                    if texto_confere(fn, d["descricao"]):
+                        for it in itens_disp:
+                            baixas_usadas.add(it["chave"])
+                        registrados_qtd += 1
+                        registrados_total += v_deb
+                        debitos_restantes.remove(d)
+                        break
+
+    # 4.3 Reaproveitar casamento da BAIXA_00 (titulos_pagos_sem_baixa.py)
+    # Débito que a BAIXA_00 classificou como pronto, conferir à mão, ambíguo ou agrupado
+    # NÃO é avulso: vai para o grupo "tem título em aberto — usar baixa".
+    if previa_baixa is None:
+        rotas = caminhos_extratos or resolver_caminhos_extratos_padrao(unidade.empresa_codigo)
+        dias_hist = max(120, (data_ate - data_de).days + 60)
+        try:
+            previa_baixa = await encontrar_candidatos_baixa(
+                unidade=unidade,
+                caminhos_extratos=rotas,
+                extratos_mock=extratos_mock,
+                data_referencia=data_ate,
+                dias_historico=dias_hist,
+                client=client,
+                titulos_mock=list(titulos_brutos),
+                contas_mock=list(contas_mock) if contas_mock is not None else None,
+                fornecedores_mock=list(fornecedores_lista) if fornecedores_mock is None else list(fornecedores_mock),
+            )
+        except Exception as exc:
+            logger.warning("Erro ao executar previa de baixa de títulos: %s", exc)
+            previa_baixa = None
+
+    candidatos_baixa_por_fitid: dict[tuple[str, str], list[TituloCandidato]] = {}
+    if previa_baixa is not None:
+        for colecao in (previa_baixa.prontos, previa_baixa.conferir_mao, previa_baixa.ambiguos, previa_baixa.agrupados):
+            for c in colecao:
+                if c.debito_fitid:
+                    candidatos_baixa_por_fitid.setdefault((c.banco.upper(), c.debito_fitid), []).append(c)
+                for f in getattr(c, "outros_fitids", ()):
+                    candidatos_baixa_por_fitid.setdefault((c.banco.upper(), f), []).append(c)
+
+    debitos_com_titulo_lista: list[DebitoComTituloAberto] = []
+    debitos_com_titulo_qtd = 0
+    debitos_com_titulo_total = Decimal("0")
+
+    for d in list(debitos_restantes):
+        chave = (d["banco"].upper(), d["fitid"])
+        if chave in candidatos_baixa_por_fitid:
+            cands = candidatos_baixa_por_fitid[chave]
+            c_prim = cands[0]
+            t_cods = tuple(c.titulo_codigo for c in cands)
+            item_tit = DebitoComTituloAberto(
+                data=d["data"],
+                banco=d["banco"],
+                conta_sufixo=d["conta_sufixo"],
+                valor=d["valor"],
+                fitid=d["fitid"],
+                descricao=d["descricao"],
+                status_baixa=c_prim.status,
+                titulos_codigos=t_cods,
+                fornecedor=c_prim.fornecedor_nome,
+                motivo=c_prim.motivo,
+            )
+            debitos_com_titulo_lista.append(item_tit)
+            debitos_com_titulo_qtd += 1
+            debitos_com_titulo_total += d["valor"]
+            debitos_restantes.remove(d)
+
+    # 4.4 Fallback para títulos em aberto no ERP (caso residual de mocks/testes)
     titulos_abertos = [
         t for t in titulos_brutos
         if t.get("situacao") == "Aberto" and t.get("vencimento")
     ]
-    titulos_abertos_usados: set[int] = set()
-
     for d in list(debitos_restantes):
         v_deb = d["valor"]
         dt_deb = d["data"]
         match_tit = None
         for t in titulos_abertos:
             t_cod = t.get("tituloPagarCodigo") or t.get("tituloCodigo")
-            if t_cod in titulos_abertos_usados:
-                continue
             v_t = Decimal(str(t.get("valor") or 0))
             if v_t <= v_deb <= (v_t * Decimal("1.10")):
                 try:
@@ -501,42 +616,28 @@ async def identificar_despesas_sem_lancamento(
                     if (venc - timedelta(days=10)) <= dt_deb <= (venc + timedelta(days=40)):
                         forn = t.get("nomeFornecedor") or ""
                         if texto_confere(forn, d["descricao"]):
-                            match_tit = t_cod
+                            match_tit = t
                             break
                 except Exception:
                     pass
         if match_tit:
-            titulos_abertos_usados.add(match_tit)
-            registrados_qtd += 1
-            registrados_total += v_deb
-            debitos_restantes.remove(d)
-
-    # 4.4 Casamento com pagamentos agrupados (soma de títulos do mesmo fornecedor)
-    # Exemplo: frete IPSEP somado
-    tits_por_forn: dict[str, list[dict[str, Any]]] = {}
-    for t in titulos_abertos:
-        t_cod = t.get("tituloPagarCodigo") or t.get("tituloCodigo")
-        if t_cod not in titulos_abertos_usados:
-            fn = t.get("nomeFornecedor") or "SEM FORNECEDOR"
-            tits_por_forn.setdefault(fn, []).append(t)
-
-    for d in list(debitos_restantes):
-        v_deb = d["valor"]
-        match_agrup = None
-        for fn, t_list in list(tits_por_forn.items()):
-            soma = sum((Decimal(str(x.get("valor") or 0)) for x in t_list), Decimal("0"))
-            if soma > 0 and soma <= v_deb <= (soma * Decimal("1.10")):
-                if texto_confere(fn, d["descricao"]):
-                    match_agrup = (fn, t_list)
-                    break
-        if match_agrup:
-            fn, t_list = match_agrup
-            for x in t_list:
-                x_cod = x.get("tituloPagarCodigo") or x.get("tituloCodigo")
-                titulos_abertos_usados.add(x_cod)
-            tits_por_forn.pop(fn, None)
-            registrados_qtd += 1
-            registrados_total += v_deb
+            t_cod = match_tit.get("tituloPagarCodigo") or match_tit.get("tituloCodigo")
+            forn = match_tit.get("nomeFornecedor") or ""
+            item_tit = DebitoComTituloAberto(
+                data=d["data"],
+                banco=d["banco"],
+                conta_sufixo=d["conta_sufixo"],
+                valor=d["valor"],
+                fitid=d["fitid"],
+                descricao=d["descricao"],
+                status_baixa="pronto",
+                titulos_codigos=(t_cod,),
+                fornecedor=forn,
+                motivo="Título em aberto no ERP com valor e fornecedor correspondentes",
+            )
+            debitos_com_titulo_lista.append(item_tit)
+            debitos_com_titulo_qtd += 1
+            debitos_com_titulo_total += d["valor"]
             debitos_restantes.remove(d)
 
     # 5. Formatar despesas avulsas restantes e gerar sugestão de classificação
@@ -678,6 +779,9 @@ async def identificar_despesas_sem_lancamento(
         debitos_ignorados_total=debitos_ignorados_total,
         debitos_registrados_qtd=registrados_qtd,
         debitos_registrados_total=registrados_total,
+        debitos_com_titulo=tuple(debitos_com_titulo_lista),
+        debitos_com_titulo_qtd=debitos_com_titulo_qtd,
+        debitos_com_titulo_total=debitos_com_titulo_total,
     )
 
 
@@ -825,10 +929,67 @@ def gerar_planilha_despesas_xlsx(
     c_reg = ws_resumo.cell(row=row_r, column=3, value=float(resumo.debitos_registrados_total))
     c_reg.number_format = "R$ #,##0.00"
 
+    row_r += 1
+    ws_resumo.cell(row=row_r, column=1, value="Débitos c/ título em aberto no ERP (usar baixa):")
+    ws_resumo.cell(row=row_r, column=2, value=resumo.debitos_com_titulo_qtd)
+    c_tit = ws_resumo.cell(row=row_r, column=3, value=float(resumo.debitos_com_titulo_total))
+    c_tit.number_format = "R$ #,##0.00"
+
     for col in ws_resumo.columns:
         col_letter = get_column_letter(col[0].column)
         max_len = max(len(str(cell.value or "")) for cell in col[2:])
         ws_resumo.column_dimensions[col_letter].width = max(max_len + 4, 15)
+
+    # Aba 3: Débitos com título em aberto no ERP (usar baixa)
+    if resumo.debitos_com_titulo:
+        ws_tit = wb.create_sheet(title="Títulos em Aberto")
+        ws_tit.merge_cells("A1:I1")
+        ws_tit["A1"] = (
+            f"DÉBITOS COM TÍTULO EM ABERTO NO ERP (USAR BAIXA_00) — {resumo.unidade_nome} "
+            f"({formatar_data(resumo.data_de)} a {formatar_data(resumo.data_ate)})"
+        )
+        ws_tit["A1"].font = font_titulo
+        ws_tit["A1"].alignment = Alignment(horizontal="left", vertical="center")
+
+        cab_tit = [
+            "Data", "Banco", "Conta", "Valor (R$)", "Status Baixa",
+            "Títulos ERP", "Fornecedor", "Descrição Extrato", "Motivo",
+        ]
+        for col_idx, h in enumerate(cab_tit, 1):
+            cell = ws_tit.cell(row=3, column=col_idx, value=h)
+            cell.fill = fill_cabecalho
+            cell.font = font_cabecalho
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+
+        for row_idx, dt in enumerate(resumo.debitos_com_titulo, 4):
+            t_cods_str = ", ".join(str(c) for c in dt.titulos_codigos)
+            vals = [
+                formatar_data(dt.data),
+                dt.banco,
+                dt.conta_sufixo,
+                float(dt.valor),
+                dt.status_baixa.upper(),
+                t_cods_str,
+                dt.fornecedor,
+                dt.descricao,
+                dt.motivo,
+            ]
+            for col_idx, v in enumerate(vals, 1):
+                cell = ws_tit.cell(row=row_idx, column=col_idx, value=v)
+                cell.font = font_dado
+                cell.border = border_fina
+                if col_idx == 4:
+                    cell.number_format = "R$ #,##0.00"
+                    cell.alignment = Alignment(horizontal="right")
+                elif col_idx in (1, 2, 3, 5):
+                    cell.alignment = Alignment(horizontal="center")
+                else:
+                    cell.alignment = Alignment(horizontal="left")
+
+        for col in ws_tit.columns:
+            col_letter = get_column_letter(col[0].column)
+            max_len = max(len(str(cell.value or "")) for cell in col[2:])
+            ws_tit.column_dimensions[col_letter].width = max(max_len + 3, 12)
 
     p_saida = Path(caminho_saida)
     p_saida.parent.mkdir(parents=True, exist_ok=True)
@@ -858,6 +1019,7 @@ def formatar_resumo_terminal(resumo: ResumoDespesasAvulsas, top_n: int = 20) -> 
         subdiv,
         f"  Débitos ignorados (grupo/aplicação/tarifa): {resumo.debitos_ignorados_qtd} (R$ {resumo.debitos_ignorados_total:,.2f})",
         f"  Débitos já registrados no webPosto       : {resumo.debitos_registrados_qtd} (R$ {resumo.debitos_registrados_total:,.2f})",
+        f"  Débitos c/ título em aberto (usar BAIXA) : {resumo.debitos_com_titulo_qtd} (R$ {resumo.debitos_com_titulo_total:,.2f})",
         "",
         f"OS {top_n} MAIORES PAGAMENTOS AVULSOS:",
         subdiv,
@@ -881,6 +1043,24 @@ def formatar_resumo_terminal(resumo: ResumoDespesasAvulsas, top_n: int = 20) -> 
             f"    Sugestão  : Plano={plano_txt} | CC={cc_txt} | Origem: {d.origem_sugestao}"
         )
         linhas.append("")
+
+    if resumo.debitos_com_titulo:
+        linhas.append(
+            f"DÉBITOS COM TÍTULO EM ABERTO NO ERP — USAR BAIXA_00 "
+            f"({len(resumo.debitos_com_titulo)} débitos | R$ {resumo.debitos_com_titulo_total:,.2f}):"
+        )
+        linhas.append(subdiv)
+        for i, dt in enumerate(resumo.debitos_com_titulo[:top_n], 1):
+            t_str = f"título(s) {', '.join(str(c) for c in dt.titulos_codigos[:4])}" + (
+                "..." if len(dt.titulos_codigos) > 4 else ""
+            )
+            linhas.append(
+                f"{i:2d}. {formatar_data(dt.data)} | R$ {dt.valor:>10.2f} | {dt.banco:<7} | "
+                f"[{dt.status_baixa.upper()}] {t_str} | Fornecedor: {dt.fornecedor}"
+            )
+            linhas.append(f"    Extrato   : {dt.descricao}")
+            linhas.append(f"    Motivo    : {dt.motivo}")
+            linhas.append("")
 
     linhas.append(div)
     return "\n".join(linhas)

@@ -136,6 +136,8 @@ class TituloCandidato:
     nome_conta: str
     status: str  # "pronto", "conferir_mao", "ambiguo", "agrupado"
     motivo: str = ""
+    debito_fitid: str = ""
+    outros_fitids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -165,6 +167,18 @@ class PreviaBaixaTitulos:
     def total_agrupados(self) -> Decimal:
         return sum((t.valor for t in self.agrupados), Decimal("0"))
 
+    @property
+    def fitids_casados(self) -> set[tuple[str, str]]:
+        """Retorna conjunto de (banco, fitid) de todos os débitos com títulos em aberto (prontos, conferir_mao, ambiguos, agrupados)."""
+        res: set[tuple[str, str]] = set()
+        for colecao in (self.prontos, self.conferir_mao, self.ambiguos, self.agrupados):
+            for c in colecao:
+                if c.debito_fitid:
+                    res.add((c.banco.upper(), c.debito_fitid))
+                for f in getattr(c, "outros_fitids", ()):
+                    res.add((c.banco.upper(), f))
+        return res
+
 
 @dataclass
 class _ItemDebito:
@@ -175,11 +189,12 @@ class _ItemDebito:
 
 async def encontrar_candidatos_baixa(
     unidade: Unidade,
-    caminhos_extratos: Sequence[Path | str],
+    caminhos_extratos: Sequence[Path | str] | None = None,
     *,
     data_referencia: date | None = None,
     dias_historico: int = 120,
     client: httpx.AsyncClient | None = None,
+    extratos_mock: Sequence[ExtratoBancario] | None = None,
     titulos_mock: list[dict[str, Any]] | None = None,
     contas_mock: list[dict[str, Any]] | None = None,
     fornecedores_mock: list[dict[str, Any]] | None = None,
@@ -208,12 +223,16 @@ async def encontrar_candidatos_baixa(
     if contas_mock is not None:
         contas_cadastradas = contas_mock
     else:
-        contas_cadastradas = await paginar(
-            unidade,
-            "/INTEGRACAO/V1/CONTAS",
-            {"empresaCodigo": unidade.empresa_codigo},
-            client=client,
-        )
+        try:
+            contas_cadastradas = await paginar(
+                unidade,
+                "/INTEGRACAO/V1/CONTAS",
+                {"empresaCodigo": unidade.empresa_codigo},
+                client=client,
+            )
+        except Exception as exc:
+            logger.warning("Não foi possível carregar contas: %s", exc)
+            contas_cadastradas = []
     contas_ativas_map = {
         c["contaCodigo"]: c for c in contas_cadastradas if c.get("ativo", True)
     }
@@ -243,34 +262,56 @@ async def encontrar_candidatos_baixa(
                 ce.cd_conta,
                 c_info.get("descricao") or f"Conta {ce.cd_conta}",
             )
+        else:
+            conta_por_banco[ce.banco.upper()] = (
+                ce.cd_conta,
+                f"Conta {ce.cd_conta}",
+            )
 
     # 1b. Ler extratos OFX (deduplicando lançamentos por FITID)
     debitos_vistos: set[tuple[str, str]] = set()
     debitos_disponiveis: list[_ItemDebito] = []
 
-    for caminho in caminhos_extratos:
-        p = Path(caminho)
-        if not p.is_file():
-            continue
-        try:
-            extrato = ler_arquivo(p)
-        except Exception as exc:
-            logger.warning("Falha ao ler extrato %s: %s", p, exc)
-            continue
-
-        for l in extrato.lancamentos:
-            if l.eh_debito:
-                chave_dedup = (extrato.banco.upper(), l.fitid)
-                if chave_dedup in debitos_vistos:
-                    continue
-                debitos_vistos.add(chave_dedup)
-                debitos_disponiveis.append(
-                    _ItemDebito(
-                        banco=extrato.banco.upper(),
-                        conta_sufixo=extrato.conta_sufixo,
-                        lancamento=l,
+    if extratos_mock is not None:
+        for extrato in extratos_mock:
+            for l in extrato.lancamentos:
+                if l.eh_debito:
+                    chave_dedup = (extrato.banco.upper(), l.fitid)
+                    if chave_dedup in debitos_vistos:
+                        continue
+                    debitos_vistos.add(chave_dedup)
+                    debitos_disponiveis.append(
+                        _ItemDebito(
+                            banco=extrato.banco.upper(),
+                            conta_sufixo=extrato.conta_sufixo,
+                            lancamento=l,
+                        )
                     )
-                )
+    else:
+        rotas_ler = caminhos_extratos or []
+        for caminho in rotas_ler:
+            p = Path(caminho)
+            if not p.is_file():
+                continue
+            try:
+                extrato = ler_arquivo(p)
+            except Exception as exc:
+                logger.warning("Falha ao ler extrato %s: %s", p, exc)
+                continue
+
+            for l in extrato.lancamentos:
+                if l.eh_debito:
+                    chave_dedup = (extrato.banco.upper(), l.fitid)
+                    if chave_dedup in debitos_vistos:
+                        continue
+                    debitos_vistos.add(chave_dedup)
+                    debitos_disponiveis.append(
+                        _ItemDebito(
+                            banco=extrato.banco.upper(),
+                            conta_sufixo=extrato.conta_sufixo,
+                            lancamento=l,
+                        )
+                    )
 
     # 2. Débitos já usados por títulos pagos saem da disputa
     # (mesmo valor exato, dataPagamento +- 1 dia)
@@ -303,6 +344,34 @@ async def encontrar_candidatos_baixa(
                     continue
                 break
 
+    # 2b. Baixas agrupadas já realizadas no ERP (mesmo fornecedor e dataPagamento)
+    # Exemplo: 18 títulos IPSEP de R$ 275,00 quitados em 13/08 (soma = R$ 4.950,00)
+    from collections import defaultdict
+    pags_agrupados_por_forn_data: dict[tuple[str, date], list[dict[str, Any]]] = defaultdict(list)
+    for tp in titulos_pagos:
+        fn = tp.get("nomeFornecedor") or ""
+        for pag in tp.get("pagamento") or []:
+            dp_str = pag.get("dataPagamento")
+            if dp_str:
+                try:
+                    d_p = date.fromisoformat(dp_str)
+                    pags_agrupados_por_forn_data[(fn, d_p)].append(pag)
+                except ValueError:
+                    pass
+
+    for (fn, d_p), pags in pags_agrupados_por_forn_data.items():
+        if len(pags) > 1:
+            soma_pags = sum((Decimal(str(p.get("valor") or 0)) for p in pags), Decimal("0"))
+            for item in list(debitos_disponiveis):
+                l = item.lancamento
+                if abs(l.valor) == soma_pags and abs((l.data - d_p).days) <= 1:
+                    f_info = next((forn_map.get(t.get("fornecedorCodigo", 0)) for t in titulos_pagos if (t.get("nomeFornecedor") or "") == fn and t.get("fornecedorCodigo") in forn_map), None) or {}
+                    razao = f_info.get("razao") or ""
+                    fantasia = f_info.get("fantasia") or ""
+                    if fornecedor_confere_extrato(fn, l.descricao, razao, fantasia, apelidos_map=apelidos_map):
+                        debitos_disponiveis.remove(item)
+                        break
+
     # 3. Candidatos = títulos 'Aberto', vencidos
     titulos_abertos = [
         t for t in titulos_brutos
@@ -317,8 +386,9 @@ async def encontrar_candidatos_baixa(
         except ValueError:
             pass
 
-    # Detecta pagamentos agrupados (1 débito = soma de títulos em aberto do mesmo fornecedor)
-    # Agrupa títulos vencidos por fornecedor
+    # Detecta pagamentos agrupados (1 débito ≈ soma de títulos em aberto do mesmo fornecedor)
+    # Regra RN-ERP-003: débito com nome do fornecedor ≈ soma dos títulos em aberto desse fornecedor
+    # do mês anterior (tolerância ±15%) -> "agrupado — conferir à mão", mostrando a diferença.
     titulos_por_fornecedor: dict[str, list[dict[str, Any]]] = {}
     for t in titulos_vencidos:
         forn_nome = t.get("nomeFornecedor") or "SEM FORNECEDOR"
@@ -329,32 +399,66 @@ async def encontrar_candidatos_baixa(
 
     for forn_nome, tits_forn in titulos_por_fornecedor.items():
         if len(tits_forn) > 1:
-            soma_forn = sum((Decimal(str(t.get("valor") or 0)) for t in tits_forn), Decimal("0"))
-            for item in debitos_disponiveis:
+            f_info = next((forn_map.get(t.get("fornecedorCodigo", 0)) for t in tits_forn if t.get("fornecedorCodigo") in forn_map), None) or {}
+            razao = f_info.get("razao") or ""
+            fantasia = f_info.get("fantasia") or ""
+
+            for item in list(debitos_disponiveis):
                 l = item.lancamento
-                if abs(l.valor) == soma_forn and not eh_transferencia_propria_ou_aplicacao(l.descricao):
-                    # Identificado débito agrupado
-                    cd_conta, nome_conta = conta_por_banco.get(item.banco, (0, "Conta não identificada"))
-                    for t in tits_forn:
-                        t_cod = t["tituloPagarCodigo"]
-                        titulos_agrupados_set.add(t_cod)
-                        candidatos_agrupados.append(
-                            TituloCandidato(
-                                titulo_codigo=t_cod,
-                                fornecedor_nome=forn_nome,
-                                plano_contas=t.get("planoContaGerencialDescricao") or "",
-                                vencimento=date.fromisoformat(t["vencimento"]),
-                                valor=Decimal(str(t.get("valor") or 0)),
-                                banco=item.banco,
-                                debito_data=l.data,
-                                debito_texto=l.descricao,
-                                cd_conta=cd_conta,
-                                nome_conta=nome_conta,
-                                status="agrupado",
-                                motivo=f"1 débito de R$ {abs(l.valor):,.2f} quita {len(tits_forn)} títulos somados de {forn_nome}",
+                if eh_transferencia_propria_ou_aplicacao(l.descricao):
+                    continue
+                if not fornecedor_confere_extrato(forn_nome, l.descricao, razao, fantasia, apelidos_map=apelidos_map):
+                    continue
+
+                v_deb = abs(l.valor)
+                # Títulos do mês anterior ao débito (ex.: débito em setembro -> títulos com dataMovimento/vencimento em agosto)
+                mes_anterior_deb = (l.data.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+                tits_candidatos_grupo = [
+                    t for t in tits_forn
+                    if (t.get("dataMovimento") or "")[:7] == mes_anterior_deb
+                    or (t.get("vencimento") or "")[:7] == mes_anterior_deb
+                ]
+                if not tits_candidatos_grupo:
+                    tits_candidatos_grupo = [
+                        t for t in tits_forn
+                        if (t.get("vencimento") or "9999") <= l.data.isoformat()
+                    ]
+
+                if len(tits_candidatos_grupo) > 1:
+                    soma_forn = sum((Decimal(str(t.get("valor") or 0)) for t in tits_candidatos_grupo), Decimal("0"))
+                    # Tolerância de ±15% conforme RN-ERP-003
+                    if soma_forn > 0 and (Decimal("0.85") * soma_forn <= v_deb <= Decimal("1.15") * soma_forn):
+                        diferenca = v_deb - soma_forn
+                        if diferenca == 0:
+                            motivo_agrup = f"1 débito de R$ {v_deb:,.2f} quita {len(tits_candidatos_grupo)} títulos somados de {forn_nome}"
+                        else:
+                            motivo_agrup = (
+                                f"1 débito de R$ {v_deb:,.2f} ~ soma de {len(tits_candidatos_grupo)} títulos "
+                                f"em aberto de {forn_nome} (soma R$ {soma_forn:,.2f}, dif R$ {diferenca:+,.2f}) — conferir à mão"
                             )
-                        )
-                    break
+                        cd_conta, nome_conta = conta_por_banco.get(item.banco, (0, "Conta não identificada"))
+                        for t in tits_candidatos_grupo:
+                            t_cod = t["tituloPagarCodigo"]
+                            titulos_agrupados_set.add(t_cod)
+                            candidatos_agrupados.append(
+                                TituloCandidato(
+                                    titulo_codigo=t_cod,
+                                    fornecedor_nome=forn_nome,
+                                    plano_contas=t.get("planoContaGerencialDescricao") or "",
+                                    vencimento=date.fromisoformat(t["vencimento"]),
+                                    valor=Decimal(str(t.get("valor") or 0)),
+                                    banco=item.banco,
+                                    debito_data=l.data,
+                                    debito_texto=l.descricao,
+                                    cd_conta=cd_conta,
+                                    nome_conta=nome_conta,
+                                    status="agrupado",
+                                    motivo=motivo_agrup,
+                                    debito_fitid=l.fitid,
+                                )
+                            )
+                        debitos_disponiveis.remove(item)
+                        break
 
     # Cruzamento 1-a-1: débito de valor exato e data entre vencimento -10 e +40 dias
     matches_por_titulo: dict[int, list[_ItemDebito]] = {
@@ -402,6 +506,7 @@ async def encontrar_candidatos_baixa(
         if len(debs) > 1:
             primeiro_deb = debs[0]
             cd_conta, nome_conta = conta_por_banco.get(primeiro_deb.banco, (0, "Indefinida"))
+            outros_fitids = tuple(d.lancamento.fitid for d in debs[1:])
             ambiguos.append(
                 TituloCandidato(
                     titulo_codigo=t_cod,
@@ -416,6 +521,8 @@ async def encontrar_candidatos_baixa(
                     nome_conta=nome_conta,
                     status="ambiguo",
                     motivo=f"{len(debs)} débitos compatíveis para o mesmo título",
+                    debito_fitid=primeiro_deb.lancamento.fitid,
+                    outros_fitids=outros_fitids,
                 )
             )
             continue
@@ -441,6 +548,7 @@ async def encontrar_candidatos_baixa(
                     nome_conta=nome_conta,
                     status="ambiguo",
                     motivo=f"{len(tits_compatíveis)} títulos compatíveis para o mesmo débito",
+                    debito_fitid=l.fitid,
                 )
             )
             continue
@@ -469,6 +577,7 @@ async def encontrar_candidatos_baixa(
                     nome_conta="Sem conta ativa no webPosto",
                     status="conferir_mao",
                     motivo=f"Conta bancária para {deb.banco} não encontrada ou inativa",
+                    debito_fitid=l.fitid,
                 )
             )
             continue
@@ -490,6 +599,7 @@ async def encontrar_candidatos_baixa(
                     nome_conta=nome_conta,
                     status="pronto",
                     motivo="Valor exato e nome do fornecedor presente no extrato",
+                    debito_fitid=l.fitid,
                 )
             )
         else:
@@ -507,6 +617,7 @@ async def encontrar_candidatos_baixa(
                     nome_conta=nome_conta,
                     status="conferir_mao",
                     motivo="Valor exato sem confirmação do nome do fornecedor no extrato",
+                    debito_fitid=l.fitid,
                 )
             )
 

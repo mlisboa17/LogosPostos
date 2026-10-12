@@ -141,8 +141,8 @@ async def test_debito_registrado_por_movimento_de_conta(unidade_sintetica):
 
 
 @pytest.mark.asyncio
-async def test_debito_registrado_por_titulo_em_aberto(unidade_sintetica):
-    """Débito que bate com título em aberto cujo fornecedor confere no extrato é registrado."""
+async def test_debito_com_titulo_em_aberto_vai_para_grupo_usar_baixa(unidade_sintetica):
+    """Débito que bate com título em aberto vai para 'tem título em aberto — usar baixa' e NÃO é avulso."""
     l_deb = LancamentoBancario(
         fitid="FITID_03",
         data=date(2026, 8, 25),
@@ -173,13 +173,15 @@ async def test_debito_registrado_por_titulo_em_aberto(unidade_sintetica):
     )
 
     assert len(resumo.despesas) == 0
-    assert resumo.debitos_registrados_qtd == 1
-    assert resumo.debitos_registrados_total == Decimal("1200.00")
+    assert resumo.debitos_com_titulo_qtd == 1
+    assert resumo.debitos_com_titulo_total == Decimal("1200.00")
+    assert len(resumo.debitos_com_titulo) == 1
+    assert resumo.debitos_com_titulo[0].titulos_codigos == (102,)
 
 
 @pytest.mark.asyncio
-async def test_debito_registrado_por_pagamento_agrupado(unidade_sintetica):
-    """Débito que soma múltiplos títulos em aberto do mesmo fornecedor (ex.: frete) é registrado."""
+async def test_debito_com_titulos_abertos_agrupados_vai_para_grupo_usar_baixa(unidade_sintetica):
+    """Débito que soma múltiplos títulos em aberto do mesmo fornecedor (ex.: frete) vai para 'usar baixa'."""
     l_deb = LancamentoBancario(
         fitid="FITID_04",
         data=date(2026, 9, 15),
@@ -226,8 +228,93 @@ async def test_debito_registrado_por_pagamento_agrupado(unidade_sintetica):
     )
 
     assert len(resumo.despesas) == 0
+    assert resumo.debitos_com_titulo_qtd == 1
+    assert resumo.debitos_com_titulo_total == Decimal("900.00")
+    assert len(resumo.debitos_com_titulo) == 1
+    assert set(resumo.debitos_com_titulo[0].titulos_codigos) == {103, 104, 105}
+
+
+@pytest.mark.asyncio
+async def test_debito_registrado_por_baixa_agrupada_mesmo_fornecedor_e_data(unidade_sintetica):
+    """Débito que bate com a soma de baixas já quitadas no ERP (mesmo fornecedor e data) é REGISTRADO."""
+    # Exemplo: 18 títulos de R$ 275,00 pagos em 13/08 (soma = R$ 4.950,00)
+    l_deb = LancamentoBancario(
+        fitid="FITID_IPSEP_4950",
+        data=date(2026, 8, 13),
+        momento=None,
+        valor=Decimal("-4950.00"),
+        tipo="DEBITO",
+        tipo_original="OUT",
+        descricao="Pix enviado - Ipsep Transporte Eireli",
+    )
+    extrato = _criar_extrato("PAGBANK", [l_deb])
+
+    titulos_mock = [
+        {
+            "tituloPagarCodigo": 2000 + i,
+            "situacao": "Pago",
+            "valor": 275.00,
+            "vencimento": "2026-08-10",
+            "nomeFornecedor": "IPSEP TRANSPORTE EIRELI",
+            "pagamento": [{
+                "valor": 275.00,
+                "dataPagamento": "2026-08-13",
+            }],
+        }
+        for i in range(18)
+    ]
+
+    resumo = await identificar_despesas_sem_lancamento(
+        unidade=unidade_sintetica,
+        data_de=date(2026, 8, 1),
+        data_ate=date(2026, 8, 31),
+        extratos_mock=[extrato],
+        titulos_mock=titulos_mock,
+        movimentos_mock=[],
+    )
+
+    assert len(resumo.despesas) == 0
     assert resumo.debitos_registrados_qtd == 1
-    assert resumo.debitos_registrados_total == Decimal("900.00")
+    assert resumo.debitos_registrados_total == Decimal("4950.00")
+
+
+@pytest.mark.asyncio
+async def test_debito_reaproveita_casamento_baixa_00_sem_duplicar(unidade_sintetica):
+    """Débito que a BAIXA_00 classificou como pronto ou agrupado NÃO pode aparecer como avulso."""
+    # Simula débito Ictus R$ 2.567,82 (candidato da BAIXA_00 para VECTOR)
+    l_deb = LancamentoBancario(
+        fitid="FITID_ICTUS_1208",
+        data=date(2026, 8, 12),
+        momento=None,
+        valor=Decimal("-2567.82"),
+        tipo="DEBITO",
+        tipo_original="OUT",
+        descricao="Pix enviado - Ictus Servicos E Consultoria",
+    )
+    extrato = _criar_extrato("PAGBANK", [l_deb])
+
+    titulos_mock = [{
+        "tituloPagarCodigo": 3145129,
+        "situacao": "Aberto",
+        "valor": 2567.82,
+        "vencimento": "2026-08-12",
+        "nomeFornecedor": "VECTOR CONSULTORIA E ASSESSORIA LTDA",
+        "pagamento": [],
+    }]
+
+    resumo = await identificar_despesas_sem_lancamento(
+        unidade=unidade_sintetica,
+        data_de=date(2026, 8, 1),
+        data_ate=date(2026, 8, 31),
+        extratos_mock=[extrato],
+        titulos_mock=titulos_mock,
+        movimentos_mock=[],
+    )
+
+    # Não pode aparecer em despesas avulsas
+    assert len(resumo.despesas) == 0
+    assert resumo.debitos_com_titulo_qtd == 1
+    assert resumo.debitos_com_titulo_total == Decimal("2567.82")
 
 
 @pytest.mark.asyncio
