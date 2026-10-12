@@ -672,4 +672,5 @@ Temas comuns em postos que **ainda não têm regra decidida** — não implement
 | 11/10/2026 | Sprint 15.1: relatório atualizável com status por fonte, CARTOES_V3_4, RN-CARTAO-011/012 e RN-CAIXA-007; sem envio ao Telegram |
 | 11/10/2026 | Sprint BAIXA_00 (Parte A): RN-ERP-003 — candidatos a baixa de títulos já quitados no banco por extrato (somente leitura), deduplicação por FITID, contas por units.json |
 | 11/10/2026 | Sprint DESPESAS_00 (Parte A): RN-ERP-003 — despesas avulsas pagas na rua sem lançamento no ERP por extrato (somente leitura), deduplicação por FITID, exclusão de grupo/aplicações/tarifas, sugestão de plano/CC e planilha XLSX |
+| 11/10/2026 | Sprint DESPESAS_00 (Parte B): RN-ERP-003 — recepção de comprovantes pelo Telegram (foto/PDF/áudio) com IA (Gemini), fila local em fila.json (somente leitura webPosto), whitelist de chat_id do diretor, casamento com extratos e respostas interativas |
 | 11/10/2026 | RN-ERP-002: importação de OFX no webPosto com barreira estrita (somente OFX, dias inexistentes, dupla trava no .env, prévia obrigatória, deduplicação e limite de 7 dias no passado) · SPRINT 17B |
