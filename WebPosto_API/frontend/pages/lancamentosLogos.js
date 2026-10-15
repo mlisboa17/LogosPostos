@@ -9,7 +9,7 @@ const esc = value => String(value ?? "").replace(/[&<>"']/g, c => ({
 })[c]);
 
 function detalhes(item) {
-  return `<p>Valor: ${esc(item.valor)} · Caixa: ${esc(item.caixa)} · Frentista: ${esc(item.frentista)}</p>
+  return `<p>Valor: ${esc(item.valor)} · Caixa: ${esc(item.caixa_curto || item.caixa)} · Frentista: ${esc(item.frentista)}</p>
     <p class="ll-texto">${esc(item.texto)}</p>
     <details><summary>Evidências</summary><ul>${(item.evidencias || []).map(e => `<li>${esc(e)}</li>`).join("") || "<li>Sem evidências informadas.</li>"}</ul></details>`;
 }

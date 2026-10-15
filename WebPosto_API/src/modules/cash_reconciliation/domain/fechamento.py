@@ -55,6 +55,7 @@ class Caixa(_Frozen):
     fechado: bool
     consolidado: bool
     bloqueado: bool
+    apurado: Decimal | None = None
 
 
 class LinhaModalidade(_Frozen):

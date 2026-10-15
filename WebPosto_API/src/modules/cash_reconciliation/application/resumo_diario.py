@@ -61,6 +61,40 @@ def obter_nome_posto(
     return cfg.apelido or cfg.nome
 
 
+def identificar_caixa(
+    posto: str, caixa: Caixa, caixas: list[Caixa] | tuple[Caixa, ...],
+    nomes: dict[int, str] | None = None, *, curto: bool = False,
+) -> str:
+    nome = (nomes or {}).get(caixa.funcionario_codigo, "").strip()
+    funcionario = nome or f"funcionário {caixa.funcionario_codigo}"
+    turno = caixa.turno.strip().lower()
+    if turno.isdigit():
+        turno = f"{int(turno)}º turno"
+    elif not turno or turno == "none":
+        turno = "turno não informado"
+    abertura = para_local(caixa.abertura)
+    prefixo = f"{posto} · {obter_nome_setor(caixa.centro_custo)} — "
+    if curto:
+        responsavel = nome.split()[0].title() if nome else funcionario
+        texto = f"{prefixo}{caixa.data:%d/%m}, {turno} ({responsavel}, {abertura:%H:%M})"
+    else:
+        texto = (
+            f"{prefixo}caixa de {caixa.data:%d/%m/%Y}, {turno}, "
+            f"aberto por {funcionario} às {abertura:%H:%M}"
+        )
+        if caixa.fechamento:
+            fechamento = para_local(caixa.fechamento)
+            texto += f" (fechado {fechamento:%H:%M} de {fechamento:%d/%m})"
+        else:
+            texto += " (ainda aberto)"
+        texto += f", apurado {moeda_br(caixa.apurado)}" if caixa.apurado is not None else ", apurado não informado"
+    quantidade = sum(
+        c.empresa_codigo == caixa.empresa_codigo and c.data == caixa.data
+        and c.centro_custo == caixa.centro_custo for c in caixas
+    )
+    return texto + (" (único caixa do dia)" if quantidade == 1 else "")
+
+
 def gerar_resumo_diretor(
     dia: date,
     resultados: list[ResultadoDiario],
@@ -127,13 +161,16 @@ def gerar_resumo_diretor(
             if registro.fechamento is not None:
                 for ca in registro.fechamento.caixas:
                     cx = ca.caixa
-                    setor = obter_nome_setor(cx.centro_custo)
-                    turno = escape(cx.turno.strip().lower()) if cx.turno else "turno não informado"
+                    rotulo = escape(identificar_caixa(
+                        obter_nome_posto(unidade, unidades_config), cx,
+                        [a.caixa for a in registro.fechamento.caixas],
+                        (nomes_funcionarios or {}).get(unidade), curto=True,
+                    ))
 
                     if not cx.fechado or any(a.codigo == "CAIXA_ABERTO" for a in ca.alertas):
                         ab = para_local(cx.abertura).strftime("%H:%M")
                         itens_abertos.append(
-                            f"• {posto} · {setor} (caixa {cx.codigo}, {turno}) — aberto desde {ab}; quebra só depois de fechar"
+                            f"• {rotulo} — aberto desde {ab}; quebra só depois de fechar"
                         )
                         continue
 
@@ -164,21 +201,21 @@ def gerar_resumo_diretor(
                         if not detalhes:
                             detalhes.append("divergência nas modalidades; conferir")
                         itens_precisa.append((
-                            f"{posto} · {setor} (caixa {cx.codigo}, {turno}) — {', '.join(detalhes)}",
+                            f"{rotulo} — {', '.join(detalhes)}",
                             max(falta, sobra),
                         ))
                     else:
                         if falta > Decimal(0):
-                            itens_em_ordem.append(f"• {posto} · {setor} — falta {moeda_br(falta)}")
+                            itens_em_ordem.append(f"• {rotulo} — falta {moeda_br(falta)}")
                         elif sobra > Decimal(0):
-                            itens_em_ordem.append(f"• {posto} · {setor} — sobra {moeda_br(sobra)}")
+                            itens_em_ordem.append(f"• {rotulo} — sobra {moeda_br(sobra)}")
                         else:
-                            itens_em_ordem.append(f"• {posto} · {setor} — sem falta")
+                            itens_em_ordem.append(f"• {rotulo} — sem falta")
                     for alerta in ca.alertas:
                         if alerta.codigo not in {"QUEBRA", "FALTA_SEM_DESCONTO", "NAO_CONSOLIDADO", "CAIXA_ABERTO", "SANGRIA_ALTERADA"}:
                             texto = escape(alerta.mensagem)
                             texto = texto.replace("R$ 0,00", "sem valor")
-                            itens_precisa.append((f"{posto} · {setor} — {texto}", abs(alerta.valor or Decimal(0))))
+                            itens_precisa.append((f"{rotulo} — {texto}", abs(alerta.valor or Decimal(0))))
                 for ca in registro.fechamento.caixas:
                     alteradas = {
                         a.referencia: a for a in ca.alertas
@@ -186,10 +223,14 @@ def gerar_resumo_diretor(
                     }
                     if alteradas:
                         total = sum((abs(a.valor or Decimal(0)) for a in alteradas.values()), Decimal(0))
-                        setor = obter_nome_setor(ca.caixa.centro_custo)
                         descricao = "sangria alterada" if len(alteradas) == 1 else "sangrias alteradas"
+                        rotulo = escape(identificar_caixa(
+                            obter_nome_posto(unidade, unidades_config), ca.caixa,
+                            [a.caixa for a in registro.fechamento.caixas],
+                            (nomes_funcionarios or {}).get(unidade), curto=True,
+                        ))
                         itens_precisa.append((
-                            f"{posto} · {setor} — {len(alteradas)} {descricao} após o lançamento ({moeda_br(total)})",
+                            f"{rotulo} — {len(alteradas)} {descricao} após o lançamento ({moeda_br(total)})",
                             total,
                         ))
 
@@ -317,16 +358,28 @@ def _data_hora_excel(momento: datetime) -> datetime:
     return datetime.combine(local.date(), local.time())
 
 
-def abas_conferencia_recebimentos(workbook, conferencias) -> None:
+def abas_conferencia_recebimentos(workbook, conferencias, nomes_funcionarios=None) -> None:
     acoes = workbook.create_sheet("Ações de recebimento")
     prontas = workbook.create_sheet("Correções prontas")
     detalhes = workbook.create_sheet("Detalhes por pagamento")
     detalhes.append(["Unidade", "Grupo", "Regra", "Data/hora pagamento", "Valor pagamento", "Adquirente", "Forma",
                      "NSU final", "Terminal final", "Lançamento", "Venda", "Caixa", "Data/hora lançada", "Valor lançado", "Inclusão",
-                     "Abastecimento", "Data/hora abastecimento", "Valor abastecimento", "Bico", "Item", "Forma venda", "Responsável / nota / motivos"])
+                     "Abastecimento", "Data/hora abastecimento", "Valor abastecimento", "Bico", "Item", "Forma venda", "Responsável / nota / motivos", "Código interno"])
     acoes.append(["Unidade", "Grupo", "Data/hora", "Valor", "De", "Para", "Frentista", "Regra", "Reincidente", "Conferido (S/N)", "Observação"])
-    prontas.append(["Unidade", "Lançamento", "Venda", "Caixa", "Data/hora", "Valor", "De", "Para", "Frentista", "Evidências", "Nota de certeza", "Status"])
+    prontas.append(["Unidade", "Lançamento", "Venda", "Caixa", "Data/hora", "Valor", "De", "Para", "Frentista", "Evidências", "Nota de certeza", "Status", "Código interno"])
     for conferencia in conferencias:
+        from ..adapters.persistencia import carregar_dia
+        rotulos = {}
+        for dia_caixa in {i.momento.date() for i in conferencia.itens}:
+            registro = carregar_dia(conferencia.unidade, dia_caixa)
+            if registro and registro.fechamento:
+                caixas = [a.caixa for a in registro.fechamento.caixas]
+                rotulos.update({
+                    c.codigo: identificar_caixa(
+                        obter_nome_posto(conferencia.unidade), c, caixas,
+                        (nomes_funcionarios or {}).get(conferencia.unidade),
+                    ) for c in caixas
+                })
         diario = workbook.create_sheet(f"Dia {conferencia.unidade}")
         nomes = [t.adquirente for t in conferencia.totais_adquirentes]
         diario.append(["Data", *(v for n in nomes for v in (f"Webposto {n}", n, "Dif.")), "Diferença do dia"])
@@ -355,19 +408,20 @@ def abas_conferencia_recebimentos(workbook, conferencias) -> None:
             acoes.append([i.unidade, i.grupo, _data_hora_excel(i.momento), float(i.valor), i.de, i.para, i.responsavel,
                           i.regra, "REINCIDENTE" if i.reincidente else "", "S" if i.conferencia == "conferido" else "N", i.observacao])
             if i.grupo == 2:
-                prontas.append([i.unidade, i.lancamento, i.venda, i.caixa, _data_hora_excel(i.momento), float(i.valor),
+                prontas.append([i.unidade, i.lancamento, i.venda, rotulos.get(i.caixa, "caixa não identificado"), _data_hora_excel(i.momento), float(i.valor),
                                i.de, i.para, i.responsavel, "; ".join(i.evidencias),
-                               f"{i.nota_certeza}/100 (não é probabilidade). {i.certeza}", i.proposta_status])
+                               f"{i.nota_certeza}/100 (não é probabilidade). {i.certeza}", i.proposta_status, i.caixa])
             for p in i.pagamentos or (None,):
                 a = p.abastecimento if p else None
                 detalhes.append([i.unidade, i.grupo, i.regra, _data_hora_excel(p.momento) if p else None,
                     float(p.valor) if p else None, p.adquirente if p else None, p.forma if p else None,
                     p.nsu if p else None, p.terminal if p else None, i.lancamento, i.venda or (a.venda_codigo if a else None),
-                    i.caixa, _data_hora_excel(i.momento_lancamento) if i.momento_lancamento else None,
+                    rotulos.get(i.caixa, "caixa não identificado"), _data_hora_excel(i.momento_lancamento) if i.momento_lancamento else None,
                     float(i.valor_lancamento) if i.valor_lancamento is not None else None, i.tipo_inclusao,
                     a.codigo if a else None, _data_hora_excel(a.momento) if a else None,
                     float(a.valor) if a else None, a.bico if a else None, a.venda_item_codigo if a else None,
-                    p.forma_venda if p else None, "; ".join(r.descricao for r in p.responsaveis) if p and p.responsaveis else i.responsavel])
+                    p.forma_venda if p else None, "; ".join(r.descricao for r in p.responsaveis) if p and p.responsaveis else i.responsavel,
+                    i.caixa])
     for sheet in workbook:
         for row in sheet:
             for cell in row:

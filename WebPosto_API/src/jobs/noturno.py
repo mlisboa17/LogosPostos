@@ -21,7 +21,7 @@ from src.modules.cash_reconciliation.adapters import persistencia as persistenci
 from src.modules.cash_reconciliation.adapters import saude_robo
 from src.modules.cash_reconciliation.application.resumo_diario import (
     abas_conferencia_recebimentos, conferencia_para_registro, gerar_mensagem_curta,
-    obter_nome_setor,
+    identificar_caixa,
 )
 from src.modules.cash_reconciliation.config import carregar_unidades, prazos_pendencia_dias
 from src.modules.cash_reconciliation.domain.tempo import agora, formatar_data, ontem, para_local
@@ -216,6 +216,7 @@ def _criar_planilha_telegram(dia: date, dados: dict, diretorio: Path | None = No
             "Consolidado",
             "Quebra",
             "Falta sem desconto",
+            "Código interno",
         ],
         "Despesas": [
             "Filial",
@@ -224,8 +225,9 @@ def _criar_planilha_telegram(dia: date, dados: dict, diretorio: Path | None = No
             "Descrição",
             "Plano de contas",
             "Alerta",
+            "Código interno",
         ],
-        "Vales": ["Filial", "Caixa", "Funcionário", "Valor", "Origem"],
+        "Vales": ["Filial", "Caixa", "Funcionário", "Valor", "Origem", "Código interno"],
     }
     for planilha, cabecalho in zip(
         (resumo, caixas_sheet, despesas_sheet, vales_sheet),
@@ -236,7 +238,7 @@ def _criar_planilha_telegram(dia: date, dados: dict, diretorio: Path | None = No
     por_unidade = {resultado.empresa_codigo: resultado for resultado in dados["resultados"]}
     conferencias = [conferencia_para_registro(r) for r in dados["resultados"] if r.conferencia_recebimentos]
     if conferencias:
-        abas_conferencia_recebimentos(workbook, conferencias)
+        abas_conferencia_recebimentos(workbook, conferencias, dados["nomes_funcionarios"])
     for codigo, unidade in dados["unidades"].items():
         registro = por_unidade.get(codigo)
         fechamento = registro.fechamento if registro else None
@@ -281,18 +283,18 @@ def _criar_planilha_telegram(dia: date, dados: dict, diretorio: Path | None = No
                 if caixa.fechamento is not None
                 else None
             )
-            setor = obter_nome_setor(caixa.centro_custo)
-            rotulo_caixa = f"{apelido} · {setor} ({caixa.codigo})"
+            rotulo_caixa = identificar_caixa(apelido, caixa, [a.caixa for a in auditorias], nomes)
             caixas_sheet.append(
                 [
                     apelido,
                     rotulo_caixa,
-                    nomes.get(caixa.funcionario_codigo, f"func. {caixa.funcionario_codigo}"),
+                    nomes.get(caixa.funcionario_codigo) or f"funcionário {caixa.funcionario_codigo}",
                     abertura,
                     fechamento_caixa,
                     "sim" if caixa.consolidado else "não",
                     float(auditoria.quebra),
                     float(falta_caixa),
+                    caixa.codigo,
                 ]
             )
             for despesa in auditoria.despesas:
@@ -309,6 +311,7 @@ def _criar_planilha_telegram(dia: date, dados: dict, diretorio: Path | None = No
                         despesa.descricao or "",
                         plano,
                         "SEM PLANO" if not despesa.plano_conta_codigo else "",
+                        caixa.codigo,
                     ]
                 )
             rotulos_origem = {"C": "sobra de caixa", "D": "falta de caixa"}
@@ -328,6 +331,7 @@ def _criar_planilha_telegram(dia: date, dados: dict, diretorio: Path | None = No
                         ),
                         float(vale.valor),
                         rotulos_origem.get(vale.origem.upper(), "vale"),
+                        caixa.codigo,
                     ]
                 )
 

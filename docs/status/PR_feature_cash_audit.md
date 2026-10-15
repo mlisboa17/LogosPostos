@@ -40,6 +40,30 @@ Consolidar neste branch a auditoria de fechamento `FECHAMENTO_V3`, a fila local 
 
 ## Como testar
 
+### Sprint 18b.1 — caixa como na tela
+
+- Propostas, listas, botões privados do Telegram, histórico da tela e resumo
+  identificam o caixa por posto/setor, data do movimento, turno, funcionário
+  de abertura e horário em America/Recife, sem o código interno no texto.
+- O formato completo inclui fechamento e total apurado de `V1/CAIXAS`;
+  o curto usa o primeiro nome. Nomes ausentes usam `funcionário <código>`.
+  Apenas um caixa no dia/setor recebe `(único caixa do dia)`.
+- A proposta mostra dinheiro e cartão antes/depois, calculados com os apurados
+  de `V1/CAIXAS_APRESENTADO`. Saldos ausentes bloqueiam a proposta.
+- O código permanece no payload/auditoria e em coluna própria `Código interno`
+  nas planilhas. Histórico antigo é formatado na leitura, sem regravar auditoria.
+- A prévia só consulta dados. Não executar aprovação, robô ou envio Telegram
+  para validar os textos; nenhum lançamento ou envio é necessário.
+- Validação 18b.1: 762 testes backend (`tests/unit` e `tests/services`) e
+  71 testes frontend aprovados. Os testes novos cobrem formatos exatos,
+  horário UTC convertido para Recife, unicidade por dia/setor/unidade,
+  nomes vazios, ausência de saldos, cálculo antes/depois e histórico legado.
+  Integrações reais não são parte dessa bateria sintética.
+- Prévia real conferida exclusivamente com GET: Mastercard de R$ 34,75 no
+  Doze em 14/10/2026, apurado de R$ 50.016,49, dinheiro de R$ 15.855,41
+  para R$ 15.820,66 e cartão de R$ 23.439,22 para R$ 23.473,97.
+  Linhas de caixa de 13/10 conferidas sem envio ou gravação.
+
 Executar na pasta `WebPosto_API`:
 
 ```powershell

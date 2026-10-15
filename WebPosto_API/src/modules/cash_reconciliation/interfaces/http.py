@@ -108,8 +108,7 @@ async def listar_lancamentos_logos(
             ultimos[h["acao_id"]] = h
         return {
             "propostas": [p.publica() for p in propostas if p.id not in ultimos],
-            "historico": [{k: v for k, v in h.items() if k not in {"payload", "recriar", "nsu"}}
-                          for h in ultimos.values()],
+            "historico": await piloto_cartao.historico_publico(unidade, dia, list(ultimos.values())),
         }
     except (ValueError, WebPostoErro, OSError):
         logger.exception("Falha na prévia de cartões unidade=%s", unidade)
@@ -302,7 +301,7 @@ async def _auditar_com_limite(unidade: int, inicio: date, fim: date, prazo: floa
         raise HTTPException(status_code=504, detail="Tempo limite ao consultar fechamento. Reduza o período e tente novamente.") from None
 
 
-def _compor_relatorio_caixa_dia(unidade: int, dia: date) -> tuple[str, str]:
+def _compor_relatorio_caixa_dia(unidade: int, dia: date, *, incluir_codigo_interno: bool = False) -> tuple[str, str]:
     try:
         registro = carregar_dia(unidade, dia)
     except PersistenciaErro:
@@ -336,11 +335,12 @@ def _compor_relatorio_caixa_dia(unidade: int, dia: date) -> tuple[str, str]:
         situacao_robo=situacao,
         pendencias=[item for item in pendencias if item["dia"] == dia.isoformat()],
         conferencia=conferencia,
+        incluir_codigo_interno=incluir_codigo_interno,
     )
     return texto, configuracao.apelido or configuracao.nome
 
 
-async def _compor_relatorio_caixa_atual(unidade: int, dia: date) -> tuple[str, str]:
+async def _compor_relatorio_caixa_atual(unidade: int, dia: date, *, incluir_codigo_interno: bool = False) -> tuple[str, str]:
     configuracao = carregar_unidades()[unidade]
     try:
         gravado = carregar_dia(unidade, dia)
@@ -374,6 +374,7 @@ async def _compor_relatorio_caixa_atual(unidade: int, dia: date) -> tuple[str, s
         falhas_coleta=falhas,
         dados_consultados_em=registro.proveniencia.executado_em,
         limite_diferenca_alta=limite_diferenca_alta(unidade, dia),
+        incluir_codigo_interno=incluir_codigo_interno,
     )
     return texto, configuracao.apelido or configuracao.nome
 
@@ -456,9 +457,9 @@ async def exportar_relatorio_caixa_dia(
         raise HTTPException(status_code=404, detail="Unidade não encontrada.")
     require_unit_access(current_user, unidade)
     if gravado:
-        markdown, _ = _compor_relatorio_caixa_dia(unidade, dia)
+        markdown, _ = _compor_relatorio_caixa_dia(unidade, dia, incluir_codigo_interno=True)
     else:
-        markdown, _ = await _compor_relatorio_caixa_atual(unidade, dia)
+        markdown, _ = await _compor_relatorio_caixa_atual(unidade, dia, incluir_codigo_interno=True)
     return Response(
         planilha_relatorio_caixa_dia(markdown),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

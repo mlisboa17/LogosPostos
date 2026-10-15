@@ -62,7 +62,7 @@ async def enviar_propostas(unidade, dia, *, token, caminho_env=None, banco=None,
                     con.execute("INSERT INTO propostas VALUES (?,?,?,?,?,?)",
                                 (ticket, unidade, str(dia), p.id, (agora() + timedelta(hours=24)).isoformat(), "pendente"))
                 dados["reply_markup"] = {"inline_keyboard": [[
-                    {"text": "Lançar", "callback_data": f"cartao:s:{ticket}"},
+                    {"text": f"Lançar · {p.caixa_curto or p.caixa}", "callback_data": f"cartao:s:{ticket}"},
                     {"text": "Não lançar", "callback_data": f"cartao:n:{ticket}"},
                 ]]}
             await _api(http, token, "sendMessage", dados)

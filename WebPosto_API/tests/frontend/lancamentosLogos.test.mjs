@@ -75,6 +75,16 @@ test("consulta usa unidade e dia ISO e oferece seletores", async t => {
   assert.doesNotMatch(f.result.innerHTML, /data-acao/);
 });
 
+test("lista mostra caixa curto e preserva a identificação completa no texto", () => {
+  const caixa_curto = "Doze · Pista — 14/10, 1º turno (Wanderson, 00:01)";
+  const texto = "Doze · Pista — caixa de 14/10/2026, aberto por WANDERSON DA SILVA";
+  const html = renderLancamentos({
+    propostas: [{ ...proposta, caixa_curto, texto }], historico: [],
+  });
+  assert.ok(html.includes(`Caixa: ${caixa_curto}`));
+  assert.ok(html.includes(texto));
+});
+
 for (const acao of ["aprovar", "recusar", "desfazer"]) {
   test(`${acao}: um toque, JSON direto, ID codificado e proteção contra clique duplo`, async t => {
     mockGet(t);

@@ -18,7 +18,7 @@ from ..domain.models import Proveniencia, Unidade
 from ..domain.tempo import agora, formatar_data, formatar_data_hora
 from ..rules.cartoes import VERSAO as VERSAO_CARTOES
 from ..rules.fechamento import VERSAO as VERSAO_FECHAMENTO
-from .resumo_diario import _descricao_despesa_segura, moeda_br
+from .resumo_diario import _descricao_despesa_segura, identificar_caixa, moeda_br
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +49,8 @@ def _mapa_nomes(registro: ResultadoDiario, nomes: dict[int, str] | None) -> dict
 def _funcionario(codigo: int | None, nomes: dict[int, str]) -> str:
     if codigo is None:
         return "frentista não identificado"
-    return f"{nomes.get(codigo, 'nome indisponível')} ({codigo})"
+    nome = nomes.get(codigo, "").strip()
+    return f"{nome} ({codigo})" if nome else f"funcionário {codigo}"
 
 
 def _setor(unidade: Unidade, centro_custo: int | None) -> str:
@@ -384,12 +385,18 @@ def gerar_relatorio_caixa_dia(
     vales_fora_caixa: Iterable = (),
     falhas_coleta: Iterable[str] = (),
     limite_diferenca_alta: Decimal = Decimal("300.00"),
+    incluir_codigo_interno: bool = False,
 ) -> str:
     """Gera Markdown a partir dos resultados operacionais fornecidos."""
     nomes = _mapa_nomes(registro, nomes_funcionarios)
     fechamento = registro.fechamento
     caixas = fechamento.caixas if fechamento else ()
     nome_unidade = unidade.apelido or unidade.nome
+    rotulos_caixas = {
+        a.caixa.codigo: identificar_caixa(
+            nome_unidade, a.caixa, [c.caixa for c in caixas], nomes, curto=True,
+        ) for a in caixas
+    }
     pendencias = tuple(_pendencia_info(item) for item in pendencias)
     abastecimentos = tuple(abastecimentos)
     vales_fora_caixa = tuple(vales_fora_caixa)
@@ -433,16 +440,18 @@ def gerar_relatorio_caixa_dia(
         "",
         "## Caixas",
         "",
-        "| Código | Operador | Abertura | Fechamento | Consolidado | PDV | Setor |",
-        "|---:|---|---|---|---|---:|---|",
+        "| Caixa | Operador | Abertura | Fechamento | Consolidado | PDV | Setor |"
+        + (" Código interno |" if incluir_codigo_interno else ""),
+        "|---:|---|---|---|---|---:|---|" + ("---:|" if incluir_codigo_interno else ""),
     ])
     for auditoria in caixas:
         caixa = auditoria.caixa
         linhas.append(
-            f"| {caixa.codigo} | {_funcionario(caixa.funcionario_codigo, nomes)} | "
+            f"| {rotulos_caixas[caixa.codigo]} | {_funcionario(caixa.funcionario_codigo, nomes)} | "
             f"{_data_hora(caixa.abertura)} | {_data_hora(caixa.fechamento)} | "
             f"{'sim' if caixa.consolidado else 'não'} | {caixa.pdv_codigo} | "
             f"{_setor(unidade, caixa.centro_custo)} |"
+            + (f" {caixa.codigo} |" if incluir_codigo_interno else "")
         )
 
     linhas.extend([
@@ -455,7 +464,7 @@ def gerar_relatorio_caixa_dia(
     for auditoria in caixas:
         for modalidade in auditoria.modalidades:
             linhas.append(
-                f"| {auditoria.caixa.codigo} | {modalidade.rotulo} | {moeda_br(modalidade.apurado)} | "
+                f"| {rotulos_caixas[auditoria.caixa.codigo]} | {modalidade.rotulo} | {moeda_br(modalidade.apurado)} | "
                 f"{moeda_br(modalidade.apresentado)} | {moeda_br(modalidade.diferenca)} |"
             )
     linhas.extend(["", f"Quebra total: **{moeda_br(fechamento.quebra_total if fechamento else Decimal(0))}**.", ""])
@@ -466,7 +475,7 @@ def gerar_relatorio_caixa_dia(
         if (desconto and desconto.situacao == "sem_desconto") or alertas_falta:
             valor = desconto.falta if desconto else abs(alertas_falta[0].valor or Decimal(0))
             situacao = "confirmada" if auditoria.caixa.consolidado else "provisória"
-            linhas.append(f"| {auditoria.caixa.codigo} | {moeda_br(abs(valor))} | {situacao} |")
+            linhas.append(f"| {rotulos_caixas[auditoria.caixa.codigo]} | {moeda_br(abs(valor))} | {situacao} |")
     if not any("FALTA_SEM_DESCONTO" == a.codigo for a in alertas) and not any(
         a.desconto_falta and a.desconto_falta.situacao == "sem_desconto" for a in caixas
     ):
@@ -484,7 +493,7 @@ def gerar_relatorio_caixa_dia(
             else:
                 destino = "sem conta de destino"
             linhas.append(
-                f"| {sangria.caixa_codigo} | {_data_hora(sangria.momento)} | {moeda_br(sangria.valor)} | "
+                f"| {rotulos_caixas[auditoria.caixa.codigo]} | {_data_hora(sangria.momento)} | {moeda_br(sangria.valor)} | "
                 f"{destino} | {'sim' if sangria.alterada else 'não'} |"
             )
     if not any(a.sangrias for a in caixas):
@@ -500,7 +509,7 @@ def gerar_relatorio_caixa_dia(
                 continue
             alerta = "SEM PLANO ⚠" if not despesa.plano_conta_codigo else "—"
             linhas.append(
-                f"| {despesa.caixa_codigo} | não persistida | {moeda_br(despesa.valor)} | "
+                f"| {rotulos_caixas[auditoria.caixa.codigo]} | não persistida | {moeda_br(despesa.valor)} | "
                 f"{_descricao_despesa_segura(despesa.descricao or 'sem descrição')} | {plano} | "
                 f"{_setor(unidade, despesa.centro_custo) if despesa.centro_custo is not None else 'centro de custo não persistido'} | {alerta} |"
             )
@@ -511,7 +520,7 @@ def gerar_relatorio_caixa_dia(
     for despesa in despesas_ajuste_nf:
         plano = f"{despesa.plano_conta_codigo or '—'} — {despesa.plano_conta_nome or 'nome não persistido'}"
         linhas.append(
-            f"| {despesa.caixa_codigo} | {moeda_br(despesa.valor)} | "
+            f"| {rotulos_caixas.get(despesa.caixa_codigo, 'caixa não identificado')} | {moeda_br(despesa.valor)} | "
             f"{_descricao_despesa_segura(despesa.descricao or 'sem descrição')} | {plano} |"
         )
     if not despesas_ajuste_nf:
@@ -521,7 +530,7 @@ def gerar_relatorio_caixa_dia(
     for auditoria in caixas:
         for vale in (*auditoria.vales_falta, *auditoria.vales):
             origem = "falta de caixa" if vale.origem.upper() == "D" else "vale comum"
-            linhas.append(f"| {vale.caixa_codigo} | {_funcionario(vale.funcionario_codigo, nomes)} | {moeda_br(vale.valor)} | {origem} |")
+            linhas.append(f"| {rotulos_caixas[auditoria.caixa.codigo]} | {_funcionario(vale.funcionario_codigo, nomes)} | {moeda_br(vale.valor)} | {origem} |")
     if not any(a.vales_falta or a.vales for a in caixas):
         linhas.append("| — | nenhum vale persistido | R$ 0,00 | — |")
     if vales_fora_caixa:
@@ -580,7 +589,7 @@ def gerar_relatorio_caixa_dia(
                 responsavel = item.responsavel
                 linhas.append(
                     f"| {_data_hora(item.momento)} | {moeda_br(item.valor)} | {item.de or '—'} → {item.para or '—'} | "
-                    f"{responsavel} | {item.caixa or '—'} | {_nsu_final(item.nsu)} |"
+                    f"{responsavel} | {rotulos_caixas.get(item.caixa, 'caixa não identificado')} | {_nsu_final(item.nsu)} |"
                 )
         else:
             linhas.append("\nNenhum item persistido neste grupo.")

@@ -19,9 +19,10 @@ from ..adapters.webposto_http import WebPostoErro, paginar
 from ..config import carregar_unidades
 from ..domain.cartoes import Investigacao
 from ..domain.models import Unidade
-from ..domain.tempo import agora
+from ..domain.tempo import agora, para_local
+from ...webposto_integration.funcionarios import buscar_nomes_funcionarios
 from .conciliar_cartoes import conciliar_pagbank
-from .resumo_diario import moeda_br, obter_nome_setor
+from .resumo_diario import identificar_caixa, moeda_br
 
 LIMITE_CARTAO = Decimal("300")
 LIMITE_DIA = Decimal("1000")
@@ -44,6 +45,7 @@ class PropostaCartao:
     motivo: str | None
     evidencias: tuple[str, ...]
     payload: dict[str, Any] | None
+    caixa_curto: str = ""
 
     @property
     def elegivel(self) -> bool:
@@ -54,6 +56,7 @@ class PropostaCartao:
             "id": self.id, "unidade": self.unidade, "dia": self.dia.isoformat(),
             "nsu_final": self.nsu[-4:] if self.nsu else None, "valor": str(self.valor),
             "caixa": self.caixa, "frentista": self.frentista, "texto": self.texto,
+            "caixa_curto": self.caixa_curto,
             "elegivel": self.elegivel, "motivo": self.motivo, "evidencias": list(self.evidencias),
         }
 
@@ -61,10 +64,12 @@ class PropostaCartao:
 def explicar_cartao(
     *, caixa: str, momento, forma: str, valor: Decimal, frentista: str,
     venda: int | None, administradora: str, nsu: str | None, motivo: str | None,
+    saldos: tuple[Decimal, Decimal] | None = None,
 ) -> str:
+    momento = para_local(momento)
     if motivo:
         return f"{caixa}, {momento:%d/%m/%Y %H:%M} — {moeda_br(valor)}: {motivo}."
-    return (
+    texto = (
         f"{caixa}, {momento:%d/%m/%Y %H:%M} — o PagBank recebeu um "
         f"{forma.title()} de {moeda_br(valor)} do frentista {frentista}, venda {venda}, "
         "mas o cartão não está lançado no webPosto. Por isso o caixa mostra "
@@ -72,6 +77,13 @@ def explicar_cartao(
         f"({administradora}, NSU final {(nsu or '')[-4:]}). Depois de lançar, "
         f"o dinheiro esperado cai {moeda_br(valor)} e o cartão sobe {moeda_br(valor)}."
     )
+    if saldos is not None:
+        dinheiro, cartao = saldos
+        texto += (
+            f" Antes: dinheiro {moeda_br(dinheiro)} · cartão {moeda_br(cartao)}."
+            f" Depois de lançar: dinheiro {moeda_br(dinheiro - valor)} · cartão {moeda_br(cartao + valor)}."
+        )
+    return texto
 
 
 def historico(unidade: int, dia: date, *, diretorio: Path | None = None) -> list[dict]:
@@ -93,14 +105,19 @@ def _total_dia(unidade: int, dia: date, diretorio: Path | None) -> Decimal:
 def avaliar(
     unidade: Unidade, dia: date, inv: Investigacao, *, venda: dict | None,
     caixas, administradoras: list[dict], total_dia: Decimal,
+    nomes_funcionarios: dict[int, str] | None = None,
+    saldos: tuple[Decimal, Decimal] | None = None,
 ) -> PropostaCartao:
     t = inv.transacao
     candidato = inv.candidatos[0] if len(inv.candidatos) == 1 else None
     ab = candidato.abastecimento if candidato else None
     cx = next((c for c in caixas if venda and c.codigo == venda.get("caixaCodigo")), None)
     posto = unidade.apelido or unidade.nome
-    rotulo = f"{posto} · {obter_nome_setor(cx.centro_custo)} (caixa {cx.codigo})" if cx else f"{posto} · caixa não identificado"
-    frentista = f"{ab.nome_frentista or 'nome indisponível'} ({ab.frentista})" if ab else "frentista não identificado"
+    rotulo = identificar_caixa(posto, cx, caixas, nomes_funcionarios) if cx else f"{posto} · caixa não identificado"
+    frentista = (
+        f"{ab.nome_frentista.strip()} ({ab.frentista})" if ab and ab.nome_frentista and ab.nome_frentista.strip()
+        else f"funcionário {ab.frentista}" if ab else "frentista não identificado"
+    )
     motivo = None
     forma = (t.bandeira or "").upper()
     if t.adquirente != "PAGBANK" or any(p in forma for p in ("PIX", "BACEN")):
@@ -127,6 +144,8 @@ def avaliar(
         motivo = "o limite de R$ 1.000,00 do posto neste dia foi atingido"
     elif not t.nsu or not t.autorizacao:
         motivo = "faltam o NSU ou a autorização do recebimento"
+    elif saldos is None:
+        motivo = "não consegui consultar o dinheiro e os cartões do caixa; conferir à mão"
     payload = None
     descricao = ""
     if motivo is None:
@@ -154,9 +173,39 @@ def avaliar(
     texto = explicar_cartao(
         caixa=rotulo, momento=t.momento, forma=forma, valor=t.valor, frentista=frentista,
         venda=ab.venda_codigo if ab else None, administradora=descricao, nsu=t.nsu, motivo=motivo,
+        saldos=saldos,
     )
     return PropostaCartao(identificador, unidade.empresa_codigo, dia, t.nsu, t.valor, rotulo,
-                         frentista, texto, motivo, evidencias, payload)
+                         frentista, texto, motivo, evidencias, payload,
+                         identificar_caixa(posto, cx, caixas, nomes_funcionarios, curto=True) if cx else rotulo)
+
+
+async def historico_publico(unidade: int, dia: date, eventos: list[dict]) -> list[dict]:
+    if not eventos:
+        return []
+    cfg = carregar_unidades()[unidade]
+    caixas = await buscar_caixas(cfg, dia, dia)
+    nomes = await buscar_nomes_funcionarios(cfg, dia, dia)
+    resultado = []
+    for h in eventos:
+        codigo = (h.get("payload") or {}).get("caixaCodigo")
+        cx = next((c for c in caixas if c.codigo == codigo), None)
+        rotulo = (
+            identificar_caixa(cfg.apelido or cfg.nome, cx, caixas, nomes)
+            if cx else f"{cfg.apelido or cfg.nome} · caixa não identificado"
+        )
+        texto = h.get("texto", "")
+        antigo = h.get("caixa")
+        if antigo and texto.startswith(antigo):
+            texto = rotulo + texto[len(antigo):]
+        elif codigo is not None and str(codigo) in texto:
+            texto = f"{rotulo} — consulte a auditoria para os detalhes desta ação."
+        resultado.append({
+            **{k: v for k, v in h.items() if k not in {"payload", "recriar", "nsu"}},
+            "caixa": rotulo, "texto": texto,
+            "caixa_curto": identificar_caixa(cfg.apelido or cfg.nome, cx, caixas, nomes, curto=True) if cx else rotulo,
+        })
+    return resultado
 
 
 async def preparar(unidade: int, dia: date, *, diretorio: Path | None = None) -> list[PropostaCartao]:
@@ -165,8 +214,10 @@ async def preparar(unidade: int, dia: date, *, diretorio: Path | None = None) ->
         raise PilotoErro("Posto ou data inválidos.")
     resultado = await conciliar_pagbank(unidade, dia)
     caixas = await buscar_caixas(cfg, dia, dia)
+    nomes = await buscar_nomes_funcionarios(cfg, dia, dia)
     admins = await paginar(cfg, "/INTEGRACAO/V1/ADMINISTRADORAS", {"empresaCodigo": unidade})
     propostas = []
+    saldos_por_caixa = {}
     for inv in resultado.a_maior:
         candidato = inv.candidatos[0] if len(inv.candidatos) == 1 else None
         codigo = candidato.abastecimento.venda_codigo if candidato else None
@@ -175,8 +226,13 @@ async def preparar(unidade: int, dia: date, *, diretorio: Path | None = None) ->
             "dataInicial": str(dia), "dataFinal": str(dia),
         }) if codigo else []
         vendas = [v for v in vendas if v.get("empresaCodigo") == unidade and v.get("vendaCodigo") == codigo]
+        caixa_codigo = vendas[0].get("caixaCodigo") if len(vendas) == 1 else None
+        if caixa_codigo is not None and any(c.codigo == caixa_codigo for c in caixas):
+            if caixa_codigo not in saldos_por_caixa:
+                saldos_por_caixa[caixa_codigo] = await _saldos(cfg, dia, caixa_codigo)
         propostas.append(avaliar(cfg, dia, inv, venda=vendas[0] if len(vendas) == 1 else None,
                                  caixas=caixas, administradoras=admins,
+                                 nomes_funcionarios=nomes, saldos=saldos_por_caixa.get(caixa_codigo),
                                  total_dia=_total_dia(unidade, dia, diretorio)))
     return propostas
 

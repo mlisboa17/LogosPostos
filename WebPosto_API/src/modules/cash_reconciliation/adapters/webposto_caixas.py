@@ -37,6 +37,7 @@ def para_caixa(r: dict[str, Any]) -> Caixa:
         fechado=bool(r.get("fechado")),
         consolidado=bool(r.get("consolidado")),
         bloqueado=bool(r.get("bloqueado")),
+        apurado=_dec(r["apurado"]) if r.get("apurado") is not None else None,
     )
 
 

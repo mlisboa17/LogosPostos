@@ -136,6 +136,11 @@ def test_relatorio_diario_sintetico_mascara_dados_e_exibe_setores():
     )
 
     assert "## Caixas" in relatorio
+    assert "| Código |" not in relatorio and "Código interno" not in relatorio
+    assert "| 100 |" not in relatorio and "| 101 |" not in relatorio
+    exportacao = gerar_relatorio_caixa_dia(registro, unidade, incluir_codigo_interno=True)
+    assert "Código interno |" in exportacao
+    assert "| 100 |" in exportacao and "| 101 |" in exportacao
     assert "Operador Sintético (30)" in relatorio
     assert "Frentista Sintético (31)" in relatorio
     assert "PISTA" in relatorio and "FOOD" in relatorio

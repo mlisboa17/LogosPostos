@@ -132,8 +132,9 @@ def test_falta_em_caixa_nao_consolidado_mostra_aviso(monkeypatch):
     )[0]
 
     assert "⚠️ PRECISA DE VOCÊ" in mensagem
-    assert "Doze · cc 2 (caixa 10, turno sintético) — falta R$ 2.263,18, sem desconto, não consolidado" in mensagem
-    assert "Operador Sintético" not in mensagem
+    assert "Doze · cc 2 — 09/10, turno sintético (Operador, 08:00)" in mensagem
+    assert "falta R$ 2.263,18, sem desconto, não consolidado" in mensagem
+    assert "caixa 10" not in mensagem
 
 
 def test_despesa_sem_plano_e_limite_de_oito(monkeypatch):
@@ -302,7 +303,10 @@ def test_planilha_com_quatro_abas_valores_numericos_e_nome(tmp_path):
     assert "R$" in workbook["Resumo"]["F2"].number_format
     assert isinstance(workbook["Despesas"]["C2"].value, (int, float))
     assert workbook["Caixas"]["C2"].value == "Funcionário Planilha Sintético"
-    assert workbook["Caixas"]["B2"].value == "Filial Sintética · cc 2 (10)"
+    assert workbook["Caixas"]["B2"].value.startswith("Filial Sintética · cc 2 — caixa de 09/10/2026")
+    assert "(10)" not in workbook["Caixas"]["B2"].value
+    assert workbook["Caixas"]["I1"].value == "Código interno"
+    assert workbook["Caixas"]["I2"].value == 10
     assert workbook["Vales"]["C2"].value == "Funcionário Planilha Sintético"
 
 
@@ -329,9 +333,11 @@ def test_vip_dois_caixas_por_setor_aberto_fora_das_faltas_e_ordem(monkeypatch):
     registro = registro.model_copy(update={"fechamento": registro.fechamento.model_copy(update={"caixas": caixas})})
     texto = "\n".join(resumo_diario.gerar_mensagem_curta(DIA, [registro], [EMPRESA], set(), {EMPRESA: 1}))
     precisa, abertos = texto.split("⏳ AINDA ABERTOS")
-    assert "VIP · Loja (caixa 2, 1º turno) — falta R$ 1.910,09, não consolidado" in precisa
+    assert "VIP · Loja — 09/10, 1º turno" in precisa
+    assert "falta R$ 1.910,09, não consolidado" in precisa
     assert "caixa 1" not in precisa and "R$ 999,00" not in texto
-    assert "VIP · Pista (caixa 1, 1º turno) — aberto desde 08:00" in abertos
+    assert "VIP · Pista — 09/10, 1º turno" in abertos
+    assert "aberto desde 08:00" in abertos
     assert precisa.index("R$ 1.910,09") < precisa.index("R$ 20,00")
     assert "cc 24886" in precisa
     assert str(EMPRESA) not in texto
@@ -367,7 +373,8 @@ def test_principal_25_linhas_sem_perder_continuacao(monkeypatch):
     texto = resumo_diario.gerar_resumo_diario(DIA, [registro], [EMPRESA], set(), {EMPRESA: 12})
     principal = texto.split("📌 CONTINUAÇÃO DOS CAIXAS")[0].rstrip()
     assert len(principal.splitlines()) <= 25
-    assert texto.count("(caixa ") == 40
+    assert texto.count("— 09/10, 1º turno") == 40
+    assert "(caixa " not in texto
     assert "Pendências abertas: 12" in texto
 
 
@@ -486,7 +493,8 @@ def test_sangrias_agrupadas_por_caixa_e_tipos_ordenados_por_valor(monkeypatch):
     texto = resumo_diario.gerar_resumo_diario(DIA, [registro], [EMPRESA], set(), {EMPRESA: 0})
     assert texto.count("4 sangrias alteradas após o lançamento (R$ 667,00)") == 1
     assert texto.index("R$ 900,00") < texto.index("R$ 667,00") < texto.index("R$ 182,51") < texto.index("R$ 10,00")
-    assert "VIP · Loja — 1 sangria alterada" in texto
+    assert "VIP · Loja — 09/10, 1º turno" in texto
+    assert "1 sangria alterada" in texto
     assert "R$ 432,00" not in texto
 
 

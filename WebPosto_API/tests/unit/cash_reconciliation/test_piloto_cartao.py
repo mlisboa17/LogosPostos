@@ -44,13 +44,20 @@ def caso():
 
 def proposta(caso, **kwargs):
     return piloto.avaliar(caso.unidade, DIA, caso.inv, venda=caso.venda, caixas=[caso.caixa],
-                          administradoras=caso.admins, total_dia=kwargs.get("total", Decimal(0)))
+                          administradoras=caso.admins, total_dia=kwargs.get("total", Decimal(0)),
+                          nomes_funcionarios={7: "WANDERSON DA SILVA"},
+                          saldos=(Decimal("15855.41"), Decimal("23439.22")))
 
 
 def test_texto_comum_sem_jargao_e_payload(caso):
     p = proposta(caso)
     assert p.elegivel
-    assert "Doze · Pista (caixa 201)" in p.texto
+    assert "Doze · Pista — caixa de" in p.texto
+    assert "201" not in p.texto and "caixaCodigo" not in p.texto
+    assert "aberto por WANDERSON DA SILVA" in p.texto
+    assert "(único caixa do dia)" in p.texto
+    assert "Antes: dinheiro R$ 15.855,41 · cartão R$ 23.439,22." in p.texto
+    assert "Depois de lançar: dinheiro R$ 15.820,66 · cartão R$ 23.473,97." in p.texto
     assert "Mastercard de R$ 34,75" in p.texto
     assert "Frentista Sintético (7)" in p.texto
     assert "NSU final 0163" in p.texto and "TESTE0163" not in p.texto
@@ -353,6 +360,8 @@ async def test_preparar_busca_caixa_da_venda_em_vez_de_adivinhar(caso, monkeypat
     monkeypatch.setattr(piloto, "carregar_unidades", lambda: {74014: caso.unidade})
     monkeypatch.setattr(piloto, "conciliar_pagbank", AsyncMock(return_value=SimpleNamespace(a_maior=(caso.inv,))))
     monkeypatch.setattr(piloto, "buscar_caixas", AsyncMock(return_value=[caso.caixa]))
+    monkeypatch.setattr(piloto, "buscar_nomes_funcionarios", AsyncMock(return_value={7: "WANDERSON DA SILVA"}))
+    monkeypatch.setattr(piloto, "_saldos", AsyncMock(return_value=(Decimal("1000"), Decimal("500"))))
     monkeypatch.setattr(piloto, "_total_dia", lambda *a: Decimal(0))
     async def paginar(cfg, rota, params):
         return caso.admins if "ADMINISTRADORAS" in rota else [caso.venda]
@@ -455,7 +464,9 @@ async def test_telegram_envia_texto_e_botoes_somente_ao_diretor(caso, telegram_e
     dados = json.loads(requests[0].content)
     assert dados["chat_id"] == "123" and dados["text"] == p.texto
     botoes = dados["reply_markup"]["inline_keyboard"][0]
-    assert [b["text"] for b in botoes] == ["Lançar", "Não lançar"]
+    assert [b["text"] for b in botoes] == [f"Lançar · {p.caixa_curto}", "Não lançar"]
+    assert "caixa 201" not in dados["text"]
+    assert "201" not in botoes[0]["text"]
     assert all(len(b["callback_data"].encode()) <= 64 for b in botoes)
 
 
