@@ -23,6 +23,20 @@ Consolidar neste branch a auditoria de fechamento `FECHAMENTO_V3`, a fila local 
   Lê somente o resumo local, divide mensagens longas e não consulta nem escreve no ERP.
   **Executar somente depois do "ok" do diretor**; não há envio automático por esse comando sem opção.
   O arquivo do resumo e o histórico do robô não são alterados pelo reenvio.
+- TELEGRAM_02.2: uma linha por adquirente com totais dos casamentos e ocorrências
+  da conciliação, sem diferenças geradas pela grafia das bandeiras. Até cinco itens
+  a maior/a menor/duplicidade por posto, com hora, valor e responsável; excedentes
+  ficam na planilha. Aliases de Mastercard, Maestro, Visa Electron e Elo são
+  agrupados somente na tabela de formas da planilha; Cartão APP aparece à parte
+  como crédito sem bandeira discriminada.
+- Sangrias alteradas do mesmo caixa são somadas em um único alerta, ordenado
+  com faltas e demais itens pelo valor. O snapshot guarda apenas o valor atual:
+  não há evidência para mostrar o valor anterior à alteração.
+- Validação TELEGRAM_02.2: `python -m pytest tests/unit/cash_reconciliation -q`
+  com 397 aprovados e nenhuma falha. Resumo e planilha de 13/10/2026 regenerados
+  somente de snapshots locais, com rede bloqueada; principal de 14 linhas.
+  Doze e Casa Caiada conferidos sem diferenças artificiais por bandeira; VIP
+  com quatro sangrias totalizando R$ 667,00. Nenhum envio ou escrita no webPosto.
 
 ## Como testar
 

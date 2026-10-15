@@ -222,7 +222,8 @@ def test_telegram_v3_diferencas_e_evento_desconhecido():
     mensagem = "\n".join(resumo_diario.gerar_mensagem_curta(
         DIA_CARTOES, [diario], [74014], set(), {74014: 0},
     ))
-    assert "Cartões: 1 com valor menor que o recebido (faltam R$ 50,00)" in mensagem
+    assert "PagBank: portal R$ 100,00 · webPosto R$ 150,00 · ❌ diferença R$ -50,00" in mensagem
+    assert "A menor: R$ 50,00 · 10:00" in mensagem
     assert "1 cancelados no PagBank" in mensagem
     assert "1 eventos não aprovados/ajustes no PagBank" in mensagem
     assert "frentista não identificado" in mensagem

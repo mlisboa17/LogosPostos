@@ -41,9 +41,10 @@ def test_resumo_v32_quantidade_valor_e_forma():
     mensagem = "\n".join(resumo_diario.gerar_mensagem_curta(
         DIA_CARTOES, [diario], [74014], set(), {74014: 1},
     ))
-    assert "0 conferidos · 1 divergências · R$ 12,00" in mensagem
-    assert "A maior: 1 · R$ 12,00" in mensagem
-    assert "Desconto: portal 1 · R$ 12,00 / webPosto 0 · diferença R$ 12,00" in mensagem
+    assert "Premmia: portal R$ 12,00 · webPosto sem lançamentos · ❌ diferença R$ 12,00 (0 casados)" in mensagem
+    assert "A maior: R$ 12,00 · 10:00 · Desconto" in mensagem
+    assert "Desconto: portal" not in mensagem
+    assert resultado.a_maior[0].transacao.bandeira == "Desconto"
     assert "R$ 0,00" not in mensagem
 
 
@@ -411,3 +412,167 @@ def test_divisao_preserva_entidades_e_unicode():
     assert len(mensagens) > 1
     assert all(len(m.encode("utf-16-le")) // 2 <= 4000 for m in mensagens)
     assert "&amp;" in "\n".join(mensagens)
+
+
+def _resumo_recebimentos(*adquirentes):
+    from .test_cartoes import DIA as DIA_CARTOES
+    from .test_pendencias import criar_diario
+
+    diario = criar_diario(DIA_CARTOES, 74014).model_copy(update={
+        "recebimentos": ResultadoRecebimentos(
+            empresa_codigo=74014, dia=DIA_CARTOES, adquirentes=tuple(adquirentes),
+        ),
+    })
+    return resumo_diario.gerar_resumo_diario(DIA_CARTOES, [diario], [74014], set(), {74014: 0})
+
+
+@pytest.mark.parametrize("portal,erp", [
+    ("MASTERCARD", "MASTERCARD PAGSEGURO"),
+    ("MAESTRO", "MAESTRO PAGSEGURO"),
+    ("VISA ELECTRON", "VISA ELECTRON PAGSEGURO"),
+    ("ELO", "ELO DEBITO PAGSEGURO"),
+])
+def test_nomes_bandeiras_diferentes_mesmo_casamento_sem_falsa_diferenca(portal, erp):
+    from src.modules.cash_reconciliation.application.conciliar_cartoes import conciliar
+    from src.modules.cash_reconciliation.domain.recebimentos import RecebimentoAdquirente
+    from .test_cartoes import T, C, DIA as DIA_CARTOES
+
+    resultado = conciliar(74014, "PAGBANK", DIA_CARTOES,
+                         [T("3427.53", "10:00", nsu="TESTE001").model_copy(update={"bandeira": portal})],
+                         [C(1, "3427.53", "10:00", nsu="TESTE001", adm=erp)], [], set())
+    adquirente = RecebimentoAdquirente.de_resultado(resultado)
+    assert len(adquirente.formas) == 2
+    texto = _resumo_recebimentos(adquirente)
+    assert "PagBank: portal R$ 3.427,53 · webPosto R$ 3.427,53 · ✅ conferido (1 casados)" in texto
+    assert "❌" not in texto and "diferença" not in texto
+    assert "portal 0 / webPosto" not in texto
+    agrupadas = resumo_diario._agrupar_bandeiras_planilha(list(adquirente.formas))
+    assert len(agrupadas) == 1
+    assert agrupadas[0].portal.total == agrupadas[0].webposto.total == Decimal("3427.53")
+    assert agrupadas[0].diferenca == 0
+
+
+@pytest.mark.parametrize("erp,esperado", [("150", "-50,00"), ("70", "30,00")])
+def test_diferenca_real_casada_por_nsu_respeita_os_dois_totais(erp, esperado):
+    from src.modules.cash_reconciliation.application.conciliar_cartoes import conciliar
+    from src.modules.cash_reconciliation.domain.recebimentos import RecebimentoAdquirente
+    from .test_cartoes import T, C, DIA as DIA_CARTOES
+
+    resultado = conciliar(74014, "PAGBANK", DIA_CARTOES,
+                         [T("100", "10:00", nsu="TESTE001")],
+                         [C(1, erp, "10:00", nsu="TESTE001")], [], set())
+    adquirente = RecebimentoAdquirente.de_resultado(resultado)
+    assert resumo_diario._totais_conciliados(adquirente) == (Decimal("100"), Decimal(erp))
+    texto = _resumo_recebimentos(adquirente)
+    assert f"❌ diferença R$ {esperado}" in texto
+    assert "✅ conferido" not in texto
+
+
+def test_sangrias_agrupadas_por_caixa_e_tipos_ordenados_por_valor(monkeypatch):
+    monkeypatch.setattr(resumo_diario, "carregar_unidades", lambda: {EMPRESA: _unidade("VIP")})
+    registro = _registro(alertas=())
+    caixa = _caixa_com_quebra(registro, 10, 7295, "-182.51", consolidado=False)
+    alertas = tuple(Alerta(
+        codigo="SANGRIA_ALTERADA", severidade=Severidade.LARANJA,
+        mensagem=f"Sangria de R$ {valor}", valor=Decimal(valor), referencia=n,
+    ) for n, valor in enumerate(("432", "228", "6", "1"), start=1))
+    caixa = caixa.model_copy(update={"alertas": (*alertas, alertas[0])})
+    loja = _caixa_com_quebra(registro, 11, 21650, "-900")
+    loja = loja.model_copy(update={"alertas": (Alerta(
+        codigo="SANGRIA_ALTERADA", severidade=Severidade.LARANJA,
+        mensagem="outra sangria", valor=Decimal("10"), referencia=99,
+    ),)})
+    registro = registro.model_copy(update={"fechamento": registro.fechamento.model_copy(update={"caixas": (caixa, loja)})})
+    texto = resumo_diario.gerar_resumo_diario(DIA, [registro], [EMPRESA], set(), {EMPRESA: 0})
+    assert texto.count("4 sangrias alteradas após o lançamento (R$ 667,00)") == 1
+    assert texto.index("R$ 900,00") < texto.index("R$ 667,00") < texto.index("R$ 182,51") < texto.index("R$ 10,00")
+    assert "VIP · Loja — 1 sangria alterada" in texto
+    assert "R$ 432,00" not in texto
+
+
+def test_itens_recebimentos_cinco_com_hora_nsu_mascarado_e_responsavel():
+    from src.modules.cash_reconciliation.application.conciliar_cartoes import conciliar
+    from src.modules.cash_reconciliation.domain.recebimentos import RecebimentoAdquirente
+    from .test_cartoes import T, DIA as DIA_CARTOES
+
+    transacoes = [
+        T(str(10+n), f"{10+n:02d}:00", nsu=f"1234567{n}",
+          ident=f"t{n}").model_copy(update={"bandeira": "Pix"}) for n in range(7)
+    ]
+    resultado = conciliar(74014, "PAGBANK", DIA_CARTOES, transacoes, [], [], set())
+    texto = _resumo_recebimentos(RecebimentoAdquirente.de_resultado(resultado))
+    bloco = texto.split("💳 RECEBIMENTOS")[1]
+    assert bloco.count("• A maior:") == 5
+    assert "+2 itens — detalhe na planilha" in bloco
+    assert "16:00" in bloco and "R$ 16,00" in bloco
+    assert "frentista não identificado" in bloco
+    assert "NSU 5676" in bloco and "12345676" not in bloco
+
+
+def test_totais_incluem_pares_e_grupos_sem_conferir_so_por_saldo():
+    from src.modules.cash_reconciliation.domain.cartoes import ParProvavel, GrupoProvavel
+    from src.modules.cash_reconciliation.domain.recebimentos import RecebimentoAdquirente, ResumoCasados
+    from .test_conferencia_recebimentos import inv
+    from .test_cartoes import C
+
+    fonte = RecebimentoAdquirente(
+        adquirente="PREMMIA", situacao="ok", casados=ResumoCasados(quantidade=1, total=Decimal("100")),
+        pares_provaveis=(ParProvavel(investigacao=inv("20"), cartao=C(1, "20", "10:01")),),
+        grupos_provaveis=(GrupoProvavel(investigacoes=(inv("30", "a"), inv("40", "b")), cartao=C(2, "70", "10:02")),),
+    )
+    assert resumo_diario._totais_conciliados(fonte) == (Decimal("190"), Decimal("190"))
+    assert "⚠️ totais iguais; itens a conferir" in _resumo_recebimentos(fonte)
+
+
+def test_planilha_agrupa_bandeiras_e_explica_cartao_app():
+    from openpyxl import Workbook
+    from src.modules.cash_reconciliation.application.classificar_recebimentos import montar_conferencia
+    from src.modules.cash_reconciliation.domain.recebimentos import RecebimentoAdquirente, ResumoCasados, ResumoForma
+    from .test_cartoes import DIA as DIA_CARTOES
+    from .test_pendencias import criar_diario
+
+    formas = tuple(ResumoForma(
+        forma=nome,
+        portal=ResumoCasados(quantidade=qtd_p, total=Decimal(total_p)),
+        webposto=ResumoCasados(quantidade=qtd_e, total=Decimal(total_e)),
+        diferenca=Decimal(total_p)-Decimal(total_e),
+    ) for nome,qtd_p,total_p,qtd_e,total_e in [
+        ("MASTERCARD", 1, "100", 0, "0"),
+        ("MASTERCARD PAGSEGURO", 0, "0", 1, "100"),
+        ("Cartão APP", 0, "0", 2, "50"),
+    ])
+    fonte = RecebimentoAdquirente(adquirente="PAGBANK", situacao="ok",
+        casados=ResumoCasados(quantidade=1, total=Decimal("100")), formas=formas)
+    diario = criar_diario(DIA_CARTOES, 74014).model_copy(update={
+        "recebimentos": ResultadoRecebimentos(empresa_codigo=74014, dia=DIA_CARTOES, adquirentes=(fonte,)),
+    })
+    conf = montar_conferencia(74014, DIA_CARTOES, DIA_CARTOES, [diario])
+    wb = Workbook()
+    resumo_diario.abas_conferencia_recebimentos(wb, [conf])
+    linhas = list(wb["Formas 74014"].values)[1:]
+    mastercard = next(l for l in linhas if l[1] == "Mastercard")
+    assert mastercard[2:] == (1, 100.0, 1, 100.0, 0.0)
+    assert any(l[1] == "Cartão APP (crédito sem bandeira discriminada)" for l in linhas)
+
+
+@pytest.mark.parametrize("estornada", [False, True])
+def test_total_duplicidade_nao_soma_casado_duas_vezes_nem_estorno(estornada):
+    from src.modules.cash_reconciliation.application.conciliar_cartoes import conciliar
+    from src.modules.cash_reconciliation.domain.recebimentos import RecebimentoAdquirente
+    from .test_cartoes import T, C, DIA as DIA_CARTOES
+
+    original = T("100", "10:00", nsu="TESTE001", ident="original").model_copy(update={"terminal": "TESTETERMINAL"})
+    extra = T("100", "10:01", nsu="TESTE002", ident="extra").model_copy(update={"terminal": "TESTETERMINAL"})
+    transacoes = [original, extra]
+    if estornada:
+        transacoes.append(extra.model_copy(update={"situacao": "estornada"}))
+    resultado = conciliar(74014, "PAGBANK", DIA_CARTOES,
+                         transacoes, [C(1, "100", "10:00", nsu="TESTE001")], [], set())
+    fonte = RecebimentoAdquirente.de_resultado(resultado)
+    assert resumo_diario._totais_conciliados(fonte) == (Decimal("100" if estornada else "200"), Decimal("100"))
+    bloco = _resumo_recebimentos(fonte).split("💳 RECEBIMENTOS")[1]
+    assert "Duplicidade: R$ 100,00" in bloco
+    if not estornada:
+        assert "❌ diferença R$ 100,00" in bloco
+    else:
+        assert "✅ conferido" in bloco

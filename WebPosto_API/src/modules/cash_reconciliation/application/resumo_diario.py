@@ -11,6 +11,7 @@ from ..config import carregar_unidades
 from ..domain.execucao import ResultadoDiario
 from ..domain.fechamento import Caixa, MovimentoDespesa
 from ..domain.models import Unidade
+from ..domain.recebimentos import RecebimentoAdquirente, ResumoCasados, ResumoForma
 from ..domain.tempo import para_local
 from ..rules.fechamento import LIMITE_QUEBRA
 
@@ -174,10 +175,23 @@ def gerar_resumo_diretor(
                         else:
                             itens_em_ordem.append(f"• {posto} · {setor} — sem falta")
                     for alerta in ca.alertas:
-                        if alerta.codigo not in {"QUEBRA", "FALTA_SEM_DESCONTO", "NAO_CONSOLIDADO", "CAIXA_ABERTO"}:
+                        if alerta.codigo not in {"QUEBRA", "FALTA_SEM_DESCONTO", "NAO_CONSOLIDADO", "CAIXA_ABERTO", "SANGRIA_ALTERADA"}:
                             texto = escape(alerta.mensagem)
                             texto = texto.replace("R$ 0,00", "sem valor")
                             itens_precisa.append((f"{posto} · {setor} — {texto}", abs(alerta.valor or Decimal(0))))
+                for ca in registro.fechamento.caixas:
+                    alteradas = {
+                        a.referencia: a for a in ca.alertas
+                        if a.codigo == "SANGRIA_ALTERADA"
+                    }
+                    if alteradas:
+                        total = sum((abs(a.valor or Decimal(0)) for a in alteradas.values()), Decimal(0))
+                        setor = obter_nome_setor(ca.caixa.centro_custo)
+                        descricao = "sangria alterada" if len(alteradas) == 1 else "sangrias alteradas"
+                        itens_precisa.append((
+                            f"{posto} · {setor} — {len(alteradas)} {descricao} após o lançamento ({moeda_br(total)})",
+                            total,
+                        ))
 
     itens_precisa.sort(key=lambda x: -x[1])
 
@@ -326,10 +340,13 @@ def abas_conferencia_recebimentos(workbook, conferencias) -> None:
         )), float(conferencia.diferenca_periodo) if conferencia.diferenca_periodo is not None else "pendente"])
         formas = workbook.create_sheet(f"Formas {conferencia.unidade}")
         formas.append(["Adquirente", "Forma", "Adquirente (qtd)", "Adquirente (R$)", "webPosto (qtd)", "webPosto (R$)", "Diferença"])
+        por_adquirente: dict[str, list[ResumoForma]] = {}
         for f in conferencia.formas:
-            r = f.resumo
-            formas.append([f.adquirente, r.forma, r.portal.quantidade, float(r.portal.total),
-                           r.webposto.quantidade, float(r.webposto.total), float(r.diferenca)])
+            por_adquirente.setdefault(f.adquirente, []).append(f.resumo)
+        for adquirente, resumos in por_adquirente.items():
+            for r in _agrupar_bandeiras_planilha(resumos):
+                formas.append([adquirente, r.forma, r.portal.quantidade, float(r.portal.total),
+                               r.webposto.quantidade, float(r.webposto.total), float(r.diferenca)])
         for i in conferencia.itens:
             acoes.append([i.unidade, i.grupo, _data_hora_excel(i.momento), float(i.valor), i.de, i.para, i.responsavel,
                           i.regra, "REINCIDENTE" if i.reincidente else "", "S" if i.conferencia == "conferido" else "N", i.observacao])
@@ -354,6 +371,79 @@ def abas_conferencia_recebimentos(workbook, conferencias) -> None:
                     cell.data_type = "s"
                 elif isinstance(cell.value, datetime):
                     cell.number_format = "dd/mm/yyyy hh:mm"
+
+
+def _agrupar_bandeiras_planilha(resumos: list[ResumoForma]) -> list[ResumoForma]:
+    aliases = {
+        "MASTERCARD": "Mastercard", "MAESTRO": "Maestro",
+        "VISA": "Visa", "VISA ELECTRON": "Visa Electron",
+        "ELO": "Elo", "ELO DEBITO": "Elo", "ELO DÉBITO": "Elo",
+        "AMEX": "American Express", "AMERICAN EXPRESS": "American Express",
+    }
+    agrupados: dict[str, list[ResumoForma]] = {}
+    for resumo in resumos:
+        nome = re.sub(r"\s+PAGSEGURO$", "", resumo.forma.strip().upper())
+        forma = aliases.get(nome, resumo.forma)
+        if nome == "CARTÃO APP":
+            forma = "Cartão APP (crédito sem bandeira discriminada)"
+        agrupados.setdefault(forma, []).append(resumo)
+    return [
+        ResumoForma(
+            forma=forma,
+            portal=ResumoCasados(quantidade=sum(r.portal.quantidade for r in itens),
+                                total=sum((r.portal.total for r in itens), Decimal(0))),
+            webposto=ResumoCasados(quantidade=sum(r.webposto.quantidade for r in itens),
+                                  total=sum((r.webposto.total for r in itens), Decimal(0))),
+            diferenca=sum((r.portal.total - r.webposto.total for r in itens), Decimal(0)),
+        )
+        for forma, itens in sorted(agrupados.items())
+    ]
+
+
+def _totais_conciliados(adquirente: RecebimentoAdquirente) -> tuple[Decimal, Decimal] | None:
+    if adquirente.situacao != "ok" or adquirente.casados is None:
+        return None
+    base = adquirente.casados.total
+    # Na conciliação, diferença do casamento = ERP - portal; não é a diferença da bandeira.
+    divergencia = sum((c.diferenca for c in adquirente.divergencias_valor), Decimal(0))
+    if not adquirente.divergencias_valor:
+        divergencia = adquirente.casados_valor_divergente.total
+    portal = base
+    erp = base + divergencia
+    transacoes = [
+        *(i.transacao for i in adquirente.a_maior),
+        *(p.investigacao.transacao for p in adquirente.pares_provaveis),
+        *(i.transacao for g in adquirente.grupos_provaveis for i in g.investigacoes),
+        *(t for a in adquirente.alertas if a.codigo == "CARTAO_POS_SEM_DETALHE" for t in a.transacoes),
+    ]
+    ids = {c.transacao.identificador for c in adquirente.detalhes_casados}
+    nsus = {c.transacao.nsu.strip().upper() for c in adquirente.detalhes_casados if c.transacao.nsu}
+    for t in transacoes:
+        nsu = t.nsu.strip().upper() if t.nsu else None
+        if t.situacao is None and t.identificador not in ids and (not nsu or nsu not in nsus):
+            portal += t.valor
+            ids.add(t.identificador)
+            if nsu:
+                nsus.add(nsu)
+    duplicadas = set()
+    for alerta in adquirente.alertas:
+        if alerta.codigo != "CARTAO_COBRANCA_DUPLICADA":
+            continue
+        chave = tuple(sorted(t.identificador for t in alerta.transacoes)) or alerta.mensagem
+        if chave not in duplicadas:
+            portal += alerta.valor
+            duplicadas.add(chave)
+    cartoes = {
+        c.codigo: c for c in (
+            *adquirente.a_menor,
+            *(p.cartao for p in adquirente.pares_provaveis),
+            *(g.cartao for g in adquirente.grupos_provaveis),
+            *(c for a in adquirente.alertas if a.codigo == "CARTAO_POS_SEM_DETALHE" for c in a.cartoes),
+        )
+    }
+    casados = {c.cartao.codigo for c in adquirente.detalhes_casados}
+    erp += sum((c.valor for codigo, c in cartoes.items() if codigo not in casados), Decimal(0))
+    return portal, erp
 
 
 def _total_mapeado(valores: dict[int, int | None], unidades: list[int]) -> int | None:
@@ -461,12 +551,7 @@ def _blocos_detalhes_diretor(
         apelido = escape(obter_nome_posto(unidade, unidades_config))
         caixas = registro.fechamento.caixas if registro.fechamento else ()
         linhas_unidade = [f"💳 RECEBIMENTOS · {apelido}"]
-        divergencias = [
-            casamento
-            for adquirente in registro.recebimentos.adquirentes
-            for casamento in adquirente.divergencias_valor
-            if casamento.diferenca > 0
-        ]
+        itens_recebimentos: list[tuple[Decimal, str]] = []
         cancelados = [
             transacao
             for adquirente in registro.recebimentos.adquirentes
@@ -480,11 +565,6 @@ def _blocos_detalhes_diretor(
             if adquirente.adquirente == "PAGBANK"
             for transacao in adquirente.transacoes_canceladas
         )
-        if divergencias:
-            total = sum((c.diferenca for c in divergencias), Decimal(0))
-            linhas_unidade.append(
-                f"Cartões: {len(divergencias)} com valor menor que o recebido (faltam {moeda_br(total)})"
-            )
         if cancelados:
             linhas_unidade.append(f"{len(cancelados)} cancelados no PagBank · {moeda_br(sum((t.valor for t in cancelados), Decimal(0)))}")
         if outros_eventos:
@@ -501,70 +581,49 @@ def _blocos_detalhes_diretor(
                 if "dados até" not in erro:
                     erro += " — dados até indisponíveis"
                 linhas_unidade.append(f"{fonte}: {escape(erro)}")
-            if adquirente.adquirente == "PREMMIA":
-                if adquirente.situacao == "ok" and adquirente.casados and (
-                    adquirente.a_menor or adquirente.a_maior or adquirente.divergencias_valor
+            totais = _totais_conciliados(adquirente)
+            if totais is not None and not adquirente.erro and any(totais):
+                portal, erp = totais
+                diferenca = portal - erp
+                estado = f"❌ diferença {moeda_br(diferenca)}" if diferenca else "✅ conferido"
+                if not diferenca and (
+                    adquirente.a_maior or adquirente.a_menor or adquirente.divergencias_valor
+                    or adquirente.pares_provaveis or adquirente.grupos_provaveis or adquirente.sem_fonte
+                    or any(a.codigo == "CARTAO_POS_SEM_DETALHE" for a in adquirente.alertas)
                 ):
-                    divergencias_premmia = (
-                        len(adquirente.a_menor)
-                        + len(adquirente.a_maior)
-                        + len(adquirente.divergencias_valor)
-                    )
-                    valor_divergencias = sum(
-                        (
-                            *(i.transacao.valor for i in adquirente.a_maior),
-                            *(c.valor for c in adquirente.a_menor),
-                            *(abs(c.diferenca) for c in adquirente.divergencias_valor),
-                        ),
-                        Decimal(0),
-                    )
-                    linhas_unidade.append(
-                        f"Premmia: {adquirente.casados.quantidade} conferidos"
-                        + (f" · {moeda_br(adquirente.casados.total)}" if adquirente.casados.total else "")
-                        + f" · {divergencias_premmia} divergências · {moeda_br(valor_divergencias)}"
-                    )
-            if adquirente.situacao == "ok":
-                if adquirente.adquirente != "PREMMIA" and adquirente.casados and adquirente.casados.total:
-                    linhas_unidade.append(
-                        f"{escape(adquirente.adquirente)}: {adquirente.casados.quantidade} conferidos · "
-                        f"{moeda_br(adquirente.casados.total)}"
-                    )
-                for rotulo, valores in (
-                    ("A maior", [i.transacao.valor for i in adquirente.a_maior]),
-                    ("A menor", [c.valor for c in adquirente.a_menor]),
-                ):
-                    if valores and sum(valores, Decimal(0)):
-                        linhas_unidade.append(f"{rotulo}: {len(valores)} · {moeda_br(sum(valores, Decimal(0)))}")
-                provaveis = {
-                    p.investigacao.transacao.identificador: p.investigacao.transacao
-                    for p in adquirente.pares_provaveis
-                }
-                provaveis.update({
-                    inv.transacao.identificador: inv.transacao
-                    for g in adquirente.grupos_provaveis for inv in g.investigacoes
-                })
-                if provaveis:
-                    linhas_unidade.append(
-                        f"Recebimentos prováveis: {len(provaveis)} · "
-                        f"{moeda_br(sum((t.valor for t in provaveis.values()), Decimal(0)))}"
-                    )
-                for forma in adquirente.formas:
-                    if not forma.diferenca:
-                        continue
-                    linhas_unidade.append(
-                        f"{escape(forma.forma)}: portal {forma.portal.quantidade}"
-                        + (f" · {moeda_br(forma.portal.total)}" if forma.portal.total else "")
-                        + f" / webPosto {forma.webposto.quantidade}"
-                        + (f" · {moeda_br(forma.webposto.total)}" if forma.webposto.total else "")
-                        + f" · diferença {moeda_br(forma.diferenca)}"
-                    )
-            linhas_unidade.extend(escape(alerta.mensagem) for alerta in adquirente.alertas)
-            linhas_unidade.extend(
-                f"A menor: {moeda_br(c.valor)} — {escape(c.responsavel)} — "
+                    estado = "⚠️ totais iguais; itens a conferir"
+                portal_txt = moeda_br(portal) if portal else "sem recebimentos"
+                erp_txt = moeda_br(erp) if erp else "sem lançamentos"
+                quantidade = adquirente.casados.quantidade if adquirente.casados else 0
+                linhas_unidade.append(f"{fonte}: portal {portal_txt} · webPosto {erp_txt} · {estado} ({quantidade} casados)")
+            elif adquirente.situacao == "ok" and totais is None and not adquirente.erro:
+                linhas_unidade.append(f"{fonte}: totais da conciliação indisponíveis; conferir planilha")
+            for c in adquirente.a_menor:
+                if not c.valor:
+                    continue
+                itens_recebimentos.append((abs(c.valor),
+                f"A menor: {moeda_br(c.valor)} · {c.momento:%H:%M} — {escape(c.responsavel)} — "
                 f"{escape(c.motivo or 'sem confirmação na adquirente')} — "
                 f"tipoInclusao={escape(c.tipo_inclusao or 'não informado')}"
-                for c in adquirente.a_menor if c.valor
-            )
+                ))
+            for casamento in adquirente.divergencias_valor:
+                if casamento.diferenca:
+                    c = casamento.cartao
+                    tipo = "A menor" if casamento.diferenca > 0 else "A maior"
+                    itens_recebimentos.append((abs(casamento.diferenca),
+                        f"{tipo}: {moeda_br(abs(casamento.diferenca))} · {c.momento:%H:%M} — "
+                        f"{escape(c.responsavel)} · tipoInclusao={escape(c.tipo_inclusao or 'não informado')}"
+                    ))
+            for alerta in adquirente.alertas:
+                if "DUPLIC" in alerta.codigo:
+                    horarios = " / ".join(dict.fromkeys(
+                        t.momento.strftime("%H:%M") for t in alerta.transacoes
+                    )) or " / ".join(dict.fromkeys(c.momento.strftime("%H:%M") for c in alerta.cartoes))
+                    responsaveis = " · ".join(dict.fromkeys(c.responsavel for c in alerta.cartoes))
+                    itens_recebimentos.append((abs(alerta.valor),
+                        f"Duplicidade: {moeda_br(alerta.valor)} · {horarios or 'hora indisponível'} — {escape(alerta.mensagem)}"
+                        + (f" — {escape(responsaveis)}" if responsaveis else "")
+                    ))
             for inv in adquirente.a_maior:
                 if not inv.transacao.valor:
                     continue
@@ -578,15 +637,16 @@ def _blocos_detalhes_diretor(
                     else inv.responsavel
                 )
                 nsu = inv.transacao.nsu
-                linhas_unidade.append(
+                itens_recebimentos.append((abs(inv.transacao.valor),
                     f"A maior: {moeda_br(inv.transacao.valor)} · {inv.transacao.momento:%H:%M} · "
                     f"{escape(inv.transacao.bandeira or 'forma não informada')} · "
                     f"NSU {escape(nsu[-4:] if nsu else 'não informado')} — {escape(responsavel)} — "
                     "tipoInclusao=não aplicável (sem lançamento ERP)"
-                )
-
-        if registro.conferencia_recebimentos:
-            linhas_unidade.extend(linhas_acoes_recebimentos(conferencia_para_registro(registro)))
+                ))
+        itens_recebimentos.sort(key=lambda item: -item[0])
+        linhas_unidade.extend("• " + texto for _, texto in itens_recebimentos[:5])
+        if len(itens_recebimentos) > 5:
+            linhas_unidade.append(f"+{len(itens_recebimentos) - 5} itens — detalhe na planilha")
         if len(linhas_unidade) > 1:
             blocos.append(linhas_unidade)
         despesas.extend(

@@ -250,7 +250,8 @@ async def test_reprocessar_desconto_sem_portal_e_sem_par_vermelho(monkeypatch, t
             {321: 0},
         )
     )
-    assert "Premmia: 1 conferidos · R$ 30,00 · 1 divergências" in mensagem
+    assert "Premmia: portal R$ 30,00 · webPosto R$ 60,00 · ❌ diferença R$ -30,00 (1 casados)" in mensagem
+    assert "A menor: R$ 30,00 · 10:05 — Funcionário Sintético (7)" in mensagem
 
 
 async def test_coleta_uma_vez_e_reprocessamento_nao_logam(monkeypatch, tmp_path):
