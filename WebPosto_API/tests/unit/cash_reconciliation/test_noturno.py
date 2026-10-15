@@ -348,7 +348,8 @@ async def test_job_registra_alertas_sem_duplicar_pendencias(monkeypatch, tmp_pat
     assert estado.unidades_processadas == (EMPRESA,)
     assert estado.resumo_gerado is True
     resumo = saude_robo.caminho_resumo(DIA).read_text(encoding="utf-8")
-    assert "Faltas sem desconto" in resumo
+    assert "LOGOS — Caixas" in resumo
+    assert "sobra R$ 2,50" in resumo
     assert "R$ 2,50" in resumo
 
 

@@ -12,6 +12,17 @@ Consolidar neste branch a auditoria de fechamento `FECHAMENTO_V3`, a fila local 
 - Leituras do painel limitadas aos resultados gravados; banco de pendências aberto em modo somente leitura. Ausências não são apresentadas como zeros.
 - Estado do robô, alerta de atraso superior a 26 horas e resumo diário agregado em `WebPosto_API/data/resumos/`.
 - Testes sintéticos para autenticação, isolamento, persistência, saúde e renderização.
+- TELEGRAM_02.1: resumo por posto/setor/caixa, principal com até 25 linhas e
+  continuação sem descartar alertas. Mantém despesas (até oito itens no resumo,
+  com descrição/plano/valor), vales com nome e código, recebimentos por forma,
+  NSU mascarado e avisos Premmia com a data dos últimos dados.
+- A falta usa a regra existente `LIMITE_QUEBRA` (R$ 10), sem corte fixo de R$ 100.
+  Faltas sem desconto e caixas não consolidados exigem atenção mesmo abaixo do limite;
+  caixas abertos não entram nas faltas.
+- Reenvio explícito do texto já gravado: `python -m src.jobs.telegram --reenviar-resumo 13/10/2026`.
+  Lê somente o resumo local, divide mensagens longas e não consulta nem escreve no ERP.
+  **Executar somente depois do "ok" do diretor**; não há envio automático por esse comando sem opção.
+  O arquivo do resumo e o histórico do robô não são alterados pelo reenvio.
 
 ## Como testar
 
@@ -23,6 +34,12 @@ node --test tests/frontend/*.test.mjs
 ```
 
 Validação registrada: 412 testes backend e 29 frontend aprovados na suíte completa. A conferência local no navegador usou snapshots existentes e não executou o robô nem escreveu no ERP.
+
+Validação TELEGRAM_02.1 (14/10/2026): `python -m pytest tests/unit/cash_reconciliation -q`
+com 385 testes aprovados, zero falhas e zero tentativas reais de navegador/portal.
+Os avisos incluem deprecações existentes e cobertura de cópias Python inválidas fora desta sprint.
+O resumo e a planilha de 13/10/2026 foram regenerados exclusivamente com snapshots
+e nomes da planilha já gravada, sem rede. Nenhum envio Telegram foi realizado.
 
 ## Evidência operacional observada
 

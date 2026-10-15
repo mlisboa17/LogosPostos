@@ -1,16 +1,29 @@
-"""Comandos explícitos de descoberta do chat e teste do bot Telegram."""
+"""Comandos explícitos de descoberta, teste e reenvio de resumo local."""
 
 from __future__ import annotations
 
 import argparse
 import logging
 import os
+from datetime import date, datetime
 from pathlib import Path
 
 import httpx
 from dotenv import load_dotenv
 
 from src.shared.notificacao.telegram import API_BASE, enviar_mensagem
+from src.modules.cash_reconciliation.adapters.saude_robo import caminho_resumo
+from src.modules.cash_reconciliation.application.resumo_diario import dividir_resumo
+
+
+def _dia_resumo(valor: str) -> date:
+    try:
+        dia = datetime.strptime(valor, "%d/%m/%Y").date()
+    except ValueError:
+        raise argparse.ArgumentTypeError("Informe uma data válida no formato dd/mm/aaaa.") from None
+    if valor != dia.strftime("%d/%m/%Y"):
+        raise argparse.ArgumentTypeError("Informe a data no formato dd/mm/aaaa.")
+    return dia
 
 
 def _chat_ids() -> list[str]:
@@ -26,6 +39,10 @@ def main() -> int:
     grupo = parser.add_mutually_exclusive_group(required=True)
     grupo.add_argument("--descobrir-chat", action="store_true")
     grupo.add_argument("--teste", action="store_true")
+    grupo.add_argument(
+        "--reenviar-resumo", type=_dia_resumo, metavar="dd/mm/aaaa",
+        help="Reenvia somente o resumo local gravado; executar apenas após o ok do diretor.",
+    )
     args = parser.parse_args()
     load_dotenv(Path(__file__).resolve().parents[2] / ".env")
     for nome in ("httpx", "httpcore"):
@@ -69,14 +86,32 @@ def main() -> int:
         ids = _chat_ids()
     except ValueError as exc:
         parser.error(str(exc))
-    resultados = enviar_mensagem("LOGOS — teste de envio", token=token, chat_ids=ids)
-    if all(resultado.sucesso for resultado in resultados):
-        print(f"Telegram envio=ok destinatarios={len(resultados)}")
-        return 0
-    falha = next(resultado for resultado in resultados if not resultado.sucesso)
-    detalhe = f"HTTP {falha.status_http}" if falha.status_http is not None else falha.tipo_erro
-    print(f"Telegram envio=falhou motivo={detalhe or 'erro desconhecido'}")
-    return 1
+    mensagens = ["LOGOS — teste de envio"]
+    if args.reenviar_resumo is not None:
+        try:
+            resumo = caminho_resumo(args.reenviar_resumo).read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as exc:
+            print(f"Falha ao ler o resumo gravado ({type(exc).__name__}). Nenhum envio realizado.")
+            return 1
+        if not resumo.strip():
+            print("Resumo gravado vazio. Nenhum envio realizado.")
+            return 1
+        mensagens = dividir_resumo(resumo)
+    for mensagem in mensagens:
+        envio = enviar_mensagem(
+            mensagem, token=token, chat_ids=ids,
+            parse_mode="HTML" if args.reenviar_resumo is not None else None,
+        )
+        if not envio:
+            print("Telegram envio=falhou motivo=sem destinatários; envio interrompido.")
+            return 1
+        falha = next((resultado for resultado in envio if not resultado.sucesso), None)
+        if falha is not None:
+            detalhe = f"HTTP {falha.status_http}" if falha.status_http is not None else falha.tipo_erro
+            print(f"Telegram envio=falhou motivo={detalhe or 'erro desconhecido'}; envio interrompido.")
+            return 1
+    print(f"Telegram envio=ok destinatarios={len(ids)} mensagens={len(mensagens)}")
+    return 0
 
 
 if __name__ == "__main__":

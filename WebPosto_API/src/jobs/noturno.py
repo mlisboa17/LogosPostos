@@ -21,6 +21,7 @@ from src.modules.cash_reconciliation.adapters import persistencia as persistenci
 from src.modules.cash_reconciliation.adapters import saude_robo
 from src.modules.cash_reconciliation.application.resumo_diario import (
     abas_conferencia_recebimentos, conferencia_para_registro, gerar_mensagem_curta,
+    obter_nome_setor,
 )
 from src.modules.cash_reconciliation.config import carregar_unidades, prazos_pendencia_dias
 from src.modules.cash_reconciliation.domain.tempo import agora, formatar_data, ontem, para_local
@@ -280,10 +281,12 @@ def _criar_planilha_telegram(dia: date, dados: dict, diretorio: Path | None = No
                 if caixa.fechamento is not None
                 else None
             )
+            setor = obter_nome_setor(caixa.centro_custo)
+            rotulo_caixa = f"{apelido} · {setor} ({caixa.codigo})"
             caixas_sheet.append(
                 [
                     apelido,
-                    caixa.codigo,
+                    rotulo_caixa,
                     nomes.get(caixa.funcionario_codigo, f"func. {caixa.funcionario_codigo}"),
                     abertura,
                     fechamento_caixa,
@@ -301,7 +304,7 @@ def _criar_planilha_telegram(dia: date, dados: dict, diretorio: Path | None = No
                 despesas_sheet.append(
                     [
                         apelido,
-                        caixa.codigo,
+                        rotulo_caixa,
                         float(despesa.valor),
                         despesa.descricao or "",
                         plano,
@@ -314,7 +317,7 @@ def _criar_planilha_telegram(dia: date, dados: dict, diretorio: Path | None = No
                 vales_sheet.append(
                     [
                         apelido,
-                        caixa.codigo,
+                        rotulo_caixa,
                         nomes.get(
                             codigo_funcionario,
                             (
@@ -405,6 +408,7 @@ def _tentar_envio_telegram(
             return
         dados = _coletar_dados_telegram(dia)
         mensagens = _mensagens_telegram(dia, dados)
+        saude_robo.salvar_resumo(dia, "\n".join(mensagens) + "\n")
         try:
             planilha = _criar_planilha_telegram(dia, dados)
         except (OSError, ValueError) as exc:

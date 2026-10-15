@@ -1,5 +1,6 @@
 from datetime import date
 from decimal import Decimal
+import pytest
 
 from openpyxl import load_workbook
 
@@ -40,9 +41,10 @@ def test_resumo_v32_quantidade_valor_e_forma():
     mensagem = "\n".join(resumo_diario.gerar_mensagem_curta(
         DIA_CARTOES, [diario], [74014], set(), {74014: 1},
     ))
-    assert "0 conferidos · R$ 0,00 · 1 divergências · R$ 12,00" in mensagem
+    assert "0 conferidos · 1 divergências · R$ 12,00" in mensagem
     assert "A maior: 1 · R$ 12,00" in mensagem
-    assert "Desconto: portal 1 · R$ 12,00 / webPosto 0 · R$ 0,00 · diferença R$ 12,00" in mensagem
+    assert "Desconto: portal 1 · R$ 12,00 / webPosto 0 · diferença R$ 12,00" in mensagem
+    assert "R$ 0,00" not in mensagem
 
 
 def _registro(*, alertas=None, despesas=(), vales=(), adquirentes=()):
@@ -93,10 +95,11 @@ def test_unidade_sem_problema_exibe_check_e_nome_de_fallback(monkeypatch):
         {EMPRESA: 0},
     )[0]
 
-    assert "<b>✓ UNIDADE SINTÉTICA</b>" in mensagem
-    assert "<b>LOGOS — Caixas de 09/10/2026</b>" in mensagem
-    assert "Sem falta" in mensagem
-    assert "Pendências: 0 abertas · 0 vencidas" in mensagem
+    assert "✅ EM ORDEM" in mensagem
+    assert "Unidade sintética · cc 2" in mensagem
+    assert "LOGOS — Caixas de sexta-feira, 09/10/2026" in mensagem
+    assert "sobra R$ 2,50" in mensagem
+    assert "Pendências abertas: 0" in mensagem
 
 
 def test_falta_em_caixa_nao_consolidado_mostra_aviso(monkeypatch):
@@ -127,11 +130,9 @@ def test_falta_em_caixa_nao_consolidado_mostra_aviso(monkeypatch):
         {EMPRESA: {3: "Operador Sintético"}},
     )[0]
 
-    assert "<b>⚠ DOZE</b>" in mensagem
-    assert (
-        "Falta sem desconto: R$ 2.263,18 — Operador Sintético (caixa ainda não consolidado)"
-        in mensagem
-    )
+    assert "⚠️ PRECISA DE VOCÊ" in mensagem
+    assert "Doze · cc 2 (caixa 10, turno sintético) — falta R$ 2.263,18, sem desconto, não consolidado" in mensagem
+    assert "Operador Sintético" not in mensagem
 
 
 def test_despesa_sem_plano_e_limite_de_oito(monkeypatch):
@@ -160,7 +161,7 @@ def test_despesa_sem_plano_e_limite_de_oito(monkeypatch):
 
     assert "SEM PLANO ⚠" in mensagem
     assert "+1 outras (R$ 1,00)" in mensagem
-    assert mensagem.count("\n• R$ ") == 8
+    assert mensagem.count("— Lanche equipe — SEM PLANO ⚠ — R$ ") == 8
 
 
 def test_descricoes_nao_expoem_nome_pessoal(monkeypatch):
@@ -223,8 +224,8 @@ def test_vale_mostra_nome_de_funcionario(monkeypatch):
         {EMPRESA: {302036: "Funcionário Sintético"}},
     )[0]
 
-    assert "Funcionário Sintético R$ 300,00 (falta de caixa)" in mensagem
-    assert "302036" not in mensagem
+    assert "🧾 VALES" in mensagem
+    assert "Funcionário Sintético (302036) R$ 300,00 (falta de caixa)" in mensagem
 
 
 def test_mensagem_longa_e_dividida_abaixo_do_limite(monkeypatch):
@@ -238,10 +239,12 @@ def test_mensagem_longa_e_dividida_abaixo_do_limite(monkeypatch):
         {EMPRESA: 0},
     )
 
-    assert len(mensagens) == 100
+    assert len(mensagens) > 1
     assert all(len(mensagem) <= 4000 for mensagem in mensagens)
-    assert mensagens[0].startswith("<b>LOGOS — Caixas de 09/10/2026</b>")
-    assert "<b>✓ DOZE</b>" in mensagens[0]
+    assert all(len(mensagem.encode("utf-16-le")) // 2 <= 4000 for mensagem in mensagens)
+    assert mensagens[0].startswith("🌙 LOGOS — Caixas de sexta-feira, 09/10/2026")
+    assert "Doze · cc 2" in mensagens[0]
+    assert "\n".join(mensagens).count("• Doze · cc 2") == 100
     assert all("LOGOS — Caixas" not in mensagem for mensagem in mensagens[1:])
 
 
@@ -261,7 +264,7 @@ def test_filiais_em_alerta_antes_das_sem_alerta(monkeypatch):
         {EMPRESA: 0, segunda: 0},
     )[0]
 
-    assert mensagem.index("<b>⚠ ALERTA</b>") < mensagem.index("<b>✓ NORMAL</b>")
+    assert mensagem.index("Alerta — conferência não rodou") < mensagem.index("Normal · cc 2")
 
 
 def test_planilha_com_quatro_abas_valores_numericos_e_nome(tmp_path):
@@ -298,4 +301,113 @@ def test_planilha_com_quatro_abas_valores_numericos_e_nome(tmp_path):
     assert "R$" in workbook["Resumo"]["F2"].number_format
     assert isinstance(workbook["Despesas"]["C2"].value, (int, float))
     assert workbook["Caixas"]["C2"].value == "Funcionário Planilha Sintético"
+    assert workbook["Caixas"]["B2"].value == "Filial Sintética · cc 2 (10)"
     assert workbook["Vales"]["C2"].value == "Funcionário Planilha Sintético"
+
+
+def _caixa_com_quebra(registro, codigo, centro_custo, valor, *, fechado=True, consolidado=True):
+    base = registro.fechamento.caixas[0]
+    return base.model_copy(update={
+        "caixa": base.caixa.model_copy(update={
+            "codigo": codigo, "centro_custo": centro_custo, "turno": "1º turno",
+            "fechado": fechado, "consolidado": consolidado,
+        }),
+        "modalidades": (base.modalidades[0].model_copy(update={"diferenca": Decimal(valor)}),),
+        "alertas": (),
+    })
+
+
+def test_vip_dois_caixas_por_setor_aberto_fora_das_faltas_e_ordem(monkeypatch):
+    monkeypatch.setattr(resumo_diario, "carregar_unidades", lambda: {EMPRESA: _unidade("VIP")})
+    registro = _registro(alertas=())
+    caixas = (
+        _caixa_com_quebra(registro, 1, 7295, "-999", fechado=False),
+        _caixa_com_quebra(registro, 2, 21650, "-1910.09", consolidado=False),
+        _caixa_com_quebra(registro, 3, 24886, "-20"),
+    )
+    registro = registro.model_copy(update={"fechamento": registro.fechamento.model_copy(update={"caixas": caixas})})
+    texto = "\n".join(resumo_diario.gerar_mensagem_curta(DIA, [registro], [EMPRESA], set(), {EMPRESA: 1}))
+    precisa, abertos = texto.split("⏳ AINDA ABERTOS")
+    assert "VIP · Loja (caixa 2, 1º turno) — falta R$ 1.910,09, não consolidado" in precisa
+    assert "caixa 1" not in precisa and "R$ 999,00" not in texto
+    assert "VIP · Pista (caixa 1, 1º turno) — aberto desde 08:00" in abertos
+    assert precisa.index("R$ 1.910,09") < precisa.index("R$ 20,00")
+    assert "cc 24886" in precisa
+    assert str(EMPRESA) not in texto
+
+
+@pytest.mark.parametrize("valor,sem_desconto,consolidado,precisa", [
+    ("-10", False, True, False),
+    ("-10.01", False, True, True),
+    ("-1", True, True, True),
+    ("0", False, False, True),
+])
+def test_limite_existente_e_alertas_pequenos_nunca_em_ordem(monkeypatch, valor, sem_desconto, consolidado, precisa):
+    monkeypatch.setattr(resumo_diario, "carregar_unidades", lambda: {EMPRESA: _unidade("VIP")})
+    registro = _registro(alertas=())
+    caixa = _caixa_com_quebra(registro, 10, 7295, valor, consolidado=consolidado)
+    if sem_desconto:
+        caixa = caixa.model_copy(update={"alertas": (Alerta(
+            codigo="FALTA_SEM_DESCONTO", severidade=Severidade.VERMELHO,
+            mensagem="falta", valor=abs(Decimal(valor)), referencia=10,
+        ),)})
+    registro = registro.model_copy(update={"fechamento": registro.fechamento.model_copy(update={"caixas": (caixa,)})})
+    texto = resumo_diario.gerar_resumo_diario(DIA, [registro], [EMPRESA], set(), {EMPRESA: 0})
+    assert ("⚠️ PRECISA DE VOCÊ" in texto) is precisa
+    assert ("✅ EM ORDEM" in texto) is not precisa
+    assert "R$ 0,00" not in texto
+
+
+def test_principal_25_linhas_sem_perder_continuacao(monkeypatch):
+    monkeypatch.setattr(resumo_diario, "carregar_unidades", lambda: {EMPRESA: _unidade("VIP")})
+    registro = _registro(alertas=())
+    caixas = tuple(_caixa_com_quebra(registro, n, 7295, f"-{n + 20}") for n in range(40))
+    registro = registro.model_copy(update={"fechamento": registro.fechamento.model_copy(update={"caixas": caixas})})
+    texto = resumo_diario.gerar_resumo_diario(DIA, [registro], [EMPRESA], set(), {EMPRESA: 12})
+    principal = texto.split("📌 CONTINUAÇÃO DOS CAIXAS")[0].rstrip()
+    assert len(principal.splitlines()) <= 25
+    assert texto.count("(caixa ") == 40
+    assert "Pendências abertas: 12" in texto
+
+
+def test_sem_fontes_pendentes_ou_linhas_zero(monkeypatch):
+    from src.modules.cash_reconciliation.domain.recebimentos import RecebimentoAdquirente, ResumoCasados
+
+    monkeypatch.setattr(resumo_diario, "carregar_unidades", lambda: {EMPRESA: _unidade("VIP")})
+    adquirentes = (
+        RecebimentoAdquirente(adquirente="PAGBANK", situacao="ok", casados=ResumoCasados(quantidade=0, total=Decimal(0))),
+        RecebimentoAdquirente(adquirente="CIELO", situacao="pendente"),
+        RecebimentoAdquirente(adquirente="MAIS_PAGAMENTOS", situacao="pendente"),
+    )
+    texto = resumo_diario.gerar_resumo_diario(DIA, [_registro(alertas=(), adquirentes=adquirentes)], [EMPRESA], set(), {EMPRESA: 0})
+    assert all(v not in texto for v in ("R$ 0,00", "CIELO", "MAIS_PAGAMENTOS", "pendente", "PAGBANK"))
+
+
+def test_duplicidade_e_individual_com_nome_codigo(monkeypatch):
+    from src.modules.cash_reconciliation.domain.cartoes import AlertaCartao
+    from src.modules.cash_reconciliation.domain.recebimentos import RecebimentoAdquirente
+    from .test_cartoes import C
+
+    monkeypatch.setattr(resumo_diario, "carregar_unidades", lambda: {EMPRESA: _unidade("VIP")})
+    cartao = C(1, "50", "10:00", nsu="12345678").model_copy(update={
+        "empresa_codigo": EMPRESA, "momento": resultado_sintetico().caixas[0].caixa.abertura.replace(year=2026, month=10, day=9),
+        "frentista": 7, "nome_frentista": "Sintético",
+    })
+    adquirente = RecebimentoAdquirente(
+        adquirente="PAGBANK", situacao="ok", a_menor=(cartao,),
+        alertas=(AlertaCartao(codigo="CARTAO_COBRANCA_DUPLICADA", severidade="vermelho",
+                             mensagem="Cobrança em duplicidade R$ 100,00", valor=Decimal("100"), cartoes=(cartao,)),),
+    )
+    texto = resumo_diario.gerar_resumo_diario(DIA, [_registro(alertas=(), adquirentes=(adquirente,))], [EMPRESA], set(), {EMPRESA: 0})
+    principal = texto.split("💳 RECEBIMENTOS")[0]
+    assert "Cobrança em duplicidade R$ 100,00 — Sintético (7)" in principal
+    assert "Sintético (7)" in principal
+    assert principal.index("R$ 100,00") < principal.index("R$ 50,00")
+
+
+def test_divisao_preserva_entidades_e_unicode():
+    texto = "🌙 LOGOS\n" + ("😀" * 1500 + " &amp; " + "x" * 2500)
+    mensagens = resumo_diario.dividir_resumo(texto)
+    assert len(mensagens) > 1
+    assert all(len(m.encode("utf-16-le")) // 2 <= 4000 for m in mensagens)
+    assert "&amp;" in "\n".join(mensagens)

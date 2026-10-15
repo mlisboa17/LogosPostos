@@ -352,7 +352,8 @@ async def test_job_captcha_aviso_nao_falha_nem_repete(monkeypatch, tmp_path, int
             [321], set(), {321: 0},
         ))
         assert "Premmia: 2 linhas do portal não entraram na planilha" in mensagem
-        assert "Robô ok" in mensagem
+        assert "auditoria com falha" not in mensagem
+        assert "conferência não rodou" not in mensagem
 
 
 async def test_verificacao_humana_bloqueia_novo_login_no_mesmo_dia_alvo(monkeypatch, tmp_path):

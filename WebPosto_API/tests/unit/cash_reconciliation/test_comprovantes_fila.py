@@ -280,6 +280,7 @@ async def test_processar_comprovante_sem_extrato_ainda(
     extrato_pagbank_sintetico: ExtratoBancario,
 ):
     caminho_fila = tmp_path / "fila.json"
+    pasta_comp = tmp_path / "comprovantes"
 
     # Valor 999.00 não existe no extrato
     def mock_gemini(conteudo: bytes, mime: str, texto: str) -> dict[str, Any]:
@@ -300,6 +301,7 @@ async def test_processar_comprovante_sem_extrato_ainda(
         unidades=[unidade_doze],
         gemini_extractor=extractor,
         caminho_fila=caminho_fila,
+        pasta_comprovantes=pasta_comp,
     )
 
     assert item.status == "sem extrato ainda"
@@ -314,6 +316,7 @@ async def test_processar_audio_diretor_sozinho(
     extrato_pagbank_sintetico: ExtratoBancario,
 ):
     caminho_fila = tmp_path / "fila.json"
+    pasta_comp = tmp_path / "comprovantes"
 
     def mock_gemini_audio(conteudo: bytes, mime: str, texto: str) -> dict[str, Any]:
         return {
@@ -332,6 +335,7 @@ async def test_processar_audio_diretor_sozinho(
         unidades=[unidade_doze],
         gemini_extractor=extractor,
         caminho_fila=caminho_fila,
+        pasta_comprovantes=pasta_comp,
     )
 
     assert item.status == "pronto para lançar"
@@ -348,6 +352,7 @@ async def test_diretor_responde_comprovante_anterior_com_classificacao(
     extrato_pagbank_sintetico: ExtratoBancario,
 ):
     caminho_fila = tmp_path / "fila.json"
+    pasta_comp = tmp_path / "comprovantes"
 
     # 1. Envia comprovante sem classificação (status "a classificar")
     def mock_gemini(conteudo: bytes, mime: str, texto: str) -> dict[str, Any]:
@@ -369,6 +374,7 @@ async def test_diretor_responde_comprovante_anterior_com_classificacao(
         unidades=[unidade_doze],
         gemini_extractor=extractor,
         caminho_fila=caminho_fila,
+        pasta_comprovantes=pasta_comp,
     )
     assert item_inicial.status == "a classificar"
     assert item_inicial.debito_casado_fitid == "FIT-PAG-100"
