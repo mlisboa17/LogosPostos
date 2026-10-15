@@ -42,6 +42,7 @@ import { contarPendenciasAbertas, renderPendencias } from "./pages/pendencias.js
 import { renderCommercialScore } from "./pages/commercialScore.js?v=commercial-score-5";
 import { carregarPainelDiretor } from "./pages/directorDashboard.js";
 import { renderConferenciaRecebimentos } from "./pages/conferenciaRecebimentos.js";
+import { renderLancamentosLogos } from "./pages/lancamentosLogos.js";
 import { currentSession, login, logout } from "./services/auth.js";
 import { renderCompanySwitcher } from "./components/CompanySwitcher.js";
 import { createTableState } from "./services/tableState.js";
@@ -71,6 +72,8 @@ const VIEW_ALIASES = {
   directordashboard: "directorDashboard",
   "conferencia-recebimentos": "conferenciaRecebimentos",
   conferenciarecebimentos: "conferenciaRecebimentos",
+  "lancamentos-logos": "lancamentosLogos",
+  lancamentoslogos: "lancamentosLogos",
 };
 
 const VIEW_URL_NAMES = {
@@ -80,6 +83,7 @@ const VIEW_URL_NAMES = {
   commercialScore: "placar",
   directorDashboard: "painel-diretor",
   conferenciaRecebimentos: "conferencia-recebimentos",
+  lancamentosLogos: "lancamentos-logos",
 };
 
 function normalizeViewId(view) {
@@ -340,6 +344,7 @@ const executiveNode = document.querySelector("#executiveView");
 const dashboardNode = document.querySelector("#dashboardView");
 const directorDashboardNode = document.querySelector("#directorDashboardView");
 const conferenciaRecebimentosNode = document.querySelector("#conferenciaRecebimentosView");
+const lancamentosLogosNode = document.querySelector("#lancamentosLogosView");
 const expensesNode = document.querySelector("#expensesView");
 const accountsNode = document.querySelector("#accountsView");
 const financeCenterNode = document.querySelector("#financeCenterView");
@@ -438,6 +443,7 @@ void currentSession().then((user) => {
   if (!user) return;
   authenticatedUser = user;
   atualizarAcessoPainel(user);
+  if (state.view === "lancamentosLogos") void refreshAll(false);
   sessionUser.textContent = `${user.email} · ${user.role}`;
   sessionUser.classList.remove("hidden");
   logoutButton.classList.remove("hidden");
@@ -466,11 +472,12 @@ function setView(view) {
     ? "executive"
     : requestedView;
   writeUrl(state);
-  filtersNode.classList.toggle("hidden", ["directorDashboard", "conferenciaRecebimentos"].includes(state.view));
+  filtersNode.classList.toggle("hidden", ["directorDashboard", "conferenciaRecebimentos", "lancamentosLogos"].includes(state.view));
   executiveNode.classList.toggle("hidden", state.view !== "executive");
   dashboardNode.classList.toggle("hidden", state.view !== "dashboard");
   directorDashboardNode.classList.toggle("hidden", state.view !== "directorDashboard");
   conferenciaRecebimentosNode.classList.toggle("hidden", state.view !== "conferenciaRecebimentos");
+  lancamentosLogosNode.classList.toggle("hidden", state.view !== "lancamentosLogos");
   expensesNode.classList.toggle("hidden", state.view !== "expenses");
   accountsNode.classList.toggle("hidden", state.view !== "accounts");
   financeCenterNode.classList.toggle("hidden", state.view !== "financeCenter");
@@ -1046,6 +1053,12 @@ async function refreshOperationalDataInBackground(bypassCache = false) {
 }
 
 async function refreshAll(bypassCache = false) {
+  if (state.view === "lancamentosLogos") {
+    await renderLancamentosLogos(lancamentosLogosNode, {
+      papel: authenticatedUser?.role || "", unidadeInicial: state.pendenciaUnidade,
+    });
+    return;
+  }
   if (state.view === "conferenciaRecebimentos") {
     await renderConferenciaRecebimentos(conferenciaRecebimentosNode, {
       papel: authenticatedUser?.role || "", unidadeInicial: state.pendenciaUnidade,

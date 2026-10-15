@@ -1655,5 +1655,8 @@ label.empresa-ms__row {
 .cr-group--4 { border-color: #94a3b8; }
 .conferencia-recebimentos article { padding: .8rem; border-bottom: 1px solid #334155; }
 .conferencia-recebimentos article b { color: #fbbf24; }
+.ll-texto { white-space: pre-wrap; overflow-wrap: anywhere; }
+.lancamentos-logos button:disabled { opacity: .5; cursor: wait; }
+.ll-message[role="alert"] { color: #fca5a5; }
 .cr-result { min-width: 0; }
 .cr-tabs button[aria-pressed="true"] { border-color: #60a5fa; }

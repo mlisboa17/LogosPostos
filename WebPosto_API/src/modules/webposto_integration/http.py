@@ -26,7 +26,9 @@ BASE_URL_PADRAO = "https://web.qualityautomacao.com.br"
 
 
 class WebPostoErro(RuntimeError):
-    pass
+    def __init__(self, mensagem: str, *, status_http: int | None = None):
+        super().__init__(mensagem)
+        self.status_http = status_http
 
 
 async def paginar(
@@ -54,7 +56,8 @@ async def paginar(
             except httpx.HTTPError as exc:
                 raise WebPostoErro(type(exc).__name__) from None
             if resp.status_code != 200:
-                raise WebPostoErro(f"HTTP {resp.status_code}: {resp.text[:120].replace(chave, '***')}")
+                raise WebPostoErro(f"HTTP {resp.status_code}: {resp.text[:120].replace(chave, '***')}",
+                                  status_http=resp.status_code)
             payload = resp.json()
             lote = payload.get("resultados") or []
             linhas += lote

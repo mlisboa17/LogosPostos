@@ -198,6 +198,10 @@ def gerar_resumo_diretor(
     dia_nome = DIAS_DA_SEMANA.get(dia.weekday(), "")
     cabecalho = f"🌙 LOGOS — Caixas de {dia_nome}, {dia.strftime('%d/%m/%Y')}"
     linhas = [cabecalho, ""]
+    from .piloto_cartao import resumo_lancamentos
+    lancamentos = resumo_lancamentos(unidades_processadas, dia)
+    if lancamentos:
+        linhas.extend([lancamentos, ""])
 
     if itens_precisa:
         linhas.append("⚠️ PRECISA DE VOCÊ")

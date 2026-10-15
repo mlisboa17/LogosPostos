@@ -88,6 +88,51 @@ class ConferenciaPayload(BaseModel):
         return valor.strip()
 
 
+class CartaoDecisaoPayload(BaseModel):
+    unidade: int
+    dia: date
+
+
+@router.get("/lancamentos-logos")
+async def listar_lancamentos_logos(
+    unidade: int, dia: date, current_user: dict = Depends(get_current_user),
+) -> dict:
+    from ..application import piloto_cartao
+    require_unit_access(current_user, unidade)
+    if current_user.get("role") not in {"diretor", "gerente", "auditor"}:
+        raise HTTPException(status_code=403, detail="Perfil sem acesso aos lançamentos.")
+    try:
+        propostas = await piloto_cartao.preparar(unidade, dia)
+        ultimos = {}
+        for h in piloto_cartao.historico(unidade, dia):
+            ultimos[h["acao_id"]] = h
+        return {
+            "propostas": [p.publica() for p in propostas if p.id not in ultimos],
+            "historico": [{k: v for k, v in h.items() if k not in {"payload", "recriar", "nsu"}}
+                          for h in ultimos.values()],
+        }
+    except (ValueError, WebPostoErro, OSError):
+        logger.exception("Falha na prévia de cartões unidade=%s", unidade)
+        raise HTTPException(status_code=503, detail="Não consegui consultar os cartões; nenhum lançamento realizado.") from None
+
+
+@router.post("/lancamentos-logos/{acao_id}/{decisao}")
+async def decidir_lancamento_logos(
+    acao_id: str, decisao: Literal["aprovar", "recusar", "desfazer"],
+    payload: CartaoDecisaoPayload, current_user: dict = Depends(get_current_user),
+) -> dict:
+    from ..application import piloto_cartao
+    if current_user.get("role") != "diretor":
+        raise HTTPException(status_code=403, detail="Somente o diretor pode lançar, recusar ou desfazer cartões.")
+    require_unit_access(current_user, payload.unidade)
+    try:
+        return await piloto_cartao.decidir(payload.unidade, payload.dia, acao_id, decisao,
+                                          autor=f"diretor:{current_user['sub']}")
+    except (ValueError, WebPostoErro, OSError) as exc:
+        logger.warning("Lançamento bloqueado unidade=%s tipo=%s", payload.unidade, type(exc).__name__)
+        raise HTTPException(status_code=409, detail=str(exc)) from None
+
+
 def _conferencia(unidade: int, inicio: date, fim: date, usuario: dict):
     if unidade not in carregar_unidades():
         raise HTTPException(status_code=404, detail="Unidade não encontrada.")

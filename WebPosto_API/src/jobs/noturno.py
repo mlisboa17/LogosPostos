@@ -449,6 +449,13 @@ def _tentar_envio_telegram(
             )
             logger.warning("Telegram envio=falhou motivo=%s", motivo)
         _registrar_envio_telegram(registro, dia, sucesso)
+        # Propostas de escrita nunca vão para a lista geral de destinatários.
+        from src.modules.cash_reconciliation.adapters import telegram_cartoes
+        from src.modules.cash_reconciliation.adapters.webposto_escrita_cartao import ler_travas
+        travas = ler_travas()
+        if travas["TELEGRAM_DIRETOR_CHAT_ID"] and travas["TELEGRAM_DIRETOR_USER_ID"]:
+            for codigo in dados["unidades"]:
+                asyncio.run(telegram_cartoes.enviar_propostas(codigo, dia, token=token))
     except Exception as exc:
         logger.warning("Telegram envio=falhou motivo=%s", type(exc).__name__)
 

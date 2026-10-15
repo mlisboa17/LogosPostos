@@ -14,6 +14,7 @@ from ..adapters.persistencia import carregar_dia, salvar_dia
 from ..adapters import pendencias as repositorio_pendencias
 from ..adapters import saude_robo
 from ..adapters import premmia_portal
+from ..adapters.webposto_http import WebPostoErro
 from ..application.auditar_fechamento import auditar_unidade
 from ..application.gerar_pendencias import (
     executar_reincidencia_mes,
@@ -110,7 +111,11 @@ async def executar(
     diretorio_pendencias: Path | None = None, timeout: float = TIMEOUT_ETAPA,
     executar_placar: ExecutarPlacar | None = None,
 ) -> int:
-    if os.getenv("WEBPOSTO_WRITES") != "0":
+    from ..application import piloto_cartao
+    automatico = piloto_cartao.automatico_ativado()
+    if automatico:
+        piloto_cartao._travas(None)
+    if not automatico and os.getenv("WEBPOSTO_WRITES") != "0":
         logger.error("Execucao bloqueada: WEBPOSTO_WRITES deve ser 0.")
         return 1
     execucao_id = uuid.uuid4().hex
@@ -120,6 +125,7 @@ async def executar(
     unidades_com_falha: set[int] = set()
     unidades_com_aviso: set[int] = set()
     resultados = []
+    piloto_interrompido = False
     for unidade in unidades.values():
         try:
             aviso_premmia = None
@@ -153,6 +159,20 @@ async def executar(
                 )
             else:
                 resultado = await coletar_unidade(unidade, dia, execucao_id, timeout=timeout)
+            if automatico and not piloto_interrompido:
+                try:
+                    lancamentos = await piloto_cartao.executar_automatico(unidade.empresa_codigo, dia)
+                    if lancamentos:
+                        resultado = await coletar_unidade(unidade, dia, execucao_id, timeout=timeout)
+                    if any(l["estado"] != "confirmado" for l in lancamentos):
+                        piloto_interrompido = True
+                        falhas += 1
+                        unidades_com_falha.add(unidade.empresa_codigo)
+                except (ValueError, OSError, WebPostoErro) as exc:
+                    piloto_interrompido = True
+                    falhas += 1
+                    unidades_com_falha.add(unidade.empresa_codigo)
+                    logger.error("Piloto de cartões interrompido: conferir no painel. tipo=%s", type(exc).__name__)
             salvar_dia(resultado, diretorio=diretorio)
             resultados.append(resultado)
             novas = pendencias_do_dia(resultado)

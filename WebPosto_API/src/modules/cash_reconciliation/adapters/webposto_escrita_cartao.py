@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import re
+import threading
 from dataclasses import asdict, dataclass
 from datetime import date, datetime
 from decimal import Decimal
@@ -22,7 +23,9 @@ from tempfile import NamedTemporaryFile
 from typing import Any
 
 import httpx
-from dotenv import dotenv_values
+from dotenv import load_dotenv
+from dotenv.main import DotEnv
+from unittest.mock import patch
 
 from ..domain.acoes_recebimentos import AcaoRecebimento
 from ..domain.models import Unidade
@@ -52,6 +55,8 @@ CAMPOS_PERMITIDOS_SPEC: frozenset[str] = frozenset({
 })
 
 DIRETORIO_AUDITORIA_PADRAO = Path("data/lancamentos_logos")
+_leitura_env = threading.RLock()
+_auditoria_lock = threading.RLock()
 
 
 class BarreiraCartaoErro(ValueError):
@@ -72,54 +77,68 @@ def resolver_caminho_env(caminho_env: Path | str | None = None) -> Path:
     return p1
 
 
+def ler_travas(caminho_env: Path | str | None = None) -> dict[str, list[tuple[int, str | None]]]:
+    """Observa somente as travas enquanto load_dotenv lê o arquivo físico.
+
+    A subclasse mantém a semântica do dotenv e retém duplicidades antes de virarem
+    um dicionário; interpolação e os.environ não podem liberar uma trava.
+    """
+    nomes = {"WEBPOSTO_WRITES", "LOGOS_ERP_ESCRITA", "LOGOS_CARTAO_AUTOMATICO",
+             "TELEGRAM_DIRETOR_CHAT_ID", "TELEGRAM_DIRETOR_USER_ID"}
+    valores: dict[str, list[tuple[int, str | None]]] = {n: [] for n in nomes}
+    thread = threading.get_ident()
+
+    class DotEnvTravas(DotEnv):
+        def set_as_environment_variables(self):
+            if threading.get_ident() != thread:
+                return super().set_as_environment_variables()
+            # A leitura das travas não exporta nem retém outras configurações.
+            for _ in self.parse():
+                pass
+            return True
+
+        def parse(self):
+            if threading.get_ident() != thread:
+                yield from super().parse()
+                return
+            from dotenv.parser import parse_stream
+            with self._get_stream() as stream:
+                for binding in parse_stream(stream):
+                    if binding.error:
+                        raise BarreiraCartaoErro("Arquivo de configuração inválido; confira o .env sem expor credenciais.")
+                    if binding.key in nomes:
+                        valores[binding.key].append((binding.original.line, binding.value))
+                    if binding.key is not None:
+                        yield binding.key, binding.value
+
+    arquivo = resolver_caminho_env(caminho_env)
+    if not arquivo.is_file():
+        raise BarreiraCartaoErro("Arquivo .env não encontrado.")
+    with _leitura_env, patch("dotenv.main.DotEnv", DotEnvTravas):
+        load_dotenv(arquivo, override=False, interpolate=False)
+    return valores
+
+
 def verificar_travas_cartao(caminho_env: Path | str | None = None) -> tuple[bool, str]:
     """Valida as travas de ambiente LENDO EXCLUSIVAMENTE o arquivo .env físico.
 
     Regra SPRINT 18a / ADR-003:
-    - Lê exclusivamente o arquivo .env via dotenv_values.
+    - Lê exclusivamente o arquivo .env via load_dotenv, sem exportar variáveis.
     - Ignora variáveis de ambiente de processo (os.environ).
     - Se WEBPOSTO_WRITES ou LOGOS_ERP_ESCRITA aparecer duplicado no arquivo,
       recusa indicando as linhas exatas.
     - Ambas as travas devem ser estritamente '1' no arquivo .env.
     """
-    arquivo = resolver_caminho_env(caminho_env)
-    if not arquivo.is_file():
-        return False, f"Arquivo .env não encontrado em: {arquivo}"
-
-    linhas_chave: dict[str, list[int]] = {
-        "WEBPOSTO_WRITES": [],
-        "LOGOS_ERP_ESCRITA": [],
-    }
-
     try:
-        conteudo = arquivo.read_text(encoding="utf-8", errors="replace")
-    except Exception as exc:
-        return False, f"Falha ao ler arquivo .env ({exc})."
-
-    for num_linha, linha in enumerate(conteudo.splitlines(), start=1):
-        linha_limpa = linha.strip()
-        if not linha_limpa or linha_limpa.startswith("#"):
-            continue
-        if "=" not in linha_limpa:
-            continue
-        k = linha_limpa.split("=", 1)[0].strip()
-        if k in linhas_chave:
-            linhas_chave[k].append(num_linha)
-
-    for k, linhas in linhas_chave.items():
+        valores = ler_travas(caminho_env)
+    except (OSError, BarreiraCartaoErro):
+        return False, "Falha ao ler as travas do arquivo .env."
+    for k in ("WEBPOSTO_WRITES", "LOGOS_ERP_ESCRITA"):
+        linhas = [n for n, _ in valores[k]]
         if len(linhas) > 1:
             return False, f"trava duplicada no .env, linha {linhas[0]} e {linhas[1]}"
-
-    # Lê exclusivamente valores do arquivo .env físico (ignora os.environ)
-    valores = dotenv_values(arquivo)
-    val_writes = (valores.get("WEBPOSTO_WRITES") or "").strip()
-    val_escrita = (valores.get("LOGOS_ERP_ESCRITA") or "").strip()
-
-    if "WEBPOSTO_WRITES" not in valores or val_writes != "1":
-        return False, "Trava WEBPOSTO_WRITES != 1 no arquivo .env (escrita bloqueada no ERP)."
-    if "LOGOS_ERP_ESCRITA" not in valores or val_escrita != "1":
-        return False, "Trava LOGOS_ERP_ESCRITA != 1 no arquivo .env (escrita de cartão no ERP bloqueada)."
-
+        if len(valores[k]) != 1 or valores[k][0][1] != "1":
+            return False, f"Trava {k} != 1 no arquivo .env (escrita bloqueada no ERP)."
     return True, "Travas de escrita de cartão liberadas no arquivo .env."
 
 
@@ -149,9 +168,6 @@ def resolver_administradora_codigo(
         a for a in administradoras_cadastradas
         if a.get("ativo") is not False
     ]
-    if not ativas:
-        ativas = administradoras_cadastradas
-
     # Regra 2: Amex em Doze (74014) e Casa Caiada (5555) é PagBank
     eh_amex = "AMERICAN EXPRESS" in forma_norm or "AMEX" in forma_norm
     if empresa_codigo in (5555, 74014) and adq_norm in ("PAGBANK", "PAGSEGURO") and eh_amex:
@@ -382,6 +398,11 @@ def gravar_auditoria(
     diretorio_base: Path | str | None = None,
 ) -> Path:
     """Grava um registro de auditoria append-only em historico.json (fora do Git)."""
+    with _auditoria_lock:
+        return _gravar_auditoria(empresa_codigo, registro, diretorio_base)
+
+
+def _gravar_auditoria(empresa_codigo, registro, diretorio_base):
     dir_empresa = resolver_diretorio_auditoria(empresa_codigo, diretorio_base)
     dir_empresa.mkdir(parents=True, exist_ok=True)
     arquivo = dir_empresa / "historico.json"
@@ -391,9 +412,9 @@ def gravar_auditoria(
         try:
             historico = json.loads(arquivo.read_text(encoding="utf-8"))
             if not isinstance(historico, list):
-                historico = []
-        except Exception:
-            historico = []
+                raise BarreiraCartaoErro("Auditoria inválida; escrita bloqueada.")
+        except (OSError, ValueError) as exc:
+            raise BarreiraCartaoErro("Falha ao ler auditoria; escrita bloqueada.") from exc
 
     historico.append(registro)
 
@@ -421,9 +442,11 @@ def ler_auditoria(
         return []
     try:
         dados = json.loads(arquivo.read_text(encoding="utf-8"))
-        return dados if isinstance(dados, list) else []
-    except Exception:
-        return []
+        if not isinstance(dados, list) or not all(isinstance(h, dict) for h in dados):
+            raise BarreiraCartaoErro("Auditoria inválida; escrita bloqueada.")
+        return dados
+    except (OSError, ValueError) as exc:
+        raise BarreiraCartaoErro("Falha ao ler auditoria; escrita bloqueada.") from exc
 
 
 async def incluir_cartao(
@@ -461,11 +484,15 @@ async def incluir_cartao(
     async with (httpx.AsyncClient(timeout=30.0) if client is None else gerenciador) as http:
         resposta = await http.post(url, headers=headers, json=payload)
         if resposta.status_code not in (200, 201):
-            raise WebPostoErro(f"webPosto recusou inclusão do cartão: HTTP {resposta.status_code} — {resposta.text}")
+            detalhe = " Pare e peça permissão à Quality." if resposta.status_code in (401, 403) else ""
+            raise WebPostoErro(f"webPosto recusou inclusão do cartão: HTTP {resposta.status_code}.{detalhe}",
+                              status_http=resposta.status_code)
         try:
             resposta_json = resposta.json()
-        except Exception:
-            resposta_json = {"raw": resposta.text}
+        except ValueError:
+            resposta_json = {}
+        if not isinstance(resposta_json, dict):
+            resposta_json = {}
 
     id_criado = (
         resposta_json.get("cartaoCodigo")
@@ -528,7 +555,8 @@ async def excluir_cartao(
     async with (httpx.AsyncClient(timeout=30.0) if client is None else gerenciador) as http:
         resposta = await http.delete(url, headers=headers)
         if resposta.status_code not in (200, 204):
-            raise WebPostoErro(f"webPosto recusou exclusão do cartão {cartao_id}: HTTP {resposta.status_code} — {resposta.text}")
+            raise WebPostoErro(f"webPosto recusou exclusão do cartão: HTTP {resposta.status_code}. Confira a permissão com a Quality.",
+                              status_http=resposta.status_code)
 
     # Registra na auditoria append-only
     registro_auditoria = {

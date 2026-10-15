@@ -15,6 +15,16 @@ globalThis.CustomEvent = class CustomEvent {
 
 const { apiClient } = await import("../../frontend/services/apiClient.js");
 
+test("ações de lançamentos propagam detail e status sem mascarar o erro", async (t) => {
+  t.mock.method(globalThis, "fetch", async () => new Response(
+    JSON.stringify({ detail: "Somente o diretor pode lançar." }), { status: 403 },
+  ));
+  await assert.rejects(
+    apiClient.post("/api/v1/cash-audit/lancamentos-logos/proposta/aprovar", { unidade: 74014, dia: "2026-10-14" }),
+    error => error.status === 403 && error.message === "Somente o diretor pode lançar.",
+  );
+});
+
 test("401 renova cookie e repete a chamada same-origin uma única vez", async (t) => {
   authEvents.length = 0;
   let auditCalls = 0;

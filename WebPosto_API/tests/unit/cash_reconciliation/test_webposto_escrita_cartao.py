@@ -442,8 +442,8 @@ def test_auditoria_append_only_grava_e_le(tmp_path: Path):
 
 @pytest.mark.asyncio
 async def test_cli_lancar_cartao_recusa_confirmar(capsys: pytest.CaptureFixture):
-    """A opção --confirmar sempre recusa com 'piloto não liberado (Sprint 18b)'."""
+    """Confirmar sem selecionar um único NSU não pode consultar ou escrever."""
     codigo = await executar_previa(5555, date(2026, 10, 10), confirmar=True)
     captured = capsys.readouterr()
     assert codigo == 1
-    assert "ERRO: piloto não liberado (Sprint 18b)" in captured.out
+    assert "--confirmar exige --nsu de UM cartão" in captured.out

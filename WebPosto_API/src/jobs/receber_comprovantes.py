@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import logging
 import os
 import sys
@@ -64,6 +65,10 @@ async def processar_atualizacao_telegram(
     client: httpx.AsyncClient,
 ) -> bool:
     """Processa uma única mensagem vinda do Telegram."""
+    callback = atualizacao.get("callback_query")
+    if callback and str(callback.get("data", "")).startswith("cartao:"):
+        from src.modules.cash_reconciliation.adapters.telegram_cartoes import atender_callback
+        return await atender_callback(callback, token=token, client=client)
     msg = atualizacao.get("message") or atualizacao.get("edited_message")
     if not msg:
         return False
@@ -154,7 +159,9 @@ async def executar_polling(
                 url = f"{API_BASE}/bot{token}/getUpdates?timeout=20"
                 if offset:
                     url += f"&offset={offset}"
-                resp = await client.get(url)
+                resp = await client.get(url, params={
+                    "allowed_updates": json.dumps(["message", "edited_message", "callback_query"]),
+                })
                 if resp.status_code == 200:
                     payload = resp.json()
                     resultados = payload.get("result", [])

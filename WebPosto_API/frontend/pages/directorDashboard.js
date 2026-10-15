@@ -138,7 +138,8 @@ export function renderPainelDiretor(dados, papel = "") {
   return `<section class="director-dashboard">
     <header class="dd-header"><div><span class="dd-eyebrow">Visão executiva</span>
       <h2>Painel do Diretor</h2><p>Indicadores provenientes dos resultados persistidos; sem consulta ao ERP.</p>
-      <a class="dd-link" href="/app/financial?view=conferencia-recebimentos">Conferência de Recebimentos</a></div>
+      <a class="dd-link" href="/app/financial?view=conferencia-recebimentos">Conferência de Recebimentos</a>
+      <a class="dd-link" href="/app/financial?view=lancamentos-logos">Lançamentos do Logos</a></div>
       <span class="dd-stamp">Dados carregados ${escapeHtml(dataHora(new Date()))}</span>
     </header>
     ${renderSaude(dados.saude_robo, papel)}

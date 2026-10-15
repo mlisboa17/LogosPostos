@@ -575,18 +575,20 @@
 
 ## 11. Escrita no ERP (RN-ERP)
 
-### RN-ERP-001 — Autonomia gradual de lançamento de cartão (porta isolada e desligada)
+### RN-ERP-001 — Piloto de lançamento de cartão com conferência e desfazer
 | Campo | Valor |
 |---|---|
 | Unidades | Todas |
 | Módulo | ERP · Cartões / Recebimentos |
-| Padrão | Fases por tipo de lançamento: 0 Sombra → 1 Um toque → 2 Automático com limite → 3 Ampliação; interruptores duplos no arquivo `.env` físico `LOGOS_ERP_ESCRITA=1` e `WEBPOSTO_WRITES=1` (ignorando variáveis de ambiente de processo e recusando duplicidade no arquivo); nunca alterar caixa consolidado. Porta de escrita isolada implementada para cartões (`POST /INTEGRACAO/V1/CARTOES` e `DELETE /INTEGRACAO/V1/CARTOES/{id}` para desfazer), estritamente conforme schema oficial `IncluirAlterarCartaoDto` (sem PATCH). A porta existe e está **DESLIGADA** (Sprint 18a); CLI `src.jobs.lancar_cartao` fornece apenas prévia de leitura e recusa `--confirmar` até liberação do piloto (Sprint 18b). Auditoria append-only mantida em `data/lancamentos_logos/<empresa>/` (fora do Git). |
-| Exceção | — |
+| Padrão | Somente cartão aprovado PagBank ausente no ERP, abastecimento de mesmo valor em dinheiro, venda identificada, nota ≥ 90 e exatamente um candidato; caixa não consolidado/bloqueado; até R$ 300,00 por cartão e R$ 1.000,00 brutos por dia/unidade. PIX/BACEN, pares prováveis, duplicidades e outros tipos não entram. |
+| Exceção | Automático preparado, DESLIGADO por padrão (`LOGOS_CARTAO_AUTOMATICO=0` somente no exemplo). Sua ativação depende do teste controlado e decisão do diretor. Nenhum lançamento real foi autorizado ou executado nesta implementação. |
 | Gatilho | Comando `python -m src.jobs.lancar_cartao` ou piloto do robô |
-| Ação no sistema | Validação de elegibilidade (NSU, autorização, administradora resolvida unívoca, venda, caixa, frentista, valor, data). Amex Doze e Casa Caiada = PagBank. Falta de qualquer campo ou administradora ambígua recusa montagem. `--confirmar` bloqueado na Sprint 18a. |
-| Implementação | `src/modules/cash_reconciliation/adapters/webposto_escrita_cartao.py` · `src/jobs/lancar_cartao.py` · `ADR-003` · SPRINT 18a |
-| Status | vigente (porta isolada e desligada; piloto aguarda Sprint 18b) |
-| Vigência | 11/10/2026 — decisão do diretor |
+| Ação no sistema | Comando padrão só mostra a prévia. `--confirmar --nsu <completo>` seleciona UM cartão; tela e Telegram privado têm Lançar/Não lançar, só para diretor, usando o mesmo serviço. Explicação em português simples, posto/setor/caixa, hora, valor, frentista, venda e NSU final. Administradora unívoca (Amex Doze/Casa Caiada = PagBank). Reconsulta ao vivo antes de enviar; dupla trava física WEBPOSTO_WRITES/LOGOS_ERP_ESCRITA, sem duplicatas/interpolação/ambiente do processo. |
+| Conferência e desfazer | HTTP 201 não basta: NSU, venda, caixa e valor têm de reaparecer, dinheiro apurado cair e cartão subir no valor exato. Falha exige DELETE do cartão criado e reconsulta da exclusão/saldos; resultado incerto bloqueia novas tentativas. Diretor pode desfazer apenas lançamento próprio ainda inalterado, em caixa não consolidado/bloqueado. Payload para recriar é auditado antes do DELETE. HTTP 401/403 interrompe e pede permissão à Quality. |
+| Auditoria e concorrência | Eventos locais append-only em `data/lancamentos_logos/<empresa>/`; reserva antes do POST, trava exclusiva por posto entre processos e anti-repetição por NSU. Reservas incertas e desfeitas consomem o limite bruto. Auditoria corrompida bloqueia, não vira histórico vazio. Resumo informa apenas lançamentos confirmados, excluindo desfeitos. |
+| Implementação | `application/piloto_cartao.py`, porta `adapters/webposto_escrita_cartao.py`, comando `src.jobs.lancar_cartao`, aba Lançamentos do Logos e `adapters/telegram_cartoes.py`; ADR-003, Sprint 18b |
+| Status | implementado e desligado; teste real depende de novo ok do diretor |
+| Vigência | 15/10/2026 — decisão do diretor |
 
 ### RN-ERP-002 — Importação de OFX no webPosto (barreira)
 | Campo | Valor |

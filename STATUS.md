@@ -1,9 +1,33 @@
-# STATUS — LOGOS Auditoria (atualizado em 10/10/2026, noite)
+# STATUS — LOGOS Auditoria (atualizado em 15/10/2026)
 
 Repositório canônico: C:\Projetos\LOGOS\LogosPostos · branch feature/cash-audit-fechamento
-Último commit de código: a40b2bb (Sprint 11 concluída) · branch sincronizado com o GitHub privado (sem merge na main)
+Última entrega de código: Sprint 18b (piloto preparado, sem lançamento real) · sem merge na main
 PR a abrir: https://github.com/mlisboa17/LogosPostos/pull/new/feature/cash-audit-fechamento
 Histórico de sprints: um prompt por sprint em docs/prompts/ (SPRINT_05 ... SPRINT_12, PREMMIA_00, TELEGRAM_00)
+
+## Sprint 18b — implementada; primeiro lançamento NÃO autorizado
+- Prévia, painel e Telegram usam a mesma explicação em português simples e o mesmo
+  serviço de confirmação/desfazer. Lançar/Não lançar só para diretor; gerente apenas lê.
+- Cartão PagBank ausente, abastecimento único de mesmo valor em dinheiro, nota ≥ 90,
+  caixa não consolidado/bloqueado, administradora unívoca, R$ 300/cartão e R$ 1.000/dia/posto.
+- `python -m src.jobs.lancar_cartao --unidade 74014 --dia 14/10/2026` é somente prévia;
+  confirmar exige `--confirmar --nsu <completo>`, duas travas físicas e novo ok do diretor.
+- POST 201 não é sucesso: reconsulta NSU/venda/caixa/valor e dinheiro/cartão apurados.
+  Se não confirmar, desfaz; falha/ambiguidade bloqueia repetição e exige conferência na tela.
+- Auditoria persistente e trava por posto; botão Desfazer na aba Lançamentos do Logos.
+  Resumo diário conta apenas lançamentos confirmados.
+- Telegram: envio explícito por `src.jobs.telegram --propostas-cartao --unidade ... --dia ...`;
+  conversa privada configurada via TELEGRAM_DIRETOR_CHAT_ID/USER_ID; botão expira em 24h.
+  Usar um único consumidor do bot (`--ouvir-cartoes` ou o worker de comprovantes).
+- Automático preparado no robô e DESLIGADO no exemplo (`LOGOS_CARTAO_AUTOMATICO=0`).
+  Não editaram o `.env`, não houve envio Telegram nem lançamento real nesta sprint.
+- O teste real do Mastercard R$ 34,75 de Ailton, Doze 14/10, continua aguardando
+  aprovação específica do diretor e conferência das travas (WEBPOSTO_WRITES sem duplicata).
+  Após qualquer teste real, voltar WEBPOSTO_WRITES e LOGOS_ERP_ESCRITA para 0.
+- Validação: 445 testes da conciliação aprovados (48 regressões novas), 70 testes
+  frontend e 5 do adaptador Telegram; nenhuma falha. Avisos preexistentes de
+  depreciação/JWT/coverage mantidos. Texto do Ailton gerado pelo serviço real em
+  prévia com somente GET, sem confirmar e sem criar tickets Telegram.
 
 ## Pronto
 - Auditoria de fechamento FECHAMENTO_V4: quebra, falta sem desconto, caixa parado, despesas do caixa, reincidência;

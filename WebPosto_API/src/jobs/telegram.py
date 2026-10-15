@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import logging
 import os
 from datetime import date, datetime
@@ -39,6 +40,10 @@ def main() -> int:
     grupo = parser.add_mutually_exclusive_group(required=True)
     grupo.add_argument("--descobrir-chat", action="store_true")
     grupo.add_argument("--teste", action="store_true")
+    grupo.add_argument("--propostas-cartao", action="store_true", help="Envia propostas somente ao diretor")
+    grupo.add_argument("--ouvir-cartoes", action="store_true", help="Processa os botões privados do diretor")
+    parser.add_argument("--unidade", type=int)
+    parser.add_argument("--dia", type=_dia_resumo)
     grupo.add_argument(
         "--reenviar-resumo", type=_dia_resumo, metavar="dd/mm/aaaa",
         help="Reenvia somente o resumo local gravado; executar apenas após o ok do diretor.",
@@ -50,6 +55,21 @@ def main() -> int:
     token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
     if not token:
         parser.error("Defina TELEGRAM_BOT_TOKEN no arquivo .env.")
+    if args.propostas_cartao or args.ouvir_cartoes:
+        from src.modules.cash_reconciliation.adapters import telegram_cartoes
+        from src.modules.cash_reconciliation.adapters.webposto_http import WebPostoErro
+        if args.propostas_cartao and (args.unidade is None or args.dia is None):
+            parser.error("--propostas-cartao exige --unidade e --dia.")
+        try:
+            if args.propostas_cartao:
+                asyncio.run(telegram_cartoes.enviar_propostas(args.unidade, args.dia, token=token))
+                print("Propostas enviadas somente à conversa privada do diretor.")
+            else:
+                asyncio.run(telegram_cartoes.ouvir(token=token))
+        except (ValueError, OSError, WebPostoErro) as exc:
+            print(f"Operação interrompida: {exc}")
+            return 1
+        return 0
 
     if args.descobrir_chat:
         try:
