@@ -186,7 +186,20 @@ def _bloco_status(
         if "PIX CNPJ" in cartao.administradora.upper()
     }
     valor_pix = sum((c.valor for c in pix_cnpj.values()), Decimal(0))
-    if registro.empresa_codigo == 74014 or pix_cnpj:
+    conferencia = registro.pix_cnpj
+    if conferencia and conferencia.coberto:
+        linhas.append(
+            f"- {'❌' if conferencia.pendencias else '✅'} **PIX CNPJ × extrato:** "
+            f"{conferencia.clientes} PIX de cliente; {conferencia.casados} casados; "
+            f"{conferencia.ignorados} repasses do grupo/fornecedores excluídos."
+        )
+        linhas.extend(f"  - {p}" for p in conferencia.pendencias)
+        if conferencia.pendencias:
+            diferencas += 1
+    elif conferencia and conferencia.erro:
+        linhas.append(f"- ⏳ **PIX CNPJ × extrato:** {conferencia.erro}")
+        pendentes += 1
+    elif registro.empresa_codigo == 74014 or pix_cnpj:
         linhas.append(
             f"- ⏳ **PIX CNPJ × extrato:** {len(pix_cnpj)} · {moeda_br(valor_pix)} "
             "(motivo: extrato não anexado para conferência)."
@@ -368,6 +381,8 @@ async def consultar_dados_atuais(unidade: Unidade, dia: date):
         versoes_regras=(VERSAO_FECHAMENTO, VERSAO_CARTOES, "RN-CARTAO-011", "RN-CARTAO-012"),
         conferencia_recebimentos=bool(recebimentos.adquirentes),
     )
+    from .fontes_falta import anexar_fontes_falta
+    registro = await anexar_fontes_falta(registro, unidade)
     return registro, tuple(abastecimentos), tuple(v for v in vales if v.caixa_codigo == 0), nomes, tuple(falhas)
 
 

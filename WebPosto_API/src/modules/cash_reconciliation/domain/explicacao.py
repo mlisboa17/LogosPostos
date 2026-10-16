@@ -25,3 +25,14 @@ class ExplicacaoCaixa(BaseModel):
     @property
     def sem_explicacao(self) -> Decimal:
         return self.falta - sum((p.valor for p in self.partes), Decimal(0))
+
+
+class ConferenciaPixCnpj(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    coberto: bool = False
+    clientes: int = 0
+    ignorados: int = 0
+    casados: int = 0
+    pendencias: tuple[str, ...] = ()
+    fontes: tuple[str, ...] = ()
+    erro: str | None = None

@@ -11,6 +11,8 @@ from src.modules.cash_reconciliation.adapters import webposto_escrita_cartao
 
 @pytest.fixture(autouse=True)
 def _banco_pendencias_temporario(tmp_path, monkeypatch):
+    from src.modules.cash_reconciliation.application import pix_cnpj
+    monkeypatch.setattr(pix_cnpj, "DIRETORIO_PAGBANK", tmp_path / "PAGBANK")
     monkeypatch.setattr(pendencias, "DIRETORIO_PENDENCIAS", tmp_path / "pendencias")
     monkeypatch.setattr(pendencias, "BANCO_PENDENCIAS", tmp_path / "pendencias" / "pendencias.sqlite3")
 

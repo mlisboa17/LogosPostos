@@ -93,7 +93,7 @@ async def coletar_unidade(
     for item in adquirentes:
         if item.proveniencia:
             fontes.update(item.proveniencia.outras_fontes)
-    return ResultadoDiario(
+    registro = ResultadoDiario(
         empresa_codigo=empresa, dia=dia, fechamento=fechamento, erro_fechamento=erro_fechamento,
         recebimentos=ResultadoRecebimentos(empresa_codigo=empresa, dia=dia, adquirentes=tuple(adquirentes)),
         proveniencia=Proveniencia(
@@ -104,6 +104,8 @@ async def coletar_unidade(
         versoes_regras=(VERSAO_FECHAMENTO, VERSAO_CARTOES, "RN-CARTAO-010"),
         conferencia_recebimentos=True,
     )
+    from ..application.fontes_falta import anexar_fontes_falta
+    return await anexar_fontes_falta(registro, unidade)
 
 
 async def executar(

@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, model_validator
 from .fechamento import ResultadoAuditoria
 from .models import Proveniencia
 from .recebimentos import ResultadoRecebimentos
-from .explicacao import ParteFalta
+from .explicacao import ConferenciaPixCnpj, ParteFalta
 
 
 class ResultadoDiario(BaseModel):
@@ -24,6 +24,7 @@ class ResultadoDiario(BaseModel):
     versoes_regras: tuple[str, ...]
     conferencia_recebimentos: bool = False
     partes_falta: tuple[ParteFalta, ...] = ()
+    pix_cnpj: ConferenciaPixCnpj | None = None
 
     @model_validator(mode="after")
     def validar_escopo(self) -> ResultadoDiario:

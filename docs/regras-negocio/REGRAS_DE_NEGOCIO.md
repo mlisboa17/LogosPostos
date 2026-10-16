@@ -446,8 +446,8 @@
 | Padrão | — |
 | Exceção | "PIX CNPJ" no webPosto = PIX feito pela **chave PIX do posto**, direto na conta PagBank do Doze, **sem maquininha**; por isso não aparece no EDI transacional do PagBank e é lançado à mão |
 | Gatilho | Lançamento com administradora "PIX CNPJ" |
-| Ação no sistema | Conferir à mão (grupo 4, RN-CARTAO-010); nunca presumir ausência no EDI. Conferido/Não encontrado com observação e histórico local; Não encontrado encaminha para apuração. Futuro: extrato recebido por e-mail (EXTRATOS_01) |
-| Implementação | Sprint 14; EXTRATOS_01 ainda pendente |
+| Ação no sistema | Sprint 19B: OFX PagBank da conta configurada em units.json, cobertura do dia e deduplicação por FITID (conflitos bloqueiam conferência). Excluir grupo e fornecedores. Casar transferência manual única por valor/hora (até 10 min); PIX restante procura venda em dinheiro única. Sem hora/empate: conferir à mão, sem atribuição inventada. Sem extrato: manter pendência; nunca presumir ausência no EDI. |
+| Implementação | Sprint 14 + Sprint 19B, somente leitura; correção PIX CNPJ apenas na tela |
 | Status | vigente |
 | Vigência | 11/10/2026 — informado pelo diretor (Doze 01–09/10: 7 lançamentos · R$ 2.480,41) |
 

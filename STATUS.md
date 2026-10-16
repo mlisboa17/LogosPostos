@@ -130,6 +130,11 @@ Histórico de sprints: um prompt por sprint em docs/prompts/ (SPRINT_05 ... SPRI
   2 · R$ 140,00; Doze 208 · R$ 16.582,25 conferidos, sobram 2 · R$ 14,00.
 - 28 snapshots antigos ainda versionados; arquivar a pasta antiga do OneDrive
 
+## Sprint 19 — Parte B
+PIX CNPJ pelo OFX PagBank da conta da unidade, FITID único, exclusão de grupo/Vibra e
+casamento um a um por valor/hora; cobertura e pendências persistidas no relatório.
+Nenhuma escrita no webPosto e nenhum envio ao Telegram.
+
 ## Decisões fixas
 Não trocar CONSUMER_TOKEN/ADMIN_TOKEN · conciliação de depósitos fora do escopo · somente leitura no ERP
 · .env só via load_dotenv · metas só para postos · testes nunca gravam no banco real
