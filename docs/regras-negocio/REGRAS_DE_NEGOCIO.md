@@ -575,6 +575,16 @@
 
 ## 11. Escrita no ERP (RN-ERP)
 
+### RN-CAIXA-EXPLICACAO — De onde vem a falta
+
+A diferença de dinheiro apresentado menos apurado é decomposta por caixa com
+evidências únicas. Recebimento PagBank ausente só explica falta se o abastecimento
+for único, de mesmo valor, com venda em dinheiro e caixa oficial identificado.
+Toda parte informa fonte, ação e nome/código do frentista quando identificado.
+Ambiguidade permanece sem explicação; diferenças agregadas não inventam venda
+ou responsável. O residual pode ser negativo se as evidências excederem a falta,
+sem truncamento nem ajuste artificial. Relatório, tela e resumo usam a mesma regra.
+
 ### RN-ERP-001 — Piloto de lançamento de cartão com conferência e desfazer
 | Campo | Valor |
 |---|---|

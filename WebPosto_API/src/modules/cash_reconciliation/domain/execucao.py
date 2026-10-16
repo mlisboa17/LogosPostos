@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, model_validator
 from .fechamento import ResultadoAuditoria
 from .models import Proveniencia
 from .recebimentos import ResultadoRecebimentos
+from .explicacao import ParteFalta
 
 
 class ResultadoDiario(BaseModel):
@@ -22,9 +23,15 @@ class ResultadoDiario(BaseModel):
     proveniencia: Proveniencia
     versoes_regras: tuple[str, ...]
     conferencia_recebimentos: bool = False
+    partes_falta: tuple[ParteFalta, ...] = ()
 
     @model_validator(mode="after")
     def validar_escopo(self) -> ResultadoDiario:
+        caixas = {a.caixa.codigo for a in self.fechamento.caixas} if self.fechamento else set()
+        if any(p.caixa_codigo not in caixas for p in self.partes_falta):
+            raise ValueError("Explicacao fora do escopo dos caixas.")
+        if len({p.referencia for p in self.partes_falta}) != len(self.partes_falta):
+            raise ValueError("Referencia de explicacao duplicada.")
         if (self.fechamento is None) == (self.erro_fechamento is None):
             raise ValueError("Fechamento deve conter resultado ou erro, exclusivamente.")
         if (

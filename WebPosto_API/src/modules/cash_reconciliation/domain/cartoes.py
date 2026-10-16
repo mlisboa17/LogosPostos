@@ -69,6 +69,7 @@ class Abastecimento(_Frozen):
     litros: Decimal | None = None
     nome_frentista: str | None = None
     venda_codigo: int | None = None
+    caixa_codigo: int | None = None
 
 
 class Atribuicao(str, Enum):

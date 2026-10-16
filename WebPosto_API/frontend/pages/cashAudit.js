@@ -30,7 +30,8 @@ export function sincronizarRelatorioCaixa(unidade, dia) {
 }
 
 function renderMarkdownSeguro(texto) {
-  return escapeHtml(texto).replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
+  return escapeHtml(texto).replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\[Lançar\]/g, '<a class="btn" href="/app/financial?view=lancamentos-logos">Lançar</a>');
 }
 
 function renderTabelaMarkdown(linhas) {

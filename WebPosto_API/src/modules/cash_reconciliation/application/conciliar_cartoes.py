@@ -347,7 +347,9 @@ async def coletar_contexto_cartoes(
         logger.warning("Nomes indisponíveis unidade=%s tipo=%s", empresa_codigo, type(exc).__name__)
         nomes = {}
     abastecimentos = [
-        a.model_copy(update={"nome_frentista": nomes.get(a.frentista)}) for a in abastecimentos
+        a.model_copy(update={"nome_frentista": nomes.get(a.frentista),
+                             "caixa_codigo": contexto.get(a.venda_codigo, {}).get("caixa_codigo")})
+        for a in abastecimentos
     ]
     cartoes = [
         c.model_copy(

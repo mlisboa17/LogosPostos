@@ -280,6 +280,18 @@ def gerar_resumo_diretor(
         continuacao = ["📌 CONTINUAÇÃO DOS CAIXAS", *linhas[23:]]
         linhas = [*linhas[:23], "↪ Mais caixas e pendências nos detalhes abaixo."]
     blocos = _blocos_detalhes_diretor(resultados, unidades_processadas, nomes_funcionarios or {}, unidades_config)
+    from .explicar_falta import explicar_falta
+    for registro in resultados:
+        cfg = unidades_config.get(registro.empresa_codigo)
+        if cfg is None or registro.empresa_codigo not in unidades_processadas:
+            continue
+        for exp in explicar_falta(registro, cfg, (nomes_funcionarios or {}).get(registro.empresa_codigo)):
+            blocos.append([
+                f"<b>De onde vem a falta — {escape(exp.caixa)}</b>",
+                *[f"• {escape(p.descricao)}: {moeda_br(p.valor)} — {escape(p.correcao)}" for p in exp.partes],
+                f"• Sem explicação: {moeda_br(exp.sem_explicacao)}",
+                f"Total (falta positiva / sobra negativa): {moeda_br(exp.falta)}",
+            ])
     return "\n\n".join(
         "\n".join(bloco).strip() for bloco in (linhas, continuacao, *blocos) if bloco
     ) + "\n"

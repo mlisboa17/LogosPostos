@@ -373,7 +373,7 @@ def test_principal_25_linhas_sem_perder_continuacao(monkeypatch):
     texto = resumo_diario.gerar_resumo_diario(DIA, [registro], [EMPRESA], set(), {EMPRESA: 12})
     principal = texto.split("📌 CONTINUAÇÃO DOS CAIXAS")[0].rstrip()
     assert len(principal.splitlines()) <= 25
-    assert texto.count("— 09/10, 1º turno") == 40
+    assert texto.count("— 09/10, 1º turno") == 80
     assert "(caixa " not in texto
     assert "Pendências abertas: 12" in texto
 

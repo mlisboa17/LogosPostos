@@ -422,6 +422,12 @@ def gerar_relatorio_caixa_dia(
         "",
         *status,
     ])
+    from .explicar_falta import explicar_falta, tabela_falta
+    explicacoes = explicar_falta(registro, unidade, nomes)
+    if explicacoes:
+        linhas.extend(["", "## De onde vem a falta", ""])
+        for explicacao in explicacoes:
+            linhas.extend([*tabela_falta(explicacao), ""])
     mudancas = tuple(mudou_desde_robo)
     if mudancas:
         linhas.extend(["## Mudou desde o robô", "", *[f"- {mudanca}" for mudanca in mudancas], ""])

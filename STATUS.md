@@ -1,9 +1,17 @@
 # STATUS — LOGOS Auditoria (atualizado em 15/10/2026)
 
 Repositório canônico: C:\Projetos\LOGOS\LogosPostos · branch feature/cash-audit-fechamento
-Última entrega de código: Sprint 18b (piloto preparado, sem lançamento real) · sem merge na main
+Última entrega de código: Sprint 19 em andamento · sem merge na main
 PR a abrir: https://github.com/mlisboa17/LogosPostos/pull/new/feature/cash-audit-fechamento
 Histórico de sprints: um prompt por sprint em docs/prompts/ (SPRINT_05 ... SPRINT_12, PREMMIA_00, TELEGRAM_00)
+
+## Sprint 19 — Parte A
+- Relatório, tela e resumo compartilham a decomposição da diferença de dinheiro
+  por caixa, com fonte, venda, nome/código do frentista, correção e residual
+  "Sem explicação". Candidatos ambíguos não explicam faltas.
+- Vínculo ao caixa vem da venda oficial; não se distribui total entre caixas
+  por suposição. O botão Lançar abre a revisão do piloto 18b, nunca confirma
+  pelo relatório. Nenhum lançamento nem envio Telegram nesta sprint.
 
 ## Sprint 18b — implementada; primeiro lançamento NÃO autorizado
 - Prévia, painel e Telegram usam a mesma explicação em português simples e o mesmo
