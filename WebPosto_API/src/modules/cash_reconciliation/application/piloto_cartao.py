@@ -4,11 +4,12 @@ from __future__ import annotations
 import hashlib
 import json
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import httpx
 
@@ -70,10 +71,12 @@ def explicar_cartao(
     momento = para_local(momento)
     if motivo:
         return f"{caixa}, {momento:%d/%m/%Y %H:%M} — {moeda_br(valor)}: {motivo}."
+    pix = any(p in forma.upper() for p in ("PIX", "BACEN"))
+    recebimento = "PIX da maquininha" if pix else forma.title()
     texto = (
         f"{caixa}, {momento:%d/%m/%Y %H:%M} — o PagBank recebeu um "
-        f"{forma.title()} de {moeda_br(valor)} do frentista {frentista}, venda {venda}, "
-        "mas o cartão não está lançado no webPosto. Por isso o caixa mostra "
+        f"{recebimento} de {moeda_br(valor)} do frentista {frentista}, venda {venda}, "
+        f"mas {'o PIX' if pix else 'o cartão'} não está lançado no webPosto. Por isso o caixa mostra "
         f"{moeda_br(valor)} a mais em dinheiro do que deveria. Posso lançar "
         f"({administradora}, NSU final {(nsu or '')[-4:]}). Depois de lançar, "
         f"o dinheiro esperado cai {moeda_br(valor)} e o cartão sobe {moeda_br(valor)}."
@@ -121,8 +124,9 @@ def avaliar(
     )
     motivo = None
     forma = (t.bandeira or "").upper()
-    if t.adquirente != "PAGBANK" or any(p in forma for p in ("PIX", "BACEN")):
-        motivo = "não é cartão PagBank — é PIX/BACEN ou outra fonte, conferir à mão"
+    pix = any(p in forma for p in ("PIX", "BACEN"))
+    if t.adquirente != "PAGBANK":
+        motivo = "não é recebimento PagBank, conferir à mão"
     elif t.situacao is not None or t.momento.date() != dia or t.valor <= 0:
         motivo = "recebimento não aprovado ou fora do dia, conferir à mão"
     elif not candidato:
@@ -161,8 +165,8 @@ def avaliar(
                 caixa=cx.codigo, frentista=ab.frentista, valor=t.valor, data_movimento=dia,
             )
             payload["centroCustoCodigo"] = cx.centro_custo
-        except escrita.BarreiraCartaoErro:
-            motivo = "não consegui escolher uma única administradora; conferir à mão"
+        except escrita.BarreiraCartaoErro as exc:
+            motivo = str(exc) if pix else "não consegui escolher uma única administradora; conferir à mão"
     evidencias = tuple(candidato.motivos) if candidato else ()
     if candidato:
         evidencias += (f"Abastecimento {ab.codigo}; venda {ab.venda_codigo}; {candidato.pontos} pontos",)
@@ -344,6 +348,7 @@ def _compativel(c, p):
 async def confirmar(
     unidade: int, dia: date, nsu: str, *, autor: str, acao_id: str | None = None,
     caminho_env: Path | None = None, diretorio: Path | None = None,
+    nova_tentativa: bool = False,
 ) -> dict:
     if not nsu or not nsu.strip() or nsu.startswith("…"):
         raise PilotoErro("Escolha um único cartão pelo NSU completo.")
@@ -356,8 +361,12 @@ async def confirmar(
             raise PilotoErro("Existe uma operação não conferida neste posto/dia. Pare e confira na tela.")
         anteriores = [h for h in eventos
                       if (h.get("nsu") or (h.get("payload") or {}).get("nsu", "")).strip().upper() == nsu]
-        if anteriores:
+        if anteriores and not nova_tentativa:
             raise PilotoErro("Este cartão já foi decidido ou tentado. Confira o histórico; não vou repetir.")
+        if nova_tentativa:
+            tentativas = {h["acao_id"]: h for h in anteriores}
+            if not tentativas or any(h["estado"] != "nao_entrou" for h in tentativas.values()):
+                raise PilotoErro("Nova tentativa exige que cada tentativa anterior deste NSU esteja resolvida como nao_entrou.")
         propostas = [p for p in await preparar(unidade, dia, diretorio=diretorio) if (p.nsu or "").strip().upper() == nsu]
         if len(propostas) != 1:
             raise PilotoErro("Não encontrei um único cartão faltante com esse NSU.")
@@ -378,7 +387,12 @@ async def confirmar(
             raise PilotoErro("O caixa mudou ou está consolidado/bloqueado.")
         antes = await _saldos(cfg, dia, caixa)
         _travas(caminho_env)
-        _registrar(p, "reservado", autor, diretorio, antes=list(map(str, antes)))
+        origem = p.id
+        if nova_tentativa:
+            p = replace(p, id=f"{p.id}-tentativa-{uuid4().hex}")
+        _registrar(p, "reservado", autor, diretorio, antes=list(map(str, antes)),
+                   nova_tentativa=nova_tentativa, proposta_origem=origem,
+                   tentativa_anterior=anteriores[-1]["acao_id"] if anteriores else None)
         try:
             resposta = await escrita.incluir_cartao(
                 cfg, p.payload, acao_id=p.id, evidencias=p.evidencias, autorizado_por=autor,

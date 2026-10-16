@@ -191,6 +191,19 @@ def resolver_administradora_codigo(
         a for a in administradoras_cadastradas
         if a.get("ativo") is not False
     ]
+    if adq_norm in ("PAGBANK", "PAGSEGURO") and any(t in forma_norm for t in ("PIX", "BACEN")):
+        pix = [a for a in ativas
+               if a.get("ativo") not in (0, "N", "0", "false")
+               and any(n in str(a.get("descricao") or "").upper() for n in ("PAGBANK", "PAGSEGURO"))
+               and any(n in str(a.get("descricao") or "").upper() for n in ("PIX", "BACEN"))]
+        if not pix:
+            raise BarreiraCartaoErro("não há administradora de PIX PagBank cadastrada — lançar à mão")
+        if len(pix) != 1:
+            raise BarreiraCartaoErro("há mais de uma administradora de PIX PagBank cadastrada — lançar à mão")
+        codigo = pix[0].get("administradoraCodigo") or pix[0].get("codigo")
+        if not isinstance(codigo, (int, str)) or not str(codigo).isdigit() or int(codigo) <= 0:
+            raise BarreiraCartaoErro("administradora de PIX PagBank sem código válido — lançar à mão")
+        return int(codigo)
     # Regra 2: Amex em Doze (74014) e Casa Caiada (5555) é PagBank
     eh_amex = "AMERICAN EXPRESS" in forma_norm or "AMEX" in forma_norm
     if empresa_codigo in (5555, 74014) and adq_norm in ("PAGBANK", "PAGSEGURO") and eh_amex:

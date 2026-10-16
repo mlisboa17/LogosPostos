@@ -26,6 +26,8 @@ class ResultadoDiario(BaseModel):
     partes_falta: tuple[ParteFalta, ...] = ()
     pix_cnpj: ConferenciaPixCnpj | None = None
     mais_pagamentos: ConferenciaMais | None = None
+    administradora_pix_pagbank: str | None = None
+    motivo_pix_pagbank: str | None = None
 
     @model_validator(mode="after")
     def validar_escopo(self) -> ResultadoDiario:

@@ -99,6 +99,16 @@ test("sincronização manual reconsulta o relatório com a unidade e o dia selec
   ]);
 });
 
+test("explicacao abre apenas revisao do piloto sem executar lancamento nem HTML externo", () => {
+  const html = renderRelatorioCaixa(
+    "## De onde vem a falta\n\n| Parte | O que corrigir |\n|---|---|\n" +
+    '| Cartão de Nome (7) | [Lançar] <img src=x onerror="executar()"> |\n'
+  );
+  assert.match(html, /href="\/app\/financial\?view=lancamentos-logos"/);
+  assert.doesNotMatch(html, /<img|<script|onclick=/);
+  assert.match(html, /&lt;img/);
+});
+
 test("Premmia tem bloco proprio, desconto, divergencia e aviso humano", () => {
   const item = {
     adquirente: "PREMMIA", situacao: "ok", casados: {quantidade: 1, total: "30"},

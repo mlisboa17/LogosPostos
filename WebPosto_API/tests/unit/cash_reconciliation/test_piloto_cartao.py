@@ -69,7 +69,7 @@ def test_texto_comum_sem_jargao_e_payload(caso):
 
 
 @pytest.mark.parametrize("alteracao,motivo", [
-    ("pix", "não é cartão"), ("sem_candidato", "não encontrei"),
+    ("pix", "não há administradora de PIX PagBank cadastrada"), ("sem_candidato", "não encontrei"),
     ("dois", "dois ou mais"), ("nota", "segurança"),
     ("valor", "R$ 300,00"), ("consolidado", "consolidado"),
     ("bloqueado", "bloqueado"), ("sem_venda", "faltam dados"),

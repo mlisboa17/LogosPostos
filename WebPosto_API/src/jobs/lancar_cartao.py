@@ -25,10 +25,14 @@ from src.modules.cash_reconciliation.adapters.webposto_http import WebPostoErro
 async def executar_previa(
     empresa_codigo: int, dia: date, confirmar: bool = False, nsu: str | None = None,
     resolver: bool = False,
+    nova_tentativa: bool = False,
 ) -> int:
     """Prévia e confirmação usam as mesmas regras da tela e do Telegram."""
     from src.modules.cash_reconciliation.application import piloto_cartao
 
+    if nova_tentativa and (not confirmar or not nsu or resolver):
+        print("ERRO: --nova-tentativa exige --confirmar --nsu e nao pode usar --resolver. Nenhum envio realizado.")
+        return 1
     if confirmar and resolver:
         print("ERRO: --resolver e --confirmar não podem ser usados juntos. Nenhum envio realizado.")
         return 1
@@ -42,7 +46,10 @@ async def executar_previa(
             resultado = await piloto_cartao.resolver(empresa_codigo, dia, nsu, autor="diretor:comando")
             print(resultado["mensagem"])
         elif confirmar:
-            resultado = await piloto_cartao.confirmar(empresa_codigo, dia, nsu, autor="diretor:comando")
+            resultado = await piloto_cartao.confirmar(
+                empresa_codigo, dia, nsu, autor="diretor:comando",
+                **({"nova_tentativa": True} if nova_tentativa else {}),
+            )
             print(resultado["mensagem"])
             if "antes" in resultado:
                 print(f"Antes (dinheiro/cartão): {resultado['antes']}; depois: {resultado['depois']}")
@@ -67,6 +74,8 @@ def main() -> None:
     modos.add_argument("--confirmar", action="store_true", help="Envia UM cartão após aprovação do diretor")
     modos.add_argument("--resolver", action="store_true", help="Reconsulta sem lançar e resolve a auditoria de UM cartão")
     parser.add_argument("--nsu", help="NSU completo de um único cartão; obrigatório com --confirmar ou --resolver")
+    parser.add_argument("--nova-tentativa", action="store_true",
+                        help="Somente com --confirmar --nsu após resolução nao_entrou e novo ok do diretor")
 
     args = parser.parse_args()
 
@@ -77,7 +86,8 @@ def main() -> None:
         print(f"ERRO: Data inválida '{args.dia}'. Utilize o formato dd/mm/aaaa.")
         sys.exit(1)
 
-    codigo_retorno = asyncio.run(executar_previa(args.unidade, dia, args.confirmar, args.nsu, args.resolver))
+    codigo_retorno = asyncio.run(executar_previa(args.unidade, dia, args.confirmar, args.nsu, args.resolver,
+                                               args.nova_tentativa))
     sys.exit(codigo_retorno)
 
 

@@ -1,7 +1,8 @@
 """Anexa evidências locais durante a coleta; renderizadores não fazem I/O."""
 import logging
 
-from ..adapters.webposto_http import WebPostoErro
+from ..adapters.webposto_http import WebPostoErro, paginar
+from ..adapters.webposto_escrita_cartao import BarreiraCartaoErro, resolver_administradora_codigo
 from ..domain.explicacao import ConferenciaPixCnpj
 from .conciliar_cartoes import coletar_contexto_cartoes
 from .pix_cnpj import conferir_pix_cnpj, ler_extratos_unidade
@@ -11,6 +12,23 @@ logger = logging.getLogger(__name__)
 
 
 async def anexar_fontes_falta(registro, unidade):
+    if any(adq.adquirente == "PAGBANK" and any(
+        any(s in (inv.transacao.bandeira or "").upper() for s in ("PIX", "BACEN"))
+        for inv in adq.a_maior) for adq in registro.recebimentos.adquirentes):
+        try:
+            admins = await paginar(unidade, "/INTEGRACAO/V1/ADMINISTRADORAS",
+                                   {"empresaCodigo": unidade.empresa_codigo})
+            codigo = resolver_administradora_codigo(unidade, "PAGBANK", "PIX BACEN", admins)
+            descricao = next(a["descricao"] for a in admins
+                             if int(a.get("administradoraCodigo") or a.get("codigo") or 0) == codigo)
+            registro = registro.model_copy(update={"administradora_pix_pagbank": descricao})
+        except BarreiraCartaoErro as exc:
+            registro = registro.model_copy(update={"motivo_pix_pagbank": str(exc)})
+        except (WebPostoErro, OSError, TimeoutError, ValueError) as exc:
+            logger.warning("Administradora PIX unidade=%s tipo=%s", unidade.empresa_codigo, type(exc).__name__)
+            registro = registro.model_copy(update={
+                "motivo_pix_pagbank": "Não consegui consultar a administradora PIX PagBank; conferir à mão."
+            })
     total = None
     erro_mais = None
     try:

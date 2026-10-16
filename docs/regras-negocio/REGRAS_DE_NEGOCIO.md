@@ -594,6 +594,17 @@ ou responsável. O residual pode ser negativo se as evidências excederem a falt
 sem truncamento nem ajuste artificial. Relatório, tela e resumo usam a mesma regra.
 
 ### RN-ERP-001 — Piloto de lançamento de cartão com conferência e desfazer
+
+Sprint 19D: o bloqueio de repetição segue padrão. Nova tentativa só por comando
+`--confirmar --nsu <completo> --nova-tentativa`, com novo ok explícito do diretor,
+após cada tentativa anterior do NSU terminar em `nao_entrou`. Nova ação de auditoria
+referencia a anterior, sem apagar história nem descontar reservas do limite bruto.
+Estado pendente em qualquer ação do posto/dia mantém o bloqueio.
+PIX da maquininha (PIX/BACEN) usa o mesmo piloto apenas com administradora ativa
+PagBank/PagSeguro PIX/BACEN única, NSU/autorização completos e demais condições.
+Sem cadastro: “não há administradora de PIX PagBank cadastrada — lançar à mão”;
+cadastro ambíguo ou dados ausentes também não permitem envio. PIX CNPJ e Mais
+Pagamentos continuam exclusivamente com instrução de correção na tela.
 | Campo | Valor |
 |---|---|
 | Unidades | Todas |

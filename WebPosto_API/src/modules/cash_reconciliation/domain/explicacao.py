@@ -21,6 +21,7 @@ class ExplicacaoCaixa(BaseModel):
     caixa: str
     falta: Decimal
     partes: tuple[ParteFalta, ...]
+    consolidado: bool = True
 
     @property
     def sem_explicacao(self) -> Decimal:

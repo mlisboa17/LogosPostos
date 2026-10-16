@@ -13,7 +13,7 @@ def explicar_falta(registro: ResultadoDiario, unidade: Unidade, nomes=None) -> t
     for adq in registro.recebimentos.adquirentes:
         if adq.adquirente != "PAGBANK":
             continue
-        for inv in adq.a_maior:
+        for inv in sorted(adq.a_maior, key=lambda i: i.transacao.momento):
             if not inv.troca_de_forma or len(inv.candidatos) != 1:
                 continue
             candidato = inv.candidatos[0]
@@ -31,18 +31,33 @@ def explicar_falta(registro: ResultadoDiario, unidade: Unidade, nomes=None) -> t
             )
             forma = t.bandeira or "cartão"
             pix = any(n in forma.upper() for n in ("PIX", "BACEN"))
+            dados_completos = bool(t.nsu and t.autorizacao and ab.frentista and t.valor <= 300)
+            pix_lancavel = bool(registro.administradora_pix_pagbank and dados_completos)
+            motivo_pix = registro.motivo_pix_pagbank
+            if not motivo_pix:
+                motivo_pix = (
+                    "administradora PIX PagBank cadastrada, mas faltam NSU/autorização ou "
+                    "os dados não atendem ao piloto — conferir e lançar à mão"
+                    if registro.administradora_pix_pagbank else
+                    "não há administradora de PIX PagBank cadastrada — lançar à mão"
+                )
             descricao = f"{'PIX da maquininha' if pix else forma.title()} PagBank lançado como dinheiro — {pessoa}, {t.momento:%H:%M}"
             correcao = (
-                f"Conferir no caixa a venda {ab.venda_codigo} de {pessoa}: trocar Dinheiro → PIX PagBank; "
-                "sem administradora confirmada, lançar à mão."
+                (f"Posso lançar o PIX da maquininha ({registro.administradora_pix_pagbank}, "
+                 f"NSU final {(t.nsu or '')[-4:]}) na venda {ab.venda_codigo} de {pessoa}. [Lançar]"
+                 if pix_lancavel else
+                 f"Na venda {ab.venda_codigo} de {pessoa}: "
+                 f"{motivo_pix}.")
                 if pix else
                 f"Posso lançar o cartão ({forma.title()} PagSeguro, NSU final {(t.nsu or '')[-4:]}) "
                 f"na venda {ab.venda_codigo} de {pessoa}. [Lançar]"
             )
+            if not pix and not dados_completos:
+                correcao = f"Na venda {ab.venda_codigo} de {pessoa}: faltam dados ou o valor não atende ao piloto; conferir à mão."
             ref = f"pagbank:{t.identificador}"
             partes[ref] = ParteFalta(referencia=ref, caixa_codigo=caixa.codigo, descricao=descricao,
                                     valor=t.valor, fonte="EDI PagBank × vendas", correcao=correcao,
-                                    lancavel=not pix)
+                                    lancavel=pix_lancavel if pix else dados_completos)
     resultado = []
     for auditoria in registro.fechamento.caixas if registro.fechamento else ():
         dinheiro = [m for m in auditoria.modalidades if m.modalidade == "dinheiro"]
@@ -52,10 +67,17 @@ def explicar_falta(registro: ResultadoDiario, unidade: Unidade, nomes=None) -> t
         if not falta:
             continue
         cx = auditoria.caixa
+        rotulo = identificar_caixa(unidade.apelido or unidade.nome, cx, caixas, nomes, curto=True)
+        rotulo_sem_nomes = identificar_caixa(unidade.apelido or unidade.nome, cx, caixas, curto=True)
+        evidencias = tuple(
+            p.model_copy(update={"correcao": p.correcao.replace(rotulo_sem_nomes, rotulo)})
+            for p in partes.values() if p.caixa_codigo == cx.codigo
+        )
         resultado.append(ExplicacaoCaixa(
             caixa_codigo=cx.codigo,
-            caixa=identificar_caixa(unidade.apelido or unidade.nome, cx, caixas, nomes, curto=True),
-            falta=falta, partes=tuple(p for p in partes.values() if p.caixa_codigo == cx.codigo),
+            caixa=rotulo, consolidado=cx.consolidado,
+            falta=falta, partes=tuple(sorted(evidencias, key=lambda p:
+                                            0 if p.referencia.startswith("pagbank:") else 1)),
         ))
     return tuple(resultado)
 
@@ -66,6 +88,7 @@ def tabela_falta(explicacao: ExplicacaoCaixa) -> list[str]:
     return [
         f"### {explicacao.caixa}", "",
         f"{'Falta' if explicacao.falta > 0 else 'Sobra'} de dinheiro: **{moeda_br(abs(explicacao.falta))}**.",
+        *(["Provisório: caixa ainda não consolidado."] if not explicacao.consolidado else []),
         "", "| Parte | Valor | Fonte | O que corrigir |", "|---|---:|---|---|",
         *[f"| {seguro(p.descricao)} | {moeda_br(p.valor)} | {seguro(p.fonte)} | {seguro(p.correcao)} |" for p in explicacao.partes],
         f"| Sem explicação | {moeda_br(explicacao.sem_explicacao)} | — | Conferir na tela; não atribuir a um frentista sem evidência. |",

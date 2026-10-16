@@ -1,7 +1,7 @@
 # STATUS — LOGOS Auditoria (atualizado em 15/10/2026)
 
 Repositório canônico: C:\Projetos\LOGOS\LogosPostos · branch feature/cash-audit-fechamento
-Última entrega de código: Sprint 19 em andamento · sem merge na main
+Última entrega de código: Sprint 19 (A–D) · branch feature/cash-audit-fechamento, sem merge
 PR a abrir: https://github.com/mlisboa17/LogosPostos/pull/new/feature/cash-audit-fechamento
 Histórico de sprints: um prompt por sprint em docs/prompts/ (SPRINT_05 ... SPRINT_12, PREMMIA_00, TELEGRAM_00)
 
@@ -12,6 +12,28 @@ Histórico de sprints: um prompt por sprint em docs/prompts/ (SPRINT_05 ... SPRI
 - Vínculo ao caixa vem da venda oficial; não se distribui total entre caixas
   por suposição. O botão Lançar abre a revisão do piloto 18b, nunca confirma
   pelo relatório. Nenhum lançamento nem envio Telegram nesta sprint.
+
+## Sprint 19 — Parte D e validação real
+- Nova tentativa do mesmo NSU apenas com `--confirmar --nsu ... --nova-tentativa`,
+  novo ok do diretor e todas as tentativas anteriores resolvidas como `nao_entrou`.
+  Cada tentativa tem ação distinta, referência à anterior e reserva bruta própria;
+  pendência não resolvida, NSU já existente e limites continuam bloqueando.
+- PIX/BACEN usa administradora PIX PagBank ativa e única da lista oficial. Sem
+  administradora ou com empate: conferir/lançar à mão. NSU e autorização continuam
+  obrigatórios: não são inventados nem substituídos por outro identificador.
+- Validação real Doze 14/10/2026: falta R$ 686,71 (não consolidado), Mastercard
+  R$ 34,75 + PIX da maquininha R$ 139,35 + Mais Pagamentos R$ 500,00 +
+  sem explicação R$ 12,61. Portal declarado R$ 10.741,86 × Transf. Crédito R$ 10.241,86.
+- Extrato PIX CNPJ coberto: 0 clientes, 6 créditos de grupo/fornecedores excluídos.
+  Administradora PIX PAGBANK existe, mas o PIX BACEN não informa NSU/autorização:
+  a tabela orienta conferência manual, sem oferecer lançamento incompleto.
+- Duas validações reais restritas por transporte a GET: 65 consultas cada; nenhum
+  POST/DELETE, nenhuma coleta de portal Premmia e nenhum envio ao Telegram.
+  `.env` somente via `load_dotenv`, sem impressão ou alteração.
+- CLI real `src.jobs.mais_pagamentos_total --unidade 74014 --dia 14/10/2026 --total 10741,86`:
+  saída 0, 14 GET, total salvo apenas localmente; nenhuma escrita no ERP/envio.
+- Testes finais: 824 backend (`tests/unit` + `tests/services`) e 72 frontend aprovados.
+  Avisos preexistentes de depreciação/JWT e módulo JavaScript mantidos.
 
 ## Sprint 18b — implementada; primeiro lançamento NÃO autorizado
 - Prévia, painel e Telegram usam a mesma explicação em português simples e o mesmo

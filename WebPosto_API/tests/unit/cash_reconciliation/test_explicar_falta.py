@@ -74,3 +74,41 @@ def test_caixa_aberto_nao_tem_falta(caso):
         "caixas": (a.model_copy(update={"caixa": a.caixa.model_copy(update={"fechado": False})}),),
     })})
     assert not explicar_falta(r, _unidade("Doze"))
+
+
+def test_tabela_completa_mesmo_calculo_no_relatorio_e_resumo(caso):
+    from src.modules.cash_reconciliation.application.relatorio_caixa_dia import gerar_relatorio_caixa_dia
+    from src.modules.cash_reconciliation.application.resumo_diario import gerar_resumo_diretor
+    from src.modules.cash_reconciliation.domain.explicacao import ParteFalta
+    r = registro(caso)
+    adq = r.recebimentos.adquirentes[0]
+    inv = adq.a_maior[0]
+    ab = inv.candidatos[0].abastecimento.model_copy(update={"valor": Decimal("139.35"), "venda_codigo": 102})
+    pix = inv.model_copy(update={
+        "transacao": inv.transacao.model_copy(update={"identificador": "pix", "bandeira": "BACEN",
+                                                      "valor": ab.valor, "nsu": None}),
+        "candidatos": (inv.candidatos[0].model_copy(update={"abastecimento": ab}),),
+    })
+    r = r.model_copy(update={
+        "recebimentos": r.recebimentos.model_copy(update={"adquirentes": (
+            adq.model_copy(update={"a_maior": (inv, pix)}),
+        )}),
+        "administradora_pix_pagbank": "PIX PAGBANK",
+        "partes_falta": (ParteFalta(referencia="mais:total", caixa_codigo=10,
+                                  descricao="Mais Pagamentos — frentista não identificado",
+                                  valor=Decimal("500"), fonte="total informado pelo diretor",
+                                  correcao="Conferir na tela."),),
+    })
+    cfg = _unidade("Doze")
+    exp, = explicar_falta(r, cfg)
+    assert [p.valor for p in exp.partes] == [Decimal("34.75"), Decimal("139.35"), Decimal("500")]
+    assert exp.sem_explicacao == Decimal("12.61") and exp.falta == Decimal("686.71")
+    assert not exp.partes[1].lancavel
+    assert "faltam NSU/autorização" in exp.partes[1].correcao
+    assert "NSU final )" not in "\n".join(tabela_falta(exp))
+    relatorio = gerar_relatorio_caixa_dia(r, cfg)
+    resumo = gerar_resumo_diretor(r.dia, [r], [r.empresa_codigo], set(), {},
+                                 unidades_config={r.empresa_codigo: cfg})
+    for texto in (relatorio, resumo):
+        assert "De onde vem a falta" in texto and "R$ 12,61" in texto
+        assert "R$ 686,71" in texto and "frentista não identificado" in texto
