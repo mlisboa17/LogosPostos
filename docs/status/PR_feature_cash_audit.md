@@ -40,6 +40,33 @@ Consolidar neste branch a auditoria de fechamento `FECHAMENTO_V3`, a fila local 
 
 ## Como testar
 
+### Sprint 18b.2 — resolver incerto sem lançar
+
+- Novo comando `python -m src.jobs.lancar_cartao --unidade 74014 --dia 14/10/2026 --resolver --nsu <completo>`.
+  É incompatível com `--confirmar`, não exige escrita liberada e nunca chama
+  inclusão ou exclusão no webPosto. Registra somente o resultado na auditoria local.
+- NSU ausente e saldos iguais à reserva: `nao_entrou`, liberando a operação
+  no posto/dia. NSU existente: `entrou_sem_conferencia`, informa o lançamento
+  encontrado e mantém bloqueio para decisão do diretor. Falha de consulta,
+  saldo alterado ou ausência de saldo anterior não libera a operação.
+  Anti-repetição do mesmo NSU e limite bruto permanecem; não há reenvio automático.
+- Novas falhas preservam tipo, etapa, status HTTP quando disponível e mensagem
+  sanitizada; explicação simples no comando e no histórico da tela.
+- Investigação de 15/10/2026 16:44:58: a reserva foi seguida por `incerto`
+  às 16:45:01, sem motivo/status registrados. O payload histórico é compatível
+  com campos, tipos, datas e limites int32 de `IncluirAlterarCartaoDto`.
+  Não há entrada desse minuto no log local disponível. A causa histórica
+  exata não é recuperável: não há evidência para afirmar 400, 401/403 ou rede.
+  A reserva comprova verificações prévias de trava, mas não exclui falha posterior.
+- Reprodução sintética: HTTP 400/401/403/500, timeout, conexão, trava tardia,
+  falha de conferência e de desfazer, sem HTTP real nos testes.
+  Bateria final: 786 backend (`tests/unit` e `tests/services`) e 71 frontend
+  aprovados, zero tentativas de navegador/portal Premmia.
+- `--resolver` real executado com travas em 0 e barreira adicional GET:
+  6 GET, zero POST/DELETE e zero envios Telegram. Resultado `nao_entrou`,
+  dinheiro R$ 15.855,41 e cartão R$ 23.439,22, iguais aos anteriores.
+  Histórico anterior preservado e resolução acrescentada com autor do comando.
+
 ### Sprint 18b.1 — caixa como na tela
 
 - Propostas, listas, botões privados do Telegram, histórico da tela e resumo

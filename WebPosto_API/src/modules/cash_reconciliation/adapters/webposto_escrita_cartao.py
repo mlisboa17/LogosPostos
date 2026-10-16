@@ -15,6 +15,7 @@ import logging
 import os
 import re
 import threading
+from urllib.parse import quote, quote_plus
 from dataclasses import asdict, dataclass
 from datetime import date, datetime
 from decimal import Decimal
@@ -62,6 +63,28 @@ _auditoria_lock = threading.RLock()
 class BarreiraCartaoErro(ValueError):
     """Violação de segurança da barreira de escrita de cartão no webPosto."""
     pass
+
+
+def mensagem_segura(mensagem: str) -> str:
+    for nome, valor in os.environ.items():
+        if valor and any(p in nome.upper() for p in ("CHAVE", "TOKEN", "SECRET", "PASSWORD", "API_KEY", "SENHA")):
+            for segredo in {valor, quote(valor, safe=""), quote_plus(valor)}:
+                mensagem = mensagem.replace(segredo, "[omitido]")
+    mensagem = re.sub(r"(?i)\b(Bearer|Basic)\s+[^\s\"'<>]+", r"\1 [omitido]", mensagem)
+    mensagem = re.sub(
+        r"(?i)(\b(?:CHAVE|token|access_token|x-api-key|api_key|authorization)\b[\"']?\s*[:=]\s*[\"']?)[^\s&\"'<>]+",
+        r"\1[omitido]", mensagem,
+    )
+    return " ".join(mensagem.split())[:500]
+
+
+def erro_resposta(resposta: httpx.Response, operacao: str) -> WebPostoErro:
+    detalhe = mensagem_segura(resposta.text)
+    return WebPostoErro(
+        f"webPosto recusou {operacao}: HTTP {resposta.status_code}"
+        + (f" — {detalhe}" if detalhe else ""),
+        status_http=resposta.status_code,
+    )
 
 
 def resolver_caminho_env(caminho_env: Path | str | None = None) -> Path:
@@ -484,9 +507,7 @@ async def incluir_cartao(
     async with (httpx.AsyncClient(timeout=30.0) if client is None else gerenciador) as http:
         resposta = await http.post(url, headers=headers, json=payload)
         if resposta.status_code not in (200, 201):
-            detalhe = " Pare e peça permissão à Quality." if resposta.status_code in (401, 403) else ""
-            raise WebPostoErro(f"webPosto recusou inclusão do cartão: HTTP {resposta.status_code}.{detalhe}",
-                              status_http=resposta.status_code)
+            raise erro_resposta(resposta, "inclusão do cartão")
         try:
             resposta_json = resposta.json()
         except ValueError:
@@ -555,8 +576,7 @@ async def excluir_cartao(
     async with (httpx.AsyncClient(timeout=30.0) if client is None else gerenciador) as http:
         resposta = await http.delete(url, headers=headers)
         if resposta.status_code not in (200, 204):
-            raise WebPostoErro(f"webPosto recusou exclusão do cartão: HTTP {resposta.status_code}. Confira a permissão com a Quality.",
-                              status_http=resposta.status_code)
+            raise erro_resposta(resposta, "exclusão do cartão")
 
     # Registra na auditoria append-only
     registro_auditoria = {

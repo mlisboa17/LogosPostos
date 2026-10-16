@@ -6,7 +6,7 @@ import json
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +26,7 @@ from .resumo_diario import identificar_caixa, moeda_br
 
 LIMITE_CARTAO = Decimal("300")
 LIMITE_DIA = Decimal("1000")
+ESTADOS_PENDENTES = {"incerto", "reservado", "enviado", "desfazendo", "falha_conferencia", "entrou_sem_conferencia"}
 
 
 class PilotoErro(ValueError):
@@ -200,6 +201,10 @@ async def historico_publico(unidade: int, dia: date, eventos: list[dict]) -> lis
             texto = rotulo + texto[len(antigo):]
         elif codigo is not None and str(codigo) in texto:
             texto = f"{rotulo} — consulte a auditoria para os detalhes desta ação."
+        if h.get("explicacao"):
+            texto += f" Atenção: {h['explicacao']}."
+        if h.get("mensagem_resolucao"):
+            texto += f" {h['mensagem_resolucao']}"
         resultado.append({
             **{k: v for k, v in h.items() if k not in {"payload", "recriar", "nsu"}},
             "caixa": rotulo, "texto": texto,
@@ -267,7 +272,35 @@ def _registrar(p: PropostaCartao, estado: str, autor: str, diretorio, **dados) -
 def _travas(caminho_env):
     ok, motivo = escrita.verificar_travas_cartao(caminho_env)
     if not ok:
-        raise PilotoErro(motivo)
+        raise PilotoErro(f"Travas desligadas ou inválidas: {motivo}")
+
+
+def diagnosticar_erro(exc: Exception, etapa: str) -> dict:
+    status = getattr(exc, "status_http", None)
+    if isinstance(exc, httpx.HTTPStatusError):
+        status = exc.response.status_code
+    mensagem = escrita.mensagem_segura(str(exc))
+    if isinstance(exc, escrita.BarreiraCartaoErro) and "trava" in mensagem.lower():
+        etapa = "travas"
+    if status in (401, 403):
+        permissao = "escrita" if etapa in {"envio", "desfazer"} else "consulta"
+        explicacao = f"o webPosto recusou: sem permissão de {permissao} ({status}) — pedir à Quality"
+    elif status == 400:
+        explicacao = "o webPosto recusou os dados (400) — conferir os campos do cartão"
+    elif status is not None:
+        explicacao = f"o webPosto recusou a operação ({status}) — conferir na tela"
+    elif isinstance(exc, httpx.RequestError) or mensagem in {
+        "ReadTimeout", "ConnectTimeout", "ConnectError", "ReadError", "RemoteProtocolError",
+    }:
+        explicacao = "sem resposta do webPosto — conferir na tela antes de repetir"
+    elif etapa == "travas":
+        explicacao = "travas desligadas ou inválidas — nenhum novo envio autorizado"
+    else:
+        explicacao = "não consegui concluir a operação — conferir na tela antes de repetir"
+    return {
+        "tipo_erro": type(exc).__name__, "status_http": status, "etapa": etapa,
+        "mensagem_erro": mensagem, "explicacao": explicacao,
+    }
 
 
 async def _saldos(cfg, dia, caixa) -> tuple[Decimal, Decimal]:
@@ -319,7 +352,7 @@ async def confirmar(
     with _exclusivo(unidade, diretorio):
         eventos = historico(unidade, dia, diretorio=diretorio)
         ultimos = {h["acao_id"]: h for h in eventos}
-        if any(h["estado"] in {"incerto", "reservado", "enviado", "desfazendo", "falha_conferencia"} for h in ultimos.values()):
+        if any(h["estado"] in ESTADOS_PENDENTES for h in ultimos.values()):
             raise PilotoErro("Existe uma operação não conferida neste posto/dia. Pare e confira na tela.")
         anteriores = [h for h in eventos
                       if (h.get("nsu") or (h.get("payload") or {}).get("nsu", "")).strip().upper() == nsu]
@@ -352,9 +385,9 @@ async def confirmar(
                 caminho_env=caminho_env, diretorio_auditoria=diretorio,
             )
         except (WebPostoErro, httpx.HTTPError, OSError, ValueError) as exc:
-            _registrar(p, "incerto", autor, diretorio)
-            raise PilotoErro("Não foi possível confirmar o envio. Pare e confira na tela; não repita. "
-                            "Se houve HTTP 401/403, peça permissão à Quality.") from exc
+            diagnostico = diagnosticar_erro(exc, "envio")
+            _registrar(p, "incerto", autor, diretorio, **diagnostico)
+            raise PilotoErro(f"{diagnostico['explicacao']}. Pare e confira na tela; não repita.") from exc
         id_criado = resposta["id_criado"]
         if isinstance(id_criado, str) and id_criado.isascii() and id_criado.isdigit():
             id_criado = int(id_criado)
@@ -371,14 +404,19 @@ async def confirmar(
                            antes=list(map(str, antes)), depois=list(map(str, depois)))
                 return {"estado": "confirmado", "mensagem": f"Lancei 1 cartão · {moeda_br(p.valor)}. Conferido por NSU e no caixa.",
                         "antes": list(map(str, antes)), "depois": list(map(str, depois))}
-        except (WebPostoErro, httpx.HTTPError, PilotoErro, ValueError) as exc:
-            _registrar(p, "falha_conferencia", autor, diretorio, tipo_erro=type(exc).__name__, id_criado=id_criado)
-            if isinstance(exc, WebPostoErro) and exc.status_http in (401, 403):
-                _registrar(p, "incerto", autor, diretorio, id_criado=id_criado)
+            _registrar(p, "falha_conferencia", autor, diretorio, id_criado=id_criado,
+                       **diagnosticar_erro(PilotoErro("Cartão ou saldos não conferem com o lançamento esperado."), "conferência"))
+        except (WebPostoErro, httpx.HTTPError, OSError, ValueError) as exc:
+            diagnostico = diagnosticar_erro(exc, "conferência")
+            _registrar(p, "falha_conferencia", autor, diretorio, id_criado=id_criado, **diagnostico)
+            if diagnostico["status_http"] in (401, 403):
+                _registrar(p, "incerto", autor, diretorio, id_criado=id_criado, **diagnostico)
                 raise PilotoErro("Conferência bloqueada por HTTP 401/403. Pare e peça permissão à Quality; "
                                 "CONFERIR NA TELA antes de qualquer outra operação.") from exc
         if not isinstance(id_criado, int) or isinstance(id_criado, bool) or id_criado in {c.codigo for c in existentes}:
-            _registrar(p, "incerto", autor, diretorio)
+            _registrar(p, "incerto", autor, diretorio, **diagnosticar_erro(
+                PilotoErro("Sem identificação segura do cartão criado para desfazer."), "conferência",
+            ))
             raise PilotoErro("LANÇAMENTO NÃO CONFERIDO — sem identificação segura para desfazer. CONFERIR NA TELA.")
         await _excluir(cfg, p, id_criado, antes, autor, caminho_env, diretorio)
         return {"estado": "desfeito", "mensagem": "LANÇAMENTO DESFEITO — CONFERIR NA TELA"}
@@ -399,9 +437,82 @@ async def _excluir(cfg, p, codigo, esperado, autor, caminho_env, diretorio):
         if any(c.codigo == codigo for c in cartoes) or saldos != esperado:
             raise PilotoErro("A exclusão não foi confirmada no caixa.")
     except (WebPostoErro, httpx.HTTPError, OSError, ValueError) as exc:
-        _registrar(p, "incerto", autor, diretorio, id_criado=codigo)
+        diagnostico = diagnosticar_erro(exc, "desfazer")
+        _registrar(p, "incerto", autor, diretorio, id_criado=codigo, **diagnostico)
         raise PilotoErro("NÃO CONSEGUI CONFERIR O DESFAZER — CONFERIR NA TELA. Não repita.") from exc
     _registrar(p, "desfeito", autor, diretorio, id_criado=codigo)
+
+
+async def resolver(
+    unidade: int, dia: date, nsu: str, *, autor: str, diretorio: Path | None = None,
+) -> dict:
+    """Resolve apenas a auditoria local; nunca chama a porta de escrita."""
+    if not nsu or not nsu.strip() or nsu.strip().startswith("…"):
+        raise PilotoErro("Escolha um único cartão pelo NSU completo.")
+    cfg = carregar_unidades().get(unidade)
+    if cfg is None or dia > agora().date():
+        raise PilotoErro("Posto ou data inválidos.")
+    nsu = nsu.strip().upper()
+    with _exclusivo(unidade, diretorio):
+        eventos = historico(unidade, dia, diretorio=diretorio)
+        por_acao = {}
+        for h in eventos:
+            if (h.get("nsu") or (h.get("payload") or {}).get("nsu", "")).strip().upper() == nsu:
+                por_acao.setdefault(h["acao_id"], []).append(h)
+        pendentes = [hs for hs in por_acao.values() if hs[-1]["estado"] in ESTADOS_PENDENTES]
+        if len(pendentes) != 1:
+            raise PilotoErro("Não encontrei uma única operação pendente com esse NSU; nenhum lançamento realizado.")
+        hs = pendentes[0]
+        h = hs[-1]
+        payload = h.get("payload")
+        if not isinstance(payload, dict) or not payload.get("caixaCodigo") or not payload.get("vendaCodigo"):
+            raise PilotoErro("Auditoria sem vínculo seguro com a venda e o caixa; conferir à mão.")
+        p = PropostaCartao(
+            h["acao_id"], unidade, dia, nsu, Decimal(h["valor"]), h["caixa"],
+            h["frentista"], h["texto"], None, tuple(h["evidencias"]), payload,
+            h.get("caixa_curto", ""),
+        )
+        antes_raw = next((e["antes"] for e in reversed(hs) if e.get("antes") is not None), None)
+        try:
+            cartoes = await _cartoes(cfg, dia, p)
+            saldos = await _saldos(cfg, dia, payload["caixaCodigo"])
+        except (WebPostoErro, httpx.HTTPError, OSError, ValueError) as exc:
+            diagnostico = diagnosticar_erro(exc, "conferência")
+            _registrar(p, "incerto", autor, diretorio, **diagnostico)
+            raise PilotoErro(f"{diagnostico['explicacao']}. O bloqueio continua; nenhum lançamento realizado.") from exc
+        encontrados = [c for c in cartoes if _nsu(c, nsu)]
+        if encontrados:
+            codigos = [c.codigo for c in encontrados]
+            mensagem = (
+                f"Encontrei {len(encontrados)} cartão com o NSU final {nsu[-4:]} no webPosto "
+                f"(lançamento: {', '.join(map(str, codigos))}). "
+                "Registrei entrou_sem_conferencia. Não excluí nem lancei nada. "
+                "O bloqueio continua: o diretor precisa conferir na tela e decidir."
+            )
+            estado = "entrou_sem_conferencia"
+        else:
+            if not isinstance(antes_raw, list) or len(antes_raw) != 2:
+                raise PilotoErro("Auditoria sem saldos anteriores confiáveis; o bloqueio continua. Conferir na tela.")
+            try:
+                antes = tuple(Decimal(v) for v in antes_raw)
+            except (InvalidOperation, TypeError, ValueError):
+                raise PilotoErro("Auditoria com saldos anteriores inválidos; o bloqueio continua. Conferir na tela.") from None
+            if not all(v.is_finite() for v in antes) or saldos != antes:
+                mensagem = "Nenhum cartão encontrado, mas os saldos mudaram; o bloqueio continua. Conferir na tela."
+                _registrar(p, "incerto", autor, diretorio, depois=list(map(str, saldos)),
+                           **diagnosticar_erro(PilotoErro(mensagem), "conferência"))
+                raise PilotoErro(mensagem)
+            codigos = []
+            estado = "nao_entrou"
+            mensagem = (
+                f"O cartão de {moeda_br(p.valor)}, NSU final {nsu[-4:]}, não entrou no webPosto. "
+                f"Dinheiro {moeda_br(saldos[0])} e cartão {moeda_br(saldos[1])}, iguais aos de antes. "
+                "Registrei nao_entrou, resolvido com autorização do diretor, e liberei o bloqueio "
+                "desta operação no posto/dia. Nenhum lançamento realizado."
+            )
+        _registrar(p, estado, autor, diretorio, antes=antes_raw, depois=list(map(str, saldos)),
+                   codigos_encontrados=codigos, mensagem_resolucao=mensagem)
+        return {"estado": estado, "mensagem": mensagem}
 
 
 async def decidir(
