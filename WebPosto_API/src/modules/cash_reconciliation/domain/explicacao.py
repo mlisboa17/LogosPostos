@@ -36,3 +36,15 @@ class ConferenciaPixCnpj(BaseModel):
     pendencias: tuple[str, ...] = ()
     fontes: tuple[str, ...] = ()
     erro: str | None = None
+
+
+class ConferenciaMais(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    total: Decimal | None
+    webposto: Decimal | None
+    fonte: str = "total informado pelo diretor"
+    aviso: str | None = None
+
+    @property
+    def diferenca(self):
+        return self.total - self.webposto if self.webposto is not None and self.total is not None else None

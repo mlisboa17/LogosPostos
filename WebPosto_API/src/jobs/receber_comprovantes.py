@@ -72,6 +72,9 @@ async def processar_atualizacao_telegram(
     msg = atualizacao.get("message") or atualizacao.get("edited_message")
     if not msg:
         return False
+    from src.modules.cash_reconciliation.adapters.telegram_cartoes import eh_mensagem_mais, atender_mais_pagamentos
+    if eh_mensagem_mais(msg):
+        return await atender_mais_pagamentos(msg, token=token, client=client)
 
     chat = msg.get("chat", {})
     chat_id = str(chat.get("id", ""))

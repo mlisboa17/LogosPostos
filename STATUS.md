@@ -135,6 +135,14 @@ PIX CNPJ pelo OFX PagBank da conta da unidade, FITID único, exclusão de grupo/
 casamento um a um por valor/hora; cobertura e pendências persistidas no relatório.
 Nenhuma escrita no webPosto e nenhum envio ao Telegram.
 
+## Sprint 19 — Parte C
+Total Mais Pagamentos declarado pelo diretor em JSON local atômico por unidade/dia;
+CLI `src.jobs.mais_pagamentos_total` e entrada privada do mesmo diretor nos receptores
+Telegram existentes (não executar dois pollings ao mesmo tempo).
+Comparação apenas com `transfBanc` (Transf. Crédito), sem somar transferência débito.
+Detalhe valor/hora procura venda em dinheiro; total sem detalhe não inventa frentista.
+Nesta sprint os receptores não foram iniciados e nenhum envio foi realizado.
+
 ## Decisões fixas
 Não trocar CONSUMER_TOKEN/ADMIN_TOKEN · conciliação de depósitos fora do escopo · somente leitura no ERP
 · .env só via load_dotenv · metas só para postos · testes nunca gravam no banco real

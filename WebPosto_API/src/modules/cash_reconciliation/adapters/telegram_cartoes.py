@@ -128,14 +128,76 @@ async def ouvir(*, token, caminho_env=None, client=None):
     try:
         while True:
             updates = await _api(http, token, "getUpdates", {
-                "offset": offset, "timeout": 30, "allowed_updates": ["callback_query"],
+                "offset": offset, "timeout": 30, "allowed_updates": ["callback_query", "message"],
             })
             for update in updates:
                 offset = max(offset, update["update_id"] + 1)
                 callback = update.get("callback_query")
                 if not callback:
+                    if update.get("message"):
+                        await atender_mais_pagamentos(update["message"], token=token, client=http, caminho_env=caminho_env)
                     continue
                 await atender_callback(callback, token=token, client=http, caminho_env=caminho_env)
     finally:
         if client is None:
             await http.aclose()
+
+
+def eh_mensagem_mais(mensagem):
+    import re
+    texto = (mensagem.get("text") or "").strip()
+    return texto.casefold().startswith("mais pagamentos ") or bool(re.fullmatch(
+        r"\d{2}/\d{2}(?:/\d{4})? \d{2}:\d{2} [\d.,]+", texto))
+
+
+async def processar_mais_pagamentos(mensagem, *, caminho_env=None):
+    from types import SimpleNamespace
+    from ..application import mais_pagamentos as mais
+    from ..application.auditar_fechamento import auditar_unidade
+    from ..application.conciliar_cartoes import coletar_contexto_cartoes
+    from ..config import carregar_unidades
+    chat, usuario = diretor(caminho_env)
+    if (str((mensagem.get("chat") or {}).get("id")) != chat
+            or (mensagem.get("chat") or {}).get("type") != "private"
+            or str((mensagem.get("from") or {}).get("id")) != usuario):
+        raise piloto_cartao.PilotoErro("Mais Pagamentos permitido somente ao diretor na conversa privada.")
+    contexto = None
+    resposta = mensagem.get("reply_to_message") or {}
+    texto_resposta = (resposta.get("text") or "").split("\n")[0]
+    if texto_resposta.casefold().startswith("mais pagamentos "):
+        contexto = mais.interpretar(texto_resposta).unidade
+    total = mais.interpretar(mensagem["text"], unidade_contexto=contexto)
+    mais.salvar(total)
+    unidade = carregar_unidades()[total.unidade]
+    fechamento = await auditar_unidade(total.unidade, total.dia, total.dia)
+    ab, itens = [], set()
+    if total.pix:
+        _, ab, itens = await coletar_contexto_cartoes(total.unidade, total.dia)
+    conf, partes = mais.comparar(SimpleNamespace(empresa_codigo=total.unidade, dia=total.dia,
+                                                fechamento=fechamento), unidade, total, ab, itens)
+    return "\n".join([
+        f"Mais Pagamentos {unidade.apelido or total.unidade} {total.dia:%d/%m/%Y} {total.total:.2f}".replace(
+            f"{total.total:.2f}", f"{total.total:.2f}".replace(".", ",")),
+        "Total registrado apenas localmente (fonte: diretor).",
+        f"Transf. Crédito: {piloto_cartao.moeda_br(conf.webposto) if conf.webposto is not None else 'indisponível'}; "
+        f"diferença: {piloto_cartao.moeda_br(conf.diferenca) if conf.diferenca is not None else 'não calculada'}.",
+        *(p.correcao for p in partes), *( [conf.aviso] if conf.aviso else []),
+        "Nenhum lançamento realizado.",
+    ])
+
+
+async def atender_mais_pagamentos(mensagem, *, token, client, caminho_env=None):
+    if not eh_mensagem_mais(mensagem):
+        return False
+    # Não responde nem persiste para remetente externo, mesmo que conheça o formato.
+    chat, usuario = diretor(caminho_env)
+    if (str((mensagem.get("chat") or {}).get("id")) != chat
+            or (mensagem.get("chat") or {}).get("type") != "private"
+            or str((mensagem.get("from") or {}).get("id")) != usuario):
+        return False
+    try:
+        texto = await processar_mais_pagamentos(mensagem, caminho_env=caminho_env)
+    except (ValueError, OSError, TimeoutError, piloto_cartao.WebPostoErro):
+        texto = "Falha ao registrar/conferir Mais Pagamentos. Confira formato, total local e coleta do caixa. Nenhum lançamento."
+    await _api(client, token, "sendMessage", {"chat_id": chat, "text": texto})
+    return True

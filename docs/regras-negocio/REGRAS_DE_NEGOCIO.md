@@ -577,6 +577,14 @@
 
 ### RN-CAIXA-EXPLICACAO — De onde vem a falta
 
+Mais Pagamentos (19C): total informado pelo diretor fica somente em
+`data/mais_pagamentos/<unidade>/<dia>.json`; fonte declarada, não coleta automática.
+Comparar exclusivamente com Transf. Crédito (`transfBanc`), nunca somar Transf. Débito.
+Sem venda/hora não atribuir empregado. Total com vários caixas não é repartido.
+Detalhe valor/hora só sugere troca na tela para venda em dinheiro única até 10 minutos.
+Entrada Telegram requer chat privado e usuário do diretor; detalhe sem unidade deve
+responder à mensagem do total. Nenhuma dessas entradas autoriza lançamento.
+
 A diferença de dinheiro apresentado menos apurado é decomposta por caixa com
 evidências únicas. Recebimento PagBank ausente só explica falta se o abastecimento
 for único, de mesmo valor, com venda em dinheiro e caixa oficial identificado.

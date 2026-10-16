@@ -170,7 +170,23 @@ def _bloco_status(
         Decimal(0),
     )
     mais = adquirentes.get("MAIS_PAGAMENTOS")
-    if mais is not None and mais.situacao == "ok" and mais.evidencias_completas:
+    declaracao = registro.mais_pagamentos
+    if declaracao and declaracao.diferenca is not None:
+        delta = declaracao.diferenca
+        linhas.append(
+            f"- {'❌' if delta else '✅'} **Mais Pagamentos × Transf. Crédito:** "
+            f"portal {moeda_br(declaracao.total)} × webPosto {moeda_br(declaracao.webposto)} "
+            f"→ diferença {moeda_br(delta)} ({declaracao.fonte})."
+        )
+        if delta:
+            diferencas += 1
+            total_diferencas += abs(delta)
+        if declaracao.aviso:
+            linhas.append(f"  - {declaracao.aviso}")
+    elif declaracao and declaracao.aviso:
+        linhas.append(f"- ⏳ **Mais Pagamentos:** {declaracao.aviso}")
+        pendentes += 1
+    elif mais is not None and mais.situacao == "ok" and mais.evidencias_completas:
         linhas.append(f"- ✅ **Mais Pagamentos × Transferência Bancária:** conferido; {moeda_br(transferencia)}.")
     else:
         linhas.append(
