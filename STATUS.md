@@ -7,7 +7,11 @@ Histórico de sprints: um prompt por sprint em docs/prompts/ (SPRINT_05 ... SPRI
 
 ## SITUAÇÃO EM 17/10/2026 — Claude assume o desenvolvimento (leia primeiro)
 
-**Bloqueio urgente (ação do diretor):** `WEBPOSTO_WRITES=1` e `LOGOS_ERP_ESCRITA=1` no `.env` desde o teste do
+**17/10 19:30 — RESOLVIDO:** diretor voltou as travas para 0. Reprocessados (sem Telegram) 15/10 e 16/10: 4 unidades
+lidas, AUDIT_PARTIAL (esperado: PagBank 118508 credencial inválida; Mais/Cielo/Rede sem integração). Em 16/10 o
+Premmia não coletou por "login já tentado" (regra de 1 login por noite) → reprocessar 16/10 depois do robô de 18/10.
+
+**(histórico) Bloqueio urgente (ação do diretor):** `WEBPOSTO_WRITES=1` e `LOGOS_ERP_ESCRITA=1` no `.env` desde o teste do
 piloto de cartão (15/10). O robô das 03:00 **recusa rodar com escrita ligada** (gate PROD-SAFE) → **sem auditoria
 nas noites de 16/10 e 17/10**. Voltar as duas para `0`; depois reprocessar 15–16/10.
 
@@ -36,6 +40,74 @@ nas noites de 16/10 e 17/10**. Voltar as duas para `0`; depois reprocessar 15–
 4. Mapeamento real (GET) das rotas V1 de conveniência e combustível (vendas/itens, estoque/extrato/contagem,
    compras, encerrante, tanque, LMC) em 1 posto + 1 loja.
 5. Perguntas à Quality: POS integrado que falha (log, vincular depois), PIX no PDV, acesso Mais Pagamentos, débito OFX.
+
+## MAIS-BANK-02 — fontes de liquidação/repasse; diagnóstico concluído — 17/10/2026
+- Branch `feature/cash-audit-fechamento`. Relatório curto:
+  [MAIS_BANK_02_SETTLEMENT_SOURCES.md](docs/validation/MAIS_BANK_02_SETTLEMENT_SOURCES.md).
+  Histórico MAIS-BANK-01 preservado; aprovação recebida só para investigação
+  read-only, não para migração, implementação da conciliação ou produção.
+- Fontes: matriz anterior, código financeiro oficial, contratos locais
+  Mais/webPosto e documentação pública oficial Asaas/Fiserv/Software Express.
+  Só páginas públicas foram acessadas; nenhuma conta/API financeira real.
+- Asaas documenta GET financialTransactions (extrato com valor/saldo e
+  paymentId/transferId), pix/transactions (E2E/status/data/taxa/payment),
+  transfers (destino/valor/líquido/taxa/E2E/status) e finance/balance.
+  Capacidade do fornecedor documentada, mas acesso à conta do Doze/subconta
+  BaaS e vínculo real Mais → crédito → repasse ainda não comprovados.
+- Fiserv: Hub Pix existe, mas produto contratado, custodiante/PSP e canal de
+  extrato/repasse das contas VIP/Casa Caiada não identificados. Não presumir
+  que Hub/SiTef ou API de adquirência ofereça extrato dessa conta.
+- Banco final: leitor OFX/proveniência oficiais reutilizáveis; uso histórico
+  BB/Bradesco/Itaú em espécie não comprova crédito de repasse Asaas/Fiserv.
+  Faltam banco/conta/titular de destino e extratos/detalhes das duas pontas.
+- Riscos: DONE da origem não prova crédito final; E2E cliente difere do
+  repasse; saldo fungível não identifica composição do lote; mesmo valor/data
+  não cria vínculo. ERP conciliado/usaOfx continuam sem prova independente.
+  API key comum não deve ser presumida restrita à leitura.
+- Recomendação: primeiro pacote documental Doze/Asaas → banco tradicional,
+  com extrato intermediário, composição/ID do repasse, taxas e crédito no
+  destino. Identificar produto/custodiante Fiserv em paralelo; não aperfeiçoar
+  cliente Mais isolado nem criar arquitetura paralela.
+- Próxima etapa: obter mapa CNPJ/contas e amostras oficiais autorizadas para
+  validação manual, marcando agrupamentos/parcelamentos/ambiguidades pendentes.
+  Consulta real ou implementação exige nova aprovação específica.
+- Nesta etapa só relatório MAIS-BANK-02 e STATUS.md alterados; sem acesso a
+  .env, contas reais, operação financeira, código, migração, job, commit,
+  push ou merge. Alterações preexistentes preservadas. Parado no diagnóstico.
+
+## MAIS-BANK-01 — investigação local concluída; implementação não autorizada — 17/10/2026
+- Matriz de fontes, campos financeiros, evidências, lacunas e componentes
+  reutilizáveis em [MAIS_BANK_01_SOURCE_GAP_MATRIX.md](docs/validation/MAIS_BANK_01_SOURCE_GAP_MATRIX.md).
+- Comparados o projeto antigo do OneDrive e o oficial. Não foi encontrada
+  cadeia comprovada por pagamento: Mais → crédito na conta Asaas/Fiserv →
+  repasse identificado → crédito na conta bancária de destino.
+- Cliente Mais antigo usa rotas não presentes no contrato local e fallback
+  sandbox; serviço ainda pode preencher total ERP com baseline da adquirente.
+  Não portar como integração real. A esteira de quatro vias procura método
+  PIX que esse cliente não implementa.
+- OpenAPI Mais oficial local oferece lista/detalhe de transações com E2E,
+  bruto/pago/líquido/taxa e consultas de PIX de saída. Não foram encontrados
+  ali extrato/saldo de conta ou listagem de repasses. ASAAS/FISERV no enum de
+  última confirmação não comprovam consulta direta dessas contas.
+- Mantido o bloqueio histórico de autenticação: 401 de 11/10 já registrado
+  abaixo; não repetir sem credencial nova e autorização. Total Mais oficial
+  permanece declaração humana, não coleta da API nem comprovação bancária.
+- webPosto documenta GET V1/MOVIMENTOS_CONTA, V2/TRANSFERENCIAS_BANCARIAS e
+  V1/CONTAS, além de POST V1/OFXS. Amostra antiga liga transferência a movimento
+  do próprio ERP; não são evidências independentes. Não foi comprovada leitura
+  segregada/rastreável de movimentos efetivamente importados do banco.
+- usaOfx, conciliado e saldo ERP não certificam banco. O modelo de entrada OFX
+  tem extratoExterno/dataCredito, mas o retorno de movimentos não os expõe
+  como tais. Histórico de importação da conta 86188 mantém incidente de
+  débitos errados; aceite HTTP não comprova sinal nem crédito efetivo.
+- Reaproveitáveis sob revisão/aprovação: classificação Mais antiga, padrões
+  OFX e comparação de lotes; priorizar leitor OFX e PagBank EDI já oficiais.
+  Falta validar contas/titulares, crédito recebedor, referência de repasse,
+  taxas e crédito no destino com fontes bancárias independentes.
+- Apenas este relatório e STATUS.md alterados. Nenhuma chamada externa,
+  leitura de .env, execução de integração/teste de aplicação, migração,
+  escrita ERP, mudança de trava, commit, push ou deploy. Probe preexistente
+  preservado. Próxima etapa somente com aprovação humana explícita.
 
 ## PROD-RELEASE-01 — PARADO no pré-check — 17/10/2026
 - Branch `feature/cash-audit-fechamento`, HEAD `76cd8e2`; nenhuma implementação
