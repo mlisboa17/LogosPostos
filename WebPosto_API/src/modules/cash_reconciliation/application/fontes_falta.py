@@ -4,6 +4,9 @@ import logging
 from ..adapters.webposto_http import WebPostoErro, paginar
 from ..adapters.webposto_escrita_cartao import BarreiraCartaoErro, resolver_administradora_codigo
 from ..domain.explicacao import ConferenciaPixCnpj
+from ..domain.execucao import ResultadoDiario
+from ..domain.models import Unidade
+from ..domain.cartoes import CartaoErp, Abastecimento
 from .conciliar_cartoes import coletar_contexto_cartoes
 from .pix_cnpj import conferir_pix_cnpj, ler_extratos_unidade
 from . import mais_pagamentos
@@ -11,7 +14,7 @@ from . import mais_pagamentos
 logger = logging.getLogger(__name__)
 
 
-async def anexar_fontes_falta(registro, unidade):
+async def anexar_fontes_falta(registro: ResultadoDiario, unidade: Unidade) -> ResultadoDiario:
     if any(adq.adquirente == "PAGBANK" and any(
         any(s in (inv.transacao.bandeira or "").upper() for s in ("PIX", "BACEN"))
         for inv in adq.a_maior) for adq in registro.recebimentos.adquirentes):
@@ -36,7 +39,9 @@ async def anexar_fontes_falta(registro, unidade):
     except (OSError, ValueError) as exc:
         logger.warning("Mais Pagamentos unidade=%s tipo=%s", unidade.empresa_codigo, type(exc).__name__)
         erro_mais = mais_pagamentos.ConferenciaMais(total=None, webposto=None, aviso="Falha ao ler total Mais Pagamentos local.")
-    cartoes, abastecimentos, itens = [], [], set()
+    cartoes: list[CartaoErp] = []
+    abastecimentos: list[Abastecimento] = []
+    itens: set[int] = set()
     try:
         extratos = ler_extratos_unidade(unidade, registro.dia)
         if extratos or (total and total.pix):
@@ -54,6 +59,7 @@ async def anexar_fontes_falta(registro, unidade):
         )})
     if total:
         conf, partes = mais_pagamentos.comparar(registro, unidade, total, abastecimentos, itens)
+        conf = conf.model_copy(update={"informado_em": total.informado_em})
         registro = registro.model_copy(update={"mais_pagamentos": conf,
                                                "partes_falta": (*registro.partes_falta, *partes)})
     elif erro_mais:

@@ -240,11 +240,15 @@ async def _placar_vivo(
     return calcular(posto, mes, ref, atual, linhas, produtos, nomes, metas, _proveniencia(metas))
 
 
-async def obter_placar(posto: int, mes: str, dia: date | None = None) -> Placar:
+async def obter_placar(
+    posto: int, mes: str, dia: date | None = None, *, forcar_coleta: bool = False,
+) -> Placar:
     atual = hoje()
     ref = referencia(mes, atual, dia)
     metas_mes = ler_metas(mes)
     metas = metas_mes.postos.get(posto) if metas_mes else None
+    if forcar_coleta:
+        return await _placar_vivo(posto, mes, ref, atual, metas)
 
     if ref == atual:
         anterior = carregar_placar(posto, mes)

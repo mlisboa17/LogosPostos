@@ -2,6 +2,7 @@
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict
+from .tempo import DataHoraLocal
 
 
 class ParteFalta(BaseModel):
@@ -45,6 +46,7 @@ class ConferenciaMais(BaseModel):
     webposto: Decimal | None
     fonte: str = "total informado pelo diretor"
     aviso: str | None = None
+    informado_em: DataHoraLocal | None = None
 
     @property
     def diferenca(self):

@@ -149,8 +149,13 @@ def test_modulo_nao_permite_relogios_sem_helper_ou_descarte_de_fuso():
 
 
 def test_cli_como_main_grava_resumo_brasileiro_sem_rede(monkeypatch, tmp_path):
+    from src.modules.cash_reconciliation.adapters import saude_robo
+
     monkeypatch.setenv("WEBPOSTO_WRITES", "0")
-    monkeypatch.setattr("dotenv.load_dotenv", lambda *args: None)
+    monkeypatch.setenv("LOGOS_CARTAO_AUTOMATICO", "0")
+    monkeypatch.setattr("src.jobs.noturno.load_dotenv", lambda *args, **kwargs: None)
+    monkeypatch.setattr(saude_robo, "DIRETORIO_RESUMOS", tmp_path / "resumos")
+    monkeypatch.setattr(saude_robo, "CAMINHO_ESTADO", tmp_path / "resumos" / "estado_robo.json")
     monkeypatch.setattr(config, "carregar_unidades", lambda: {})
     monkeypatch.setattr(noturno, "carregar_unidades", lambda: {})
     monkeypatch.setattr("src.jobs.noturno.POSTOS", {})
@@ -162,7 +167,8 @@ def test_cli_como_main_grava_resumo_brasileiro_sem_rede(monkeypatch, tmp_path):
     with pytest.warns(RuntimeWarning, match="found in sys.modules"):
         with pytest.raises(SystemExit) as saida:
             runpy.run_module(noturno.__name__, run_name="__main__")
-    assert saida.value.code == 0
+    assert saida.value.code == 1
+    assert saude_robo.carregar_estado().execucao.audit_status == "AUDIT_FAILED"
     resumo = (tmp_path / "noturno.log").read_text(encoding="utf-8")
     assert re.match(r"^\d{2}/\d{2}/\d{4} \d{2}:\d{2} INFO ", resumo)
     assert "Execucao terminada dia=06/10/2026 unidades_com_falha=0" in resumo

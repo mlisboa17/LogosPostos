@@ -10,6 +10,7 @@ from .fechamento import ResultadoAuditoria
 from .models import Proveniencia
 from .recebimentos import ResultadoRecebimentos
 from .explicacao import ConferenciaMais, ConferenciaPixCnpj, ParteFalta
+from .integridade_execucao import FonteExecucao
 
 
 class ResultadoDiario(BaseModel):
@@ -28,6 +29,7 @@ class ResultadoDiario(BaseModel):
     mais_pagamentos: ConferenciaMais | None = None
     administradora_pix_pagbank: str | None = None
     motivo_pix_pagbank: str | None = None
+    fontes_execucao: tuple[FonteExecucao, ...] = ()
 
     @model_validator(mode="after")
     def validar_escopo(self) -> ResultadoDiario:

@@ -25,10 +25,14 @@ from src.modules.cash_reconciliation.application.resumo_diario import (
 )
 from src.modules.cash_reconciliation.config import carregar_unidades, prazos_pendencia_dias
 from src.modules.cash_reconciliation.domain.tempo import agora, formatar_data, ontem, para_local
+from src.modules.cash_reconciliation.domain.execucao import ResultadoDiario
+from src.modules.cash_reconciliation.domain.integridade_execucao import ExecucaoNoturna, FonteExecucao
 from src.modules.cash_reconciliation.jobs.noturno import (
     FormatoLogBrasil,
     _dia,
     executar,
+    validar_registros,
+    registros_para_publicacao,
 )
 from src.modules.commercial_performance.adapters.persistencia import salvar_placar
 from src.modules.commercial_performance.application.placar import obter_placar
@@ -43,6 +47,7 @@ from src.shared.notificacao.telegram import (
 
 logger = logging.getLogger("src.modules.cash_reconciliation.jobs.noturno")
 DIRETORIO_RESUMOS = Path(__file__).resolve().parents[2] / "data" / "resumos"
+CAMINHO_ENV = Path(__file__).resolve().parents[2] / ".env"
 
 
 def _ler_envios_telegram(caminho: Path) -> dict:
@@ -61,11 +66,17 @@ def _ler_envios_telegram(caminho: Path) -> dict:
     return dados
 
 
-def _registrar_envio_telegram(caminho: Path, dia: date, sucesso: bool) -> None:
+def _registrar_envio_telegram(
+    caminho: Path, dia: date, sucesso: bool, execucao: ExecucaoNoturna,
+) -> None:
     dados = _ler_envios_telegram(caminho)
     dados[dia.isoformat()] = {
         "registrado_em": agora().isoformat(),
         "situacao": "ok" if sucesso else "falhou",
+        "run_id": execucao.run_id,
+        "audit_status": execucao.audit_status,
+        "delivery_status": execucao.delivery_status,
+        "document_delivery_status": execucao.document_delivery_status,
     }
     temporario: Path | None = None
     try:
@@ -88,23 +99,15 @@ def _registrar_envio_telegram(caminho: Path, dia: date, sucesso: bool) -> None:
             temporario.unlink()
 
 
-def _coletar_dados_telegram(dia: date) -> dict:
+def _coletar_dados_telegram(
+    dia: date, resultados: list[ResultadoDiario], execucao: ExecucaoNoturna,
+) -> dict:
     unidades = carregar_unidades()
-    resultados = [
-        resultado
-        for codigo in unidades
-        if (resultado := persistencia_caixa.carregar_dia(codigo, dia)) is not None
-    ]
-    estado = saude_robo.carregar_estado()
-    if estado is not None and estado.dia_processado == dia:
-        unidades_com_falha = set(estado.unidades_com_falha)
-    else:
-        unidades_com_falha = {
-            resultado.empresa_codigo
-            for resultado in resultados
-            if resultado.erro_fechamento
-            or any(item.situacao == "erro" and item.adquirente != "PREMMIA" for item in resultado.recebimentos.adquirentes)
-        }
+    validar_registros(execucao, resultados)
+    if dia != execucao.dia or not execucao.permite_publicacao():
+        raise ValueError("Auditoria atual incompleta; composição financeira bloqueada.")
+    resultados = registros_para_publicacao(execucao, resultados)
+    unidades_com_falha: set[int] = set()
     abertas = {
         unidade: repositorio_pendencias.contar_abertas_somente_leitura(unidade=unidade)
         for unidade in unidades
@@ -165,8 +168,7 @@ def _coletar_dados_telegram(dia: date) -> dict:
     }
 
 
-def _mensagens_telegram(dia: date, dados: dict | None = None) -> list[str]:
-    dados = dados or _coletar_dados_telegram(dia)
+def _mensagens_telegram(dia: date, dados: dict) -> list[str]:
     unidades = dados["unidades"]
     resultados = dados["resultados"]
     unidades_com_falha = dados["unidades_com_falha"]
@@ -349,7 +351,7 @@ def _criar_planilha_telegram(dia: date, dados: dict, diretorio: Path | None = No
         planilha.auto_filter.ref = planilha.dimensions
         for celula in planilha[1]:
             celula.font = Font(bold=True)
-        colunas_monetarias = formatos_monetarios.get(planilha.title, ())
+        colunas_monetarias: tuple[str | int, ...] = formatos_monetarios.get(planilha.title, ())
         if planilha.title.startswith("Dia "):
             colunas_monetarias = tuple(range(2, planilha.max_column + 1))
         elif planilha.title.startswith("Formas "):
@@ -371,8 +373,11 @@ def _criar_planilha_telegram(dia: date, dados: dict, diretorio: Path | None = No
     return caminho
 
 
-def _artefatos_telegram(dia: date, diretorio: Path | None = None) -> tuple[list[str], Path]:
-    dados = _coletar_dados_telegram(dia)
+def _artefatos_telegram(
+    dia: date, resultados: list[ResultadoDiario], execucao: ExecucaoNoturna,
+    diretorio: Path | None = None,
+) -> tuple[list[str], Path]:
+    dados = _coletar_dados_telegram(dia, resultados, execucao)
     mensagens = _mensagens_telegram(dia, dados)
     planilha = _criar_planilha_telegram(dia, dados, diretorio)
     return mensagens, planilha
@@ -385,12 +390,18 @@ def _tentar_envio_telegram(
     enviar_manual: bool,
     reenviar: bool,
     caminho_registro: Path | None = None,
+    execucao: ExecucaoNoturna,
+    resultados: list[ResultadoDiario],
 ) -> None:
+    validar_registros(execucao, resultados)
     if os.getenv("TELEGRAM_ENVIO", "0").strip() != "1":
+        execucao.delivery_status = "SKIPPED"
         return
     if dia != ontem() and not (dia_manual and enviar_manual):
+        execucao.delivery_status = "SKIPPED"
         return
     if dia_manual and not enviar_manual:
+        execucao.delivery_status = "SKIPPED"
         return
 
     registro = caminho_registro or DIRETORIO_RESUMOS / "envios_telegram.json"
@@ -398,6 +409,7 @@ def _tentar_envio_telegram(
         envios = _ler_envios_telegram(registro)
         if dia.isoformat() in envios and not reenviar:
             logger.info("Telegram envio=ignorado motivo=ja_enviado")
+            execucao.delivery_status = "SKIPPED"
             return
         token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
         chat_ids = list(
@@ -409,27 +421,38 @@ def _tentar_envio_telegram(
         )
         if not token or not chat_ids:
             logger.warning("Telegram envio=falhou motivo=ConfiguracaoAusente")
+            execucao.delivery_status = "DELIVERY_FAILED"
             return
-        dados = _coletar_dados_telegram(dia)
-        mensagens = _mensagens_telegram(dia, dados)
+        completo = dia == execucao.dia and execucao.permite_publicacao()
+        dados = _coletar_dados_telegram(dia, resultados, execucao) if completo else None
+        mensagens = _mensagens_telegram(dia, dados) if dados is not None else [
+            execucao.aviso_operacional({
+                codigo: u.apelido or u.nome for codigo, u in carregar_unidades().items()
+            })
+        ]
         saude_robo.salvar_resumo(dia, "\n".join(mensagens) + "\n")
-        try:
-            planilha = _criar_planilha_telegram(dia, dados)
-        except (OSError, ValueError) as exc:
-            planilha = None
-            logger.warning("Telegram planilha indisponivel motivo=%s", type(exc).__name__)
-        resultados = [
+        planilha = None
+        if dados is not None:
+            try:
+                planilha = _criar_planilha_telegram(dia, dados)
+            except (OSError, ValueError) as exc:
+                execucao.document_delivery_status = "DELIVERY_FAILED"
+                logger.warning("Telegram planilha indisponivel motivo=%s", type(exc).__name__)
+        resultados_envio = [
             resultado
             for texto in mensagens
             for resultado in enviar_mensagem(
                 texto,
                 token=token,
                 chat_ids=chat_ids,
-                parse_mode="HTML",
+                parse_mode="HTML" if completo else None,
             )
         ]
+        sucesso = bool(resultados_envio) and all(resultado.sucesso for resultado in resultados_envio)
+        execucao.delivery_status = "DELIVERY_SUCCESS" if sucesso else "DELIVERY_FAILED"
         resultados_documento = []
         if planilha is not None:
+            execucao.document_delivery_status = "DELIVERY_FAILED"
             resultados_documento = enviar_documento(
                 planilha,
                 f"Detalhe do dia {formatar_data(dia)}",
@@ -437,13 +460,15 @@ def _tentar_envio_telegram(
                 chat_ids=chat_ids,
             )
             if not resultados_documento or any(not item.sucesso for item in resultados_documento):
+                execucao.document_delivery_status = "DELIVERY_FAILED"
                 logger.warning("Telegram planilha envio=falhou")
-        sucesso = bool(resultados) and all(resultado.sucesso for resultado in resultados)
+            else:
+                execucao.document_delivery_status = "DELIVERY_SUCCESS"
         if sucesso:
             logger.info("Telegram envio=ok destinatarios=%s", len(chat_ids))
         else:
             falha = next(
-                (resultado for resultado in resultados if not resultado.sucesso),
+                (resultado for resultado in resultados_envio if not resultado.sucesso),
                 ResultadoDestinatario(chat_id="", sucesso=False, tipo_erro="sem destinatário"),
             )
             motivo = (
@@ -452,15 +477,11 @@ def _tentar_envio_telegram(
                 else falha.tipo_erro or "erro desconhecido"
             )
             logger.warning("Telegram envio=falhou motivo=%s", motivo)
-        _registrar_envio_telegram(registro, dia, sucesso)
-        # Propostas de escrita nunca vão para a lista geral de destinatários.
-        from src.modules.cash_reconciliation.adapters import telegram_cartoes
-        from src.modules.cash_reconciliation.adapters.webposto_escrita_cartao import ler_travas
-        travas = ler_travas()
-        if travas["TELEGRAM_DIRETOR_CHAT_ID"] and travas["TELEGRAM_DIRETOR_USER_ID"]:
-            for codigo in dados["unidades"]:
-                asyncio.run(telegram_cartoes.enviar_propostas(codigo, dia, token=token))
+        _registrar_envio_telegram(registro, dia, sucesso, execucao)
     except Exception as exc:
+        execucao.erro_publicacao = f"Publicação não concluída ({type(exc).__name__})."
+        if execucao.delivery_status == "NOT_ATTEMPTED":
+            execucao.delivery_status = "DELIVERY_FAILED"
         logger.warning("Telegram envio=falhou motivo=%s", type(exc).__name__)
 
 
@@ -468,15 +489,34 @@ async def _executar_placar(
     dia: date,
     timeout: float,
     diretorio: Path | None,
+    execucao: ExecucaoNoturna | None = None,
 ) -> tuple[int, set[int]]:
     falhas = 0
     unidades_com_falha: set[int] = set()
     for posto in POSTOS.values():
+        if execucao is not None:
+            execucao.registrar(FonteExecucao(nome="placar", unidade=posto.empresa_codigo, dia=dia))
         try:
             placar = await asyncio.wait_for(
-                obter_placar(posto.empresa_codigo, dia.strftime("%Y-%m"), dia),
+                obter_placar(posto.empresa_codigo, dia.strftime("%Y-%m"), dia, forcar_coleta=True),
                 timeout=timeout,
             )
+            if placar.posto != posto.empresa_codigo or placar.dia != dia:
+                raise ValueError("Placar fora do escopo solicitado.")
+            if execucao is not None:
+                fonte = FonteExecucao(
+                    nome="placar", unidade=posto.empresa_codigo, dia=dia, run_id=execucao.run_id,
+                    coletado_em=placar.proveniencia.executado_em, cobertura_inicio=dia.replace(day=1),
+                    cobertura_fim=dia, estado="SUCCESS",
+                )
+                execucao.registrar(fonte)
+                execucao.avaliar()
+                if next(f for f in execucao.fontes if f.nome == "placar"
+                        and f.unidade == posto.empresa_codigo).estado == "STALE":
+                    raise ValueError("Placar sem coleta corrente.")
+                placar = placar.model_copy(update={"proveniencia": placar.proveniencia.model_copy(
+                    update={"execucao_id": execucao.run_id},
+                )})
             salvar_placar(placar, diretorio=diretorio)
             logger.info(
                 "Placar posto=%s mes=%s dia=%s litros=%s",
@@ -486,6 +526,11 @@ async def _executar_placar(
                 placar.acumulado,
             )
         except Exception as exc:
+            if execucao is not None:
+                execucao.registrar(FonteExecucao(
+                    nome="placar", unidade=posto.empresa_codigo, dia=dia, estado="FAILED",
+                    motivo=f"Coleta comercial não concluída ({type(exc).__name__}).",
+                ))
             logger.error(
                 "Placar nao concluido posto=%s mes=%s tipo=%s",
                 posto.empresa_codigo,
@@ -509,7 +554,8 @@ def main() -> int:
     parser.add_argument("--reenviar", action="store_true")
     args = parser.parse_args()
     dia = args.dia or ontem()
-    load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+    execucao = ExecucaoNoturna(dia=dia)
+    resultados: list[ResultadoDiario] = []
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     diretorio = persistencia_caixa.DIRETORIO
@@ -520,14 +566,39 @@ def main() -> int:
     modulo_logger.setLevel(logging.INFO)
     modulo_logger.addHandler(handler)
     try:
-        codigo_saida = asyncio.run(executar(dia, executar_placar=_executar_placar))
+        saude_robo.salvar_execucao(execucao)
+        try:
+            load_dotenv(CAMINHO_ENV, override=False)
+            codigo_saida = asyncio.run(executar(
+                dia, executar_placar=_executar_placar, execucao=execucao,
+                resultados_execucao=resultados,
+            ))
+        except Exception as exc:
+            logger.error("Auditoria interrompida run=%s tipo=%s", execucao.run_id, type(exc).__name__)
+            execucao.registrar(FonteExecucao(
+                nome="execucao", dia=dia, estado="FAILED",
+                motivo=f"Execução interrompida ({type(exc).__name__}); consultar diagnóstico local.",
+            ))
+            execucao.finalizar()
+            saude_robo.salvar_resumo(dia, execucao.aviso_operacional({}))
+            saude_robo.salvar_estado(saude_robo.EstadoRobo(
+                ultima_execucao=agora(), dia_processado=dia, unidades_processadas=(),
+                unidades_com_falha=(), resumo_gerado=False, execucao=execucao,
+            ))
+            codigo_saida = 1
+        saude_robo.salvar_execucao(execucao)
         _tentar_envio_telegram(
             dia,
             dia_manual=args.dia is not None,
             enviar_manual=args.enviar_telegram,
             reenviar=args.reenviar,
+            execucao=execucao, resultados=resultados,
         )
-        return codigo_saida
+        saude_robo.salvar_execucao(execucao)
+        return 1 if (codigo_saida or not execucao.permite_publicacao()
+                     or execucao.delivery_status == "DELIVERY_FAILED"
+                     or execucao.document_delivery_status == "DELIVERY_FAILED"
+                     or execucao.erro_publicacao) else 0
     finally:
         modulo_logger.removeHandler(handler)
         handler.close()

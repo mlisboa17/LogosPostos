@@ -30,6 +30,29 @@ def calcular_teste(linhas=(), metas=None, dia=DIA, hoje=DIA, produtos=PRODUTOS):
     return calcular(11495, "2026-10", dia, hoje, linhas, produtos, {}, metas, PROV)
 
 
+@pytest.mark.parametrize("falha", [False, True])
+async def test_coleta_forcada_nunca_reutiliza_cache(monkeypatch, falha):
+    monkeypatch.setattr(placar, "hoje", lambda: date(2026, 10, 16))
+    monkeypatch.setattr(placar, "ler_metas", lambda mes: None)
+    monkeypatch.setattr(placar, "carregar_placar", lambda *a: pytest.fail("Cache não deve ser consultado"))
+    chamadas = []
+    esperado = calcular_teste()
+
+    async def vivo(*args):
+        chamadas.append(args)
+        if falha:
+            raise placar.FonteIndisponivel("Falha sintética")
+        return esperado
+
+    monkeypatch.setattr(placar, "_placar_vivo", vivo)
+    if falha:
+        with pytest.raises(placar.FonteIndisponivel):
+            await placar.obter_placar(11495, "2026-10", DIA, forcar_coleta=True)
+    else:
+        assert await placar.obter_placar(11495, "2026-10", DIA, forcar_coleta=True) is esperado
+    assert len(chamadas) == 1
+
+
 def test_atendimento_venda_distinta_fallback_ticket_e_isolamento():
     resultado = calcular_teste([
         abastecimento(1, 1, 10, venda=10), abastecimento(2, 1, 20, venda=10),

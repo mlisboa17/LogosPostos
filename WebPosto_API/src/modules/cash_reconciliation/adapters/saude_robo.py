@@ -10,6 +10,7 @@ from tempfile import NamedTemporaryFile
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator, model_validator
 
 from ..domain.tempo import para_local
+from ..domain.integridade_execucao import ExecucaoNoturna
 
 logger = logging.getLogger(__name__)
 DIRETORIO_RESUMOS = Path(__file__).resolve().parents[4] / "data" / "resumos"
@@ -25,6 +26,7 @@ class EstadoRobo(BaseModel):
     unidades_com_falha: tuple[int, ...]
     resumo_gerado: bool
     unidades_com_aviso: tuple[int, ...] = ()
+    execucao: ExecucaoNoturna | None = None
 
     @field_validator("ultima_execucao")
     @classmethod
@@ -80,6 +82,13 @@ def _gravar_atomico(caminho: Path, conteudo: str) -> None:
 def salvar_estado(estado: EstadoRobo, *, caminho: Path | None = None) -> None:
     destino = CAMINHO_ESTADO if caminho is None else caminho
     _gravar_atomico(destino, estado.model_dump_json(indent=2))
+
+
+def salvar_execucao(execucao: ExecucaoNoturna) -> None:
+    _gravar_atomico(
+        DIRETORIO_RESUMOS / "execucoes" / f"{execucao.run_id}.json",
+        execucao.model_dump_json(indent=2),
+    )
 
 
 def carregar_estado(*, caminho: Path | None = None) -> EstadoRobo | None:

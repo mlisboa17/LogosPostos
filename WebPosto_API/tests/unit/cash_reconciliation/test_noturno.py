@@ -15,6 +15,8 @@ from src.jobs import noturno as composicao_noturna
 from src.modules.cash_reconciliation.adapters import persistencia
 from src.modules.cash_reconciliation.adapters import saude_robo
 from src.modules.cash_reconciliation.domain.execucao import ResultadoDiario
+from src.modules.cash_reconciliation.domain.integridade_execucao import ExecucaoNoturna, FonteExecucao
+from src.modules.cash_reconciliation.domain.tempo import agora
 from src.modules.cash_reconciliation.domain.models import (
     AdquirenteConfigurada,
     Proveniencia,
@@ -46,6 +48,13 @@ EMPRESA = 321
 def sem_postos_comerciais_reais(monkeypatch, tmp_path):
     monkeypatch.setattr(saude_robo, "DIRETORIO_RESUMOS", tmp_path / "resumos")
     monkeypatch.setattr(saude_robo, "CAMINHO_ESTADO", tmp_path / "resumos" / "estado_robo.json")
+    monkeypatch.setenv("LOGOS_CARTAO_AUTOMATICO", "0")
+    from src.modules.cash_reconciliation.application import fontes_falta
+
+    async def sem_fontes_locais(registro, unidade):
+        return registro
+
+    monkeypatch.setattr(fontes_falta, "anexar_fontes_falta", sem_fontes_locais)
 
 
 def unidade(empresa=EMPRESA):
@@ -106,6 +115,34 @@ def diario(empresa=EMPRESA, dia=DIA, erro=None):
         ),
         versoes_regras=("FECHAMENTO_V3", "CARTOES_V1"),
     )
+
+
+def coleta_corrente(registro, run_id):
+    instante = agora()
+    fontes = [FonteExecucao(
+        nome="fechamento", unidade=registro.empresa_codigo, dia=registro.dia, run_id=run_id,
+        coletado_em=instante, cobertura_inicio=registro.dia, cobertura_fim=registro.dia,
+        estado="FAILED" if registro.erro_fechamento else "SUCCESS",
+    )]
+    fontes.extend(FonteExecucao(
+        nome=a.adquirente, unidade=registro.empresa_codigo, dia=registro.dia, run_id=run_id,
+        coletado_em=instante, cobertura_inicio=registro.dia, cobertura_fim=registro.dia,
+        estado="SUCCESS" if a.situacao == "ok" else "BLOCKED",
+    ) for a in registro.recebimentos.adquirentes)
+    return registro.model_copy(update={
+        "proveniencia": registro.proveniencia.model_copy(update={
+            "execucao_id": run_id, "executado_em": instante,
+        }), "fontes_execucao": tuple(fontes),
+    })
+
+
+@pytest.fixture
+def contexto_envio():
+    execucao = ExecucaoNoturna(dia=DIA)
+    registro = coleta_corrente(diario(), execucao.run_id)
+    execucao.fontes = list(registro.fontes_execucao)
+    execucao.finalizar()
+    return {"execucao": execucao, "resultados": [registro]}
 
 
 @pytest.fixture
@@ -263,7 +300,7 @@ async def test_job_isola_fechamento_e_persiste_demais_etapas(monkeypatch, tmp_pa
     assert "segredo" not in registro.model_dump_json() + caplog.text
 
 
-async def test_credencial_invalida_e_aviso_persistido_sem_falha(monkeypatch, tmp_path, caplog):
+async def test_credencial_invalida_bloqueia_publicacao_normal(monkeypatch, tmp_path, caplog):
     caplog.set_level("INFO", logger=noturno.logger.name)
     monkeypatch.setenv("WEBPOSTO_WRITES", "0")
     monkeypatch.setattr(noturno, "carregar_unidades", lambda: {EMPRESA: unidade()})
@@ -281,14 +318,14 @@ async def test_credencial_invalida_e_aviso_persistido_sem_falha(monkeypatch, tmp
     )
 
     async def coletar(*args, **kwargs):
-        return resultado.model_copy(update={"recebimentos": recebimentos})
+        return coleta_corrente(resultado.model_copy(update={"recebimentos": recebimentos}), args[2])
 
     monkeypatch.setattr(noturno, "coletar_unidade", coletar)
-    assert await noturno.executar(DIA, diretorio=tmp_path) == 0
+    assert await noturno.executar(DIA, diretorio=tmp_path) == 1
     estado = saude_robo.carregar_estado()
-    assert estado.unidades_com_falha == ()
+    assert estado.unidades_com_falha == (EMPRESA,)
     assert estado.unidades_com_aviso == (EMPRESA,)
-    assert "unidades_com_falha=0 unidades_com_aviso=1" in caplog.text
+    assert "unidades_com_falha=1 unidades_com_aviso=1" in caplog.text
 
 
 def test_estado_antigo_sem_unidades_com_aviso_permanece_compativel(tmp_path):
@@ -315,7 +352,7 @@ async def test_job_registra_alertas_sem_duplicar_pendencias(monkeypatch, tmp_pat
     monkeypatch.setattr(noturno, "carregar_unidades", lambda: {EMPRESA: unidade()})
 
     async def coletar(*args, **kwargs):
-        return diario()
+        return coleta_corrente(diario(), args[2])
 
     monkeypatch.setattr(noturno, "coletar_unidade", coletar)
     banco = tmp_path / "pendencias.sqlite3"
@@ -392,7 +429,11 @@ async def test_job_falha_de_unidade_nao_interrompe_outra(monkeypatch, tmp_path):
 async def test_job_sem_somente_leitura_bloqueia(monkeypatch, tmp_path):
     monkeypatch.delenv("WEBPOSTO_WRITES", raising=False)
     assert await noturno.executar(DIA, diretorio=tmp_path) == 1
-    assert not list(tmp_path.iterdir())
+    assert not list(tmp_path.glob("*.json"))
+    estado = saude_robo.carregar_estado()
+    assert estado.execucao.audit_status == "AUDIT_FAILED"
+    assert estado.execucao.fontes[0].estado == "BLOCKED"
+    assert not estado.resumo_gerado
 
 
 def test_dia_cli_formato_estrito():
@@ -404,11 +445,11 @@ def test_dia_cli_formato_estrito():
             noturno._dia(valor)
 
 
-def test_envio_telegram_nao_duplica_data(monkeypatch, tmp_path):
+def test_envio_telegram_nao_duplica_data(monkeypatch, tmp_path, contexto_envio):
     monkeypatch.setenv("TELEGRAM_ENVIO", "1")
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "token-sintetico")
     monkeypatch.setenv("TELEGRAM_CHAT_IDS", "123")
-    monkeypatch.setattr(composicao_noturna, "_coletar_dados_telegram", lambda dia: {})
+    monkeypatch.setattr(composicao_noturna, "_coletar_dados_telegram", lambda *args: {})
     monkeypatch.setattr(
         composicao_noturna,
         "_mensagens_telegram",
@@ -441,13 +482,14 @@ def test_envio_telegram_nao_duplica_data(monkeypatch, tmp_path):
             enviar_manual=True,
             reenviar=False,
             caminho_registro=registro,
+            **contexto_envio,
         )
 
     assert len(chamadas) == 1
     assert "2026-10-01" in registro.read_text(encoding="utf-8")
 
 
-def test_envio_telegram_desligado_nao_chama_api(monkeypatch, tmp_path):
+def test_envio_telegram_desligado_nao_chama_api(monkeypatch, tmp_path, contexto_envio):
     monkeypatch.setenv("TELEGRAM_ENVIO", "0")
     monkeypatch.setattr(
         composicao_noturna,
@@ -461,14 +503,15 @@ def test_envio_telegram_desligado_nao_chama_api(monkeypatch, tmp_path):
         enviar_manual=True,
         reenviar=False,
         caminho_registro=tmp_path / "envios.json",
+        **contexto_envio,
     )
 
 
-def test_envio_telegram_401_nao_registra_token_no_log(monkeypatch, tmp_path, caplog):
+def test_envio_telegram_401_nao_registra_token_no_log(monkeypatch, tmp_path, caplog, contexto_envio):
     monkeypatch.setenv("TELEGRAM_ENVIO", "1")
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "token-sintetico-secreto")
     monkeypatch.setenv("TELEGRAM_CHAT_IDS", "123")
-    monkeypatch.setattr(composicao_noturna, "_coletar_dados_telegram", lambda dia: {})
+    monkeypatch.setattr(composicao_noturna, "_coletar_dados_telegram", lambda *args: {})
     monkeypatch.setattr(
         composicao_noturna,
         "_mensagens_telegram",
@@ -514,17 +557,18 @@ def test_envio_telegram_401_nao_registra_token_no_log(monkeypatch, tmp_path, cap
             enviar_manual=True,
             reenviar=False,
             caminho_registro=tmp_path / "envios.json",
+            **contexto_envio,
         )
 
     assert "HTTP 401" in caplog.text
     assert "token-sintetico-secreto" not in caplog.text
 
 
-def test_falha_na_planilha_nao_invalida_envio_das_mensagens(monkeypatch, tmp_path, caplog):
+def test_falha_na_planilha_nao_invalida_envio_das_mensagens(monkeypatch, tmp_path, caplog, contexto_envio):
     monkeypatch.setenv("TELEGRAM_ENVIO", "1")
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "token-sintetico")
     monkeypatch.setenv("TELEGRAM_CHAT_IDS", "123")
-    monkeypatch.setattr(composicao_noturna, "_coletar_dados_telegram", lambda dia: {})
+    monkeypatch.setattr(composicao_noturna, "_coletar_dados_telegram", lambda *args: {})
     monkeypatch.setattr(
         composicao_noturna,
         "_mensagens_telegram",
@@ -562,13 +606,14 @@ def test_falha_na_planilha_nao_invalida_envio_das_mensagens(monkeypatch, tmp_pat
         enviar_manual=True,
         reenviar=False,
         caminho_registro=registro,
+        **contexto_envio,
     )
 
     assert '"situacao": "ok"' in registro.read_text(encoding="utf-8")
     assert "Telegram planilha envio=falhou" in caplog.text
 
 
-def test_reprocessamento_manual_nao_envia_sem_opcao(monkeypatch, tmp_path):
+def test_reprocessamento_manual_nao_envia_sem_opcao(monkeypatch, tmp_path, contexto_envio):
     monkeypatch.setenv("TELEGRAM_ENVIO", "1")
     monkeypatch.setattr(
         composicao_noturna,
@@ -582,6 +627,7 @@ def test_reprocessamento_manual_nao_envia_sem_opcao(monkeypatch, tmp_path):
         enviar_manual=False,
         reenviar=False,
         caminho_registro=tmp_path / "envios.json",
+        **contexto_envio,
     )
 
 

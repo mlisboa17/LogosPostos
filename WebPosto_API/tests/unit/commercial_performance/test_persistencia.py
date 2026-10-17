@@ -88,7 +88,8 @@ async def test_composicao_noturna_persiste_placar(monkeypatch, tmp_path):
     monkeypatch.setattr(composicao_noturno, "POSTOS", POSTOS)
     chamadas = []
 
-    async def obter(posto, mes, dia):
+    async def obter(posto, mes, dia, *, forcar_coleta):
+        assert forcar_coleta is True
         chamadas.append((posto, mes, dia))
         return placar_sintetico().model_copy(update={"posto": posto})
 

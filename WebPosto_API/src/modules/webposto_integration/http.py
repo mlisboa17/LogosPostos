@@ -48,6 +48,7 @@ async def paginar(
     http = client or httpx.AsyncClient(base_url=base, timeout=60.0)
     linhas: list[dict[str, Any]] = []
     cursor = None
+    cursores = set()
     try:
         while True:
             q = {"CHAVE": chave, **params, "limite": limite, **({"ultimoCodigo": cursor} if cursor else {})}
@@ -59,11 +60,18 @@ async def paginar(
                 raise WebPostoErro(f"HTTP {resp.status_code}: {resp.text[:120].replace(chave, '***')}",
                                   status_http=resp.status_code)
             payload = resp.json()
-            lote = payload.get("resultados") or []
+            if not isinstance(payload, dict) or not isinstance(payload.get("resultados"), list):
+                raise WebPostoErro("Resposta paginada inválida: resultados ausentes ou inválidos.")
+            lote = payload["resultados"]
+            if any(not isinstance(item, dict) for item in lote):
+                raise WebPostoErro("Resposta paginada inválida: registro sem estrutura.")
             linhas += lote
             novo = payload.get("ultimoCodigo")
-            if not lote or not novo or novo == cursor:
+            if not lote or not novo:
                 return linhas
+            if not isinstance(novo, (str, int)) or isinstance(novo, bool) or novo in cursores:
+                raise WebPostoErro("Resposta paginada sem avanço de cursor.")
+            cursores.add(novo)
             cursor = novo
     finally:
         if proprio:

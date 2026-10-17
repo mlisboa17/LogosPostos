@@ -116,7 +116,12 @@ def main() -> int:
         if not resumo.strip():
             print("Resumo gravado vazio. Nenhum envio realizado.")
             return 1
-        mensagens = dividir_resumo(resumo)
+        mensagens = dividir_resumo(
+            "<b>LOGOS — REENVIO HISTÓRICO</b>\n"
+            f"Referência: {args.reenviar_resumo:%d/%m/%Y}\n"
+            "Arquivo local; execução original não revalidada. "
+            "Este reenvio não representa nova coleta ou auditoria atual.\n\n" + resumo
+        )
     for mensagem in mensagens:
         envio = enviar_mensagem(
             mensagem, token=token, chat_ids=ids,

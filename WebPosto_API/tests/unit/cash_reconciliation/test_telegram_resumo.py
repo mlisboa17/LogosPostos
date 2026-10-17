@@ -31,7 +31,12 @@ def test_reenvia_somente_resumo_gravado_sem_coletar(cli):
     caminho.write_text(texto, encoding="utf-8")
     antes = caminho.read_bytes()
     assert telegram.main() == 0
-    assert envios == [(texto.strip(), {"token": "token-sintetico", "chat_ids": ["11"], "parse_mode": "HTML"})]
+    assert len(envios) == 1
+    enviado, configuracao = envios[0]
+    assert enviado.startswith("<b>LOGOS — REENVIO HISTÓRICO</b>")
+    assert "não representa nova coleta ou auditoria atual" in enviado
+    assert enviado.endswith(texto.strip())
+    assert configuracao == {"token": "token-sintetico", "chat_ids": ["11"], "parse_mode": "HTML"}
     assert caminho.read_bytes() == antes
 
 

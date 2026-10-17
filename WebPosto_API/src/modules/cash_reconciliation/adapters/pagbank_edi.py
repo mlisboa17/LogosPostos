@@ -75,6 +75,7 @@ async def buscar_transacoes(
     vistos: set[str] = set()
     saida: list[TransacaoAdquirente] = []
     pagina = 1
+    total_paginas: int | None = None
     try:
         while True:
             try:
@@ -84,19 +85,37 @@ async def buscar_transacoes(
             except httpx.HTTPError as exc:
                 raise PagBankErro(type(exc).__name__) from None
             if resp.status_code == 404:
+                if pagina > 1:
+                    raise PagBankErro("Resposta EDI incompleta: página declarada indisponível.")
                 return saida
             if resp.status_code in (401, 403):
                 raise PagBankCredencialInvalida("credencial inválida")
             if resp.status_code != 200:
                 raise PagBankErro(f"HTTP {resp.status_code}")
             payload = resp.json()
-            for r in payload.get("detalhes") or []:
+            if not isinstance(payload, dict) or not isinstance(payload.get("detalhes"), list):
+                raise PagBankErro("Resposta EDI inválida: detalhes ausentes ou inválidos.")
+            paginacao = payload.get("pagination")
+            total = paginacao.get("totalPages") if isinstance(paginacao, dict) else None
+            if total is None and not payload["detalhes"] and pagina == 1:
+                return []
+            if isinstance(total, str) and total.isdecimal():
+                total = int(total)
+            if not isinstance(total, int) or isinstance(total, bool) or total < 0:
+                raise PagBankErro("Resposta EDI inválida: paginação ausente ou inválida.")
+            if total_paginas is not None and total != total_paginas:
+                raise PagBankErro("Resposta EDI inconsistente: quantidade de páginas alterada.")
+            total_paginas = total
+            if (not payload["detalhes"] and pagina < total) or (payload["detalhes"] and total < pagina):
+                raise PagBankErro("Resposta EDI incompleta: cobertura de páginas inválida.")
+            for r in payload["detalhes"]:
+                if not isinstance(r, dict):
+                    raise PagBankErro("Resposta EDI inválida: registro sem estrutura.")
                 t = para_transacao(r)
                 identidade = f"{t.identificador}|{t.tipo_evento}|{t.status_pagamento}"
                 if t and identidade not in vistos:
                     vistos.add(identidade)
                     saida.append(t)
-            total = int((payload.get("pagination") or {}).get("totalPages") or 1)
             if pagina >= total or not payload.get("detalhes"):
                 return saida
             pagina += 1
