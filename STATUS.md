@@ -1,9 +1,190 @@
-# STATUS — LOGOS Auditoria (atualizado em 15/10/2026)
+# STATUS — LOGOS Auditoria (atualizado em 17/10/2026)
 
 Repositório canônico: C:\Projetos\LOGOS\LogosPostos · branch feature/cash-audit-fechamento
 Última entrega de código: Sprint 19 (A–D) · branch feature/cash-audit-fechamento, sem merge
 PR a abrir: https://github.com/mlisboa17/LogosPostos/pull/new/feature/cash-audit-fechamento
 Histórico de sprints: um prompt por sprint em docs/prompts/ (SPRINT_05 ... SPRINT_12, PREMMIA_00, TELEGRAM_00)
+
+## SITUAÇÃO EM 17/10/2026 — Claude assume o desenvolvimento (leia primeiro)
+
+**Bloqueio urgente (ação do diretor):** `WEBPOSTO_WRITES=1` e `LOGOS_ERP_ESCRITA=1` no `.env` desde o teste do
+piloto de cartão (15/10). O robô das 03:00 **recusa rodar com escrita ligada** (gate PROD-SAFE) → **sem auditoria
+nas noites de 16/10 e 17/10**. Voltar as duas para `0`; depois reprocessar 15–16/10.
+
+**Direção aceita (revisão com ChatGPT/Gemini, 16–17/10):**
+- Missão: prevenção na origem + auditoria confiável (somente leitura) + correção humana orientada.
+- **Escrita no ERP congelada** (OFX, cartão, baixa, despesas, estoque). Piloto de cartão fica pronto e desligado.
+- IA não calcula fatos financeiros; tudo sai do motor com teste. Casos reais viram golden cases (1º: Doze 14/10,
+  686,71 = 34,75 + 139,35 + 500,00 + 12,61).
+- Produção deve rodar versão aprovada fora da pasta de trabalho (PROD-RELEASE-01, ainda não feito).
+- Processo: problema + critério de aceite → uma entrega ponta a ponta → validação → release. Sem micro-sprints.
+
+**Fatos novos do diretor (17/10):**
+- Maquininhas PagBank são **integradas**; às vezes a integração não reconhece a transação (cartão cobrado,
+  venda fica como dinheiro, cupom sem vínculo). Analisar caso a caso → Sprint 20.
+- Ecossistemas posto + loja (caixas e PDVs sempre separados): VIP (mesmo CNPJ, loja por centro de custo);
+  Casa Caiada 5555 + Conveniência 24h 118508 (CNPJs diferentes); Doze 74014 + Conveniência Real (Linx — fora;
+  a partir de nov/2026 vai para o CNPJ do posto no webPosto, por centro de custo).
+- Mais Pagamentos: Doze = "Posto Abreu e Lima" (Asaas); Casa Caiada e VIP = Fiserv. PAGPIX desativada.
+  Login da API dá 401 com as credenciais do webPosto → perguntar à Quality.
+
+**Ordem de trabalho:**
+1. Travas em 0 (diretor) e conferir o robô na noite seguinte (run PROD_SAFE_01 com AUDIT_COMPLETE).
+2. PROD-RELEASE-01: aceitar a reconstrução semântica do estado local (é estado do robô, regenerado a cada noite)
+   e isolar a produção numa pasta/versão aprovada, com testes isolados de tmp.
+3. Sprint 20 — cupons sem vínculo (padrão por frentista/PDV/horário; somente leitura).
+4. Mapeamento real (GET) das rotas V1 de conveniência e combustível (vendas/itens, estoque/extrato/contagem,
+   compras, encerrante, tanque, LMC) em 1 posto + 1 loja.
+5. Perguntas à Quality: POS integrado que falha (log, vincular depois), PIX no PDV, acesso Mais Pagamentos, débito OFX.
+
+## PROD-RELEASE-01 — PARADO no pré-check — 17/10/2026
+- Branch `feature/cash-audit-fechamento`, HEAD `76cd8e2`; nenhuma implementação
+  de release iniciada. Evidências em
+  [PROD_RELEASE_01_VALIDATION.md](docs/validation/PROD_RELEASE_01_VALIDATION.md).
+- Contagem reconciliada: 19 arquivos do PROD-SAFE-01 + 2 relatórios anteriores
+  = 21 acumulados; probe preexistente excluído. `git diff --stat` sem novos
+  mostra 16 rastreados. Inventário dos 21 registrado no relatório.
+- Bloqueio: restauração anterior de estado/MD foi reconstrução semântica,
+  não há baseline integral suficiente para provar bytes/metadados originais.
+  Ressalva acrescentada ao relatório anterior, sem apagar histórico.
+- Estado atual já foi atualizado pela tarefa de 17/10 às 03:00, referência
+  16/10, auditoria falha e sem unidades; não foi sobrescrito. Log preexistente
+  mostra bloqueio de configuração e envio ok; não foi execução desta tarefa.
+- Teste CLI específico está em tmp, mas não existe guarda persistente geral
+  contra gravações fora de temporários; runner isolado anterior foi removido.
+  Garantia para testes futuros ainda não atendida; nenhum teste executado aqui.
+- Produção continua no workspace, Python global; tarefa apenas consultada.
+  Destino production inexistente; sem versão/tag proposta ou aprovada,
+  manifesto, venv, deploy, health check ou rollback implementados.
+- Próximo passo: recuperar backup autenticado ou obter decisão explícita
+  sobre aceitar a reconstrução semântica; preparar isolamento reproduzível
+  de testes antes de retomar release. Mudança real da tarefa depende de
+  aprovação humana explícita e permanece não realizada.
+- Apenas documentação nesta tarefa. Nenhum ERP write, integração externa,
+  Telegram real, browser, commit, push ou merge; `.env` não lido/impresso/
+  alterado, nenhuma trava modificada, escrita não habilitada.
+
+## PROD-SAFE-01 — run integrity e publicação fail-closed — 16/10/2026
+- Branch `feature/cash-audit-fechamento`; sem commit, push, merge ou deploy.
+  Validação em [PROD_SAFE_01_RUN_INTEGRITY_VALIDATION.md](docs/validation/PROD_SAFE_01_RUN_INTEGRITY_VALIDATION.md).
+- Causa raiz: envio desacoplado do resultado da coleta e releitura de snapshot
+  do dia sem provar run/frescor. Incidente de 16/10 foi barreira local de
+  configuração; não se comprovou relatório normal com números antigos.
+- UUID criado antes das travas, propagado e persistido atomicamente por run,
+  com início/fim, referência, estados de fonte/auditoria e motivo seguro.
+  Legados seguem legíveis, mas não provam coleta atual.
+- Gate valida run, data, timestamps e cobertura antes do resumo e do Telegram.
+  FAILED/BLOCKED/STALE/NOT_COLLECTED obrigatórios impedem publicação financeira.
+  EMPTY_VALID exige consulta bem-sucedida e contrato que permita vazio.
+  Incompleto gera só aviso operacional, sem saldos, zeros financeiros ou XLSX.
+- Fontes obrigatórias/degradáveis documentadas por fluxo; Premmia/Mais/OFX
+  não viraram obrigações globais. Premmia antigo mantém timestamp e é omitido
+  financeiramente; Mais preserva declaração original; OFX preserva hashes/
+  cobertura. Placar agendado força coleta viva, sem fallback para cache.
+- WEBPOSTO_WRITES deve ser exatamente `0`; configuração ausente/inválida e
+  modo automático ativo bloqueiam com diagnóstico. Agendado não chama piloto
+  automático/propostas de escrita; piloto manual não foi habilitado/alterado.
+  Bootstrap absoluto via load_dotenv preservado; `.env` oficial não editado.
+- AUDIT_COMPLETE/PARTIAL/FAILED separados de delivery das mensagens/documento;
+  entrega de alerta não promove auditoria. Reenvio de MD tem rótulo histórico.
+  Falha técnica/financeira retorna 1; entrega falha não rebaixa audit status.
+- Testes ampliados offline: 611 aprovados, zero tentativas externas/browser;
+  rodada final focada: 94 aprovados (sobreposta, não somar). Mypy: 11
+  arquivos funcionais sem erros. Golden sintético inalterado:
+  686,71 = 34,75 + 139,35 + 500,00 + 12,61. Frontend não alterado.
+- Teste CLI legado foi isolado em tmp após gravação local de estado/MD de
+  teste; estado anterior restaurado da evidência e MD vazio reconstituído.
+  Nenhum lançamento, integração real ou Telegram real durante a validação.
+- Riscos: freshness remota é prova de consulta corrente, não certificação
+  interna do fornecedor; Mais/OFX continuam fontes locais explícitas, sem TTL
+  inventado. Histórico e piloto manual fora do gate noturno. Produção ainda
+  NÃO isolada; tarefa continua apontando ao workspace, sem alteração.
+- Escrita segue congelada no job; nenhum raw financeiro/segredo copiado ao Git.
+  Próximo passo recomendado: **PROD-RELEASE-01**.
+
+## PROD-SAFE-00 — diagnóstico do job/frescor — 16/10/2026
+- Branch `feature/cash-audit-fechamento`, base `76cd8e2`; diagnóstico concluído
+  em [PROD_SAFE_00_JOB_FRESHNESS_DIAGNOSIS.md](docs/validation/PROD_SAFE_00_JOB_FRESHNESS_DIAGNOSIS.md).
+- Inspecionados: composição `src/jobs/noturno.py`, wrapper/job de caixa,
+  fechamento, recebimentos/conciliação, fontes da falta, persistência/saúde,
+  Premmia, OFX, Mais, placar/cache, renderizadores, painel, utilitário Telegram,
+  testes existentes, registrador e tarefa Windows, log/estado/ledger locais.
+- Diagnóstico: **fail-closed na barreira de coleta; fail-open na composição
+  resumo/envio quanto à completude e freshness**. Não é prova de escrita
+  financeira fail-open. `main` tenta envio após retorno 1; exceção que escapa
+  da coleta interrompe antes. Saída 0 também permite fontes degradadas.
+- Falha de 16/10/2026: bloqueio local às 03:00 por condição
+  `WEBPOSTO_WRITES != "0"` no modo não automático; não foi erro de fornecedor.
+  Task iniciou 03:00:01 e terminou com resultado 1; ledger registra envio ok
+  às 03:00:45. Não se consultou o valor/origem da variável.
+- Evidência refina o risco: não havia snapshots de 15/10 e o MD local avisa
+  conferência não realizada nas quatro unidades. Não se comprovou envio de
+  relatório financeiro normal com dados antigos nesse episódio. O código,
+  porém, aceita snapshot anterior do MESMO dia sem conferir idade/execução.
+  Não troca automaticamente o dia 15 pelo 14 no Telegram.
+- Gaps: sem gate de fontes obrigatórias/atuais antes do resumo ou Telegram;
+  sem estados completos por fonte/auditoria. Frescor parcial (referência,
+  proveniência, coleta Premmia, declaração Mais), não prova conjunta.
+  Planilha pode zerar campos sem fechamento; ledger ok significa entrega de
+  mensagens, não sucesso documental nem da auditoria.
+- Recomendação mínima, NÃO implementada: gate e diagnóstico da tentativa atual,
+  resultado/run ligado ao envio, publicar apenas aviso operacional quando
+  incompleto; definir critérios de validade por fonte sem inventar TTL/regra.
+  Só testar código de saída 0 é insuficiente por causa das degradações.
+- Produção continua no workspace com Python global e logon Interactive.
+  Isolamento futuro exige release/venv, ação/cwd aprovados, dados/segredos/logs
+  preservados fora da release e smoke/rollback; nada movido ou reconfigurado.
+- Nenhuma alteração funcional, execução de job/teste funcional, integração,
+  write operacional/financeiro ou envio. `.env` não lido/alterado; nenhum raw
+  financeiro/segredo copiado. Sem commit, push ou merge.
+- Próximo passo sugerido: aprovar correção mínima do gate/frescor com testes
+  offline de bloqueio, snapshot antigo, vazio válido e fonte degradada;
+  depois planejar cutover isolado sem mudar regras financeiras.
+
+## Auditoria de capacidades atuais — 16/10/2026 (somente leitura)
+- Branch: `feature/cash-audit-fechamento`, base `76cd8e2`; sem merge.
+  Entrega: [LOGOS_CURRENT_CAPABILITY_AUDIT.md](docs/validation/LOGOS_CURRENT_CAPABILITY_AUDIT.md).
+  Apenas documentação; nenhuma correção/refatoração ou implementação funcional.
+- Escopo analisado: Python versionados, entrypoints/routers, clientes/adapters,
+  testes, configuração de unidades, persistência, scripts e tarefa Windows.
+  Comparação estática com OpenAPI de 06/10/2026 e 23 entradas do registry antigo,
+  usado só como catálogo, sem importar/copiar seu código ou políticas.
+- Inventário: 200 declarações de rota em 30 arquivos (não simultaneamente
+  publicadas), 101 na montagem principal, 176 chamadas com path /INTEGRACAO literal,
+  156 paths na OpenAPI. Limites do AST e aliases detalhados no relatório.
+- Capacidades com evidência operacional anterior: auditoria de caixa, contexto
+  de vendas/cartões PagBank, parser OFX, portal Premmia nos casos conferidos,
+  placar, comparação Mais via CLI e explicação da falta da Sprint 19.
+  Isso não certifica todos os endpoints HTTP nem disponibilidade atual.
+- Implementadas sem validação operacional completa: inclusão/compensação e nova
+  tentativa do piloto, casamento positivo PIX CNPJ, receptores novos,
+  fila Gemini/comprovantes ponta a ponta e integrações analíticas legadas.
+  Cielo/Rede e coleta automática Mais não têm adapter de adquirente ativo.
+- Achado operacional prioritário: tarefa real das 03:00 roda do workspace
+  `C:\Projetos\LOGOS\LogosPostos\WebPosto_API`, não de release isolada.
+  Argumento registrado usa módulo antigo que encaminha à composição nova.
+  Em 16/10/2026: LastTaskResult=1; log mostra coleta bloqueada e marcador de envio
+  Telegram. O código tenta envio mesmo após retorno de falha; envio ok não
+  comprova dado fresco. Nenhuma tarefa foi alterada/reexecutada nesta auditoria.
+- Golden case 14/10: teste sintético afirma a tabela 34,75 + 139,35 + 500,00 +
+  12,61 = 686,71. Snapshot antigo persistido do mesmo dia não contém as novas
+  fontes/campos e representa outro instante; não é replay integral desse resultado.
+- Gaps reais: release/frescor/proveniência reproduzível; integração e validação V1
+  de contagem/extrato/itens de entrada para conveniência e de equipamento/
+  medição/descarga para combustível. A OpenAPI já documenta essas fontes.
+- Riscos: produção no checkout, resumo após coleta bloqueada, evidência
+  sobrescrita, escopos de extrato, versões de clientes e retries de escrita.
+  Travas cartão/OFX não constituem congelamento universal dos proxies/wrappers.
+- Decisões NÃO tomadas: arquitetura nova, deploy, correção, mudança de flags,
+  autorização de lançamento, cadastro de tarefa, commit/push ou merge.
+  Pendências/recomendações não foram implementadas.
+- Próximo passo recomendado: isolar release aprovada e comprovar saúde/frescor
+  do job das 03:00, reusando entrypoints/proveniência/testes; formalizar replay
+  anonimizado do golden case antes de ampliar conveniência/combustível.
+- Nenhum request externo, envio Telegram/Gemini, browser ou write operacional/
+  financeiro executado. `.env` não foi lido, impresso ou editado; nenhum raw real
+  foi copiado ao Git. Histórico 824 backend + 72 frontend da Sprint 19 preservado;
+  não reexecutado nesta auditoria exclusivamente documental.
 
 ## Sprint 19 — Parte A
 - Relatório, tela e resumo compartilham a decomposição da diferença de dinheiro
