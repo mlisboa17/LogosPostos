@@ -8,6 +8,7 @@ import logging.handlers
 import os
 import socket
 import threading
+import time
 import webbrowser
 from datetime import datetime, timezone
 
@@ -21,6 +22,7 @@ from src.modules.cash_reconciliation.domain.tempo import FUSO
 logger = logging.getLogger(__name__)
 
 HOST = "127.0.0.1"
+MUTEX = r"Global\LogosMatch"
 _ERROR_ALREADY_EXISTS = 183
 _mutex = None  # mantém o handle vivo durante o processo
 
@@ -35,34 +37,63 @@ def configurar_log() -> None:
 
 
 def instancia_unica() -> bool:
-    """True se esta é a primeira instância (mutex nomeado do Windows)."""
+    """False só se já existe outra instância (mutex nomeado do Windows)."""
     global _mutex
-    k32 = ctypes.windll.kernel32
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
     k32.CreateMutexW.restype = ctypes.c_void_p
-    _mutex = k32.CreateMutexW(None, False, r"Global\LogosMatch")
-    return k32.GetLastError() != _ERROR_ALREADY_EXISTS
+    k32.CreateMutexW.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_wchar_p]
+    ctypes.set_last_error(0)
+    _mutex = k32.CreateMutexW(None, False, MUTEX)
+    erro = ctypes.get_last_error()
+    if not _mutex:
+        logger.warning("Mutex de instância única indisponível erro=%s; seguindo sem trava", erro)
+        return True
+    return erro != _ERROR_ALREADY_EXISTS
 
 
-def porta_livre() -> int:
-    with socket.socket() as s:
-        s.bind((HOST, 0))
-        return s.getsockname()[1]
+def abrir_socket() -> socket.socket:
+    """Reserva uma porta livre em 127.0.0.1 e a mantém ligada (sem corrida)."""
+    s = socket.socket()
+    s.bind((HOST, 0))
+    return s
 
 
 def gravar_porta(porta: int) -> None:
     (caminhos.raiz() / "porta.txt").write_text(str(porta), encoding="utf-8")
 
 
+def apagar_porta() -> None:
+    (caminhos.raiz() / "porta.txt").unlink(missing_ok=True)
+
+
 def url_painel(porta: int) -> str:
     return f"http://{HOST}:{porta}/"
 
 
-def subir_servidor(app, porta: int) -> threading.Thread:
+def subir_servidor(app, sock: socket.socket):
+    """Sobe o Uvicorn num thread daemon usando o socket já ligado. Devolve o Server."""
+    porta = sock.getsockname()[1]
     servidor = uvicorn.Server(uvicorn.Config(app, host=HOST, port=porta, log_config=None))
-    t = threading.Thread(target=servidor.run, daemon=True, name="painel")
-    t.servidor = servidor
-    t.start()
-    return t
+    threading.Thread(target=servidor.run, kwargs={"sockets": [sock]}, daemon=True,
+                     name="painel").start()
+    return servidor
+
+
+def aguardar_inicio(servidor, timeout: float = 10.0) -> bool:
+    limite = time.monotonic() + timeout
+    while time.monotonic() < limite:
+        if servidor.started:
+            return True
+        time.sleep(0.05)
+    return bool(servidor.started)
+
+
+def porta_viva(porta: int) -> bool:
+    try:
+        with socket.create_connection((HOST, porta), timeout=1):
+            return True
+    except OSError:
+        return False
 
 
 def dica(con=None) -> str:
@@ -79,6 +110,14 @@ def dica(con=None) -> str:
     if momento.tzinfo is None:
         momento = momento.replace(tzinfo=timezone.utc)
     return f"{NOME} — última coleta {momento.astimezone(FUSO):%d/%m/%Y %H:%M}"
+
+
+def _dica_segura() -> str:
+    try:
+        return dica()
+    except Exception as exc:  # noqa: BLE001 - tooltip nunca derruba a bandeja
+        logger.warning("Dica da bandeja falhou tipo=%s", type(exc).__name__)
+        return NOME
 
 
 def _coletar(visivel: bool) -> None:
@@ -103,27 +142,37 @@ def _abrir_instancia_viva() -> None:
     try:
         porta = int((caminhos.raiz() / "porta.txt").read_text(encoding="utf-8").strip())
     except (OSError, ValueError):
-        return
-    webbrowser.open(url_painel(porta))
+        porta = None
+    if porta and porta_viva(porta):
+        webbrowser.open(url_painel(porta))
+    else:
+        toast.avisar(NOME, "O Logos Match ainda está iniciando. Tente de novo em instantes.")
 
 
 def main() -> int:
     os.environ.setdefault("LOGOS_NAVEGADOR_CANAL", "msedge")
-    configurar_log()
     if not instancia_unica():
         _abrir_instancia_viva()
         return 0
-    porta = porta_livre()
-    gravar_porta(porta)
-    sched = agendador.iniciar(banco.conectar)
-    subir_servidor(criar_app(banco.conectar, sched), porta)
-    logger.info("Logos Match iniciado")
+    configurar_log()
     try:
-        bandeja.rodar(lambda: webbrowser.open(url_painel(porta)), dica,
+        apagar_porta()
+        sock = abrir_socket()
+        porta = sock.getsockname()[1]
+        sched = agendador.iniciar(banco.conectar)
+        servidor = subir_servidor(criar_app(banco.conectar, sched), sock)
+        if not aguardar_inicio(servidor):
+            logger.warning("Servidor do painel não iniciou")
+            sched.shutdown(wait=False)
+            toast.avisar(NOME, "O Logos Match não conseguiu abrir o painel.")
+            return 1
+        gravar_porta(porta)
+        logger.info("Logos Match iniciado")
+        bandeja.rodar(lambda: webbrowser.open(url_painel(porta)), _dica_segura,
                       _em_thread(False), _em_thread(True), lambda: sched.shutdown(wait=False))
+        return 0
     finally:
-        (caminhos.raiz() / "porta.txt").unlink(missing_ok=True)
-    return 0
+        apagar_porta()
 
 
 if __name__ == "__main__":

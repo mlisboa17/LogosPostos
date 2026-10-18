@@ -1,5 +1,9 @@
+import ctypes
 import logging
+import logging.handlers
 import os
+import sys
+import time
 from unittest.mock import MagicMock
 
 import pytest
@@ -16,12 +20,40 @@ def pasta(tmp_path, monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _limpa_handlers():
+    canal = os.environ.get("LOGOS_NAVEGADOR_CANAL")
     antes = list(logging.getLogger().handlers)
     yield
+    if canal is None:
+        os.environ.pop("LOGOS_NAVEGADOR_CANAL", None)
     for h in list(logging.getLogger().handlers):
         if h not in antes:
             logging.getLogger().removeHandler(h)
             h.close()
+
+
+class _FakeSock:
+    def __init__(self, porta):
+        self.porta = porta
+
+    def getsockname(self):
+        return ("127.0.0.1", self.porta)
+
+
+class _Srv:
+    def __init__(self, ok):
+        self.started = ok
+
+
+def _prepara(monkeypatch, ok=True):
+    monkeypatch.setattr(m, "instancia_unica", lambda: True)
+    monkeypatch.setattr(m, "abrir_socket", lambda: _FakeSock(4999))
+    monkeypatch.setattr(m, "subir_servidor", MagicMock(return_value=_Srv(ok)))
+    monkeypatch.setattr(m, "aguardar_inicio", lambda s, timeout=10.0: s.started)
+    monkeypatch.setattr(m.agendador, "iniciar", MagicMock())
+    monkeypatch.setattr(m, "criar_app", MagicMock())
+    avisos = []
+    monkeypatch.setattr(m.toast, "avisar", lambda t, x: avisos.append(x))
+    return avisos
 
 
 def test_url_painel():
@@ -33,73 +65,157 @@ def test_porta_txt_so_tem_a_porta(pasta):
     assert (caminhos.raiz() / "porta.txt").read_text(encoding="utf-8").strip() == "5123"
 
 
-def test_porta_livre_e_inteira_valida():
-    assert 1024 <= m.porta_livre() <= 65535
+def test_abrir_socket_em_loopback():
+    s = m.abrir_socket()
+    try:
+        assert s.getsockname()[0] == "127.0.0.1"
+        assert 1024 <= s.getsockname()[1] <= 65535
+    finally:
+        s.close()
 
 
 def test_servidor_so_em_loopback(monkeypatch):
     capturado = {}
 
     class _Server:
+        started = True
+
         def __init__(self, config):
             capturado["config"] = config
-            self.started = True
 
-        def run(self):
-            pass
+        def run(self, sockets=None):
+            capturado["sockets"] = sockets
 
     monkeypatch.setattr(m.uvicorn, "Server", _Server)
-    t = m.subir_servidor(object(), 5000)
-    t.join(1)
-    assert capturado["config"].host == "127.0.0.1"
-    assert capturado["config"].port == 5000
-    assert t.daemon
+    sock = m.abrir_socket()
+    try:
+        m.subir_servidor(object(), sock)
+        time.sleep(0.2)
+        assert capturado["config"].host == "127.0.0.1"
+        assert capturado["config"].port == sock.getsockname()[1]
+        assert capturado["sockets"] == [sock]
+    finally:
+        sock.close()
 
 
-def test_segunda_instancia_nao_sobe_servidor(monkeypatch):
+def test_segunda_instancia_viva_abre_painel(monkeypatch):
     (caminhos.raiz() / "porta.txt").write_text("4321", encoding="utf-8")
     monkeypatch.setattr(m, "instancia_unica", lambda: False)
+    monkeypatch.setattr(m, "porta_viva", lambda p: True)
     aberto = []
     monkeypatch.setattr(m.webbrowser, "open", aberto.append)
-    sobe = MagicMock()
-    monkeypatch.setattr(m, "subir_servidor", sobe)
-    monkeypatch.setattr(m.bandeja, "rodar", sobe)
+    monkeypatch.setattr(m, "subir_servidor", MagicMock())
+    monkeypatch.setattr(m, "criar_app", MagicMock())
+    monkeypatch.setattr(m.agendador, "iniciar", MagicMock())
+    monkeypatch.setattr(m.bandeja, "rodar", MagicMock())
     assert m.main() == 0
     assert aberto == ["http://127.0.0.1:4321/"]
-    sobe.assert_not_called()
+    m.subir_servidor.assert_not_called()
+    m.criar_app.assert_not_called()
+    m.agendador.iniciar.assert_not_called()
+    m.bandeja.rodar.assert_not_called()
 
 
-def test_main_orquestra(monkeypatch):
-    monkeypatch.setattr(m, "instancia_unica", lambda: True)
-    monkeypatch.setattr(m, "porta_livre", lambda: 4999)
-    monkeypatch.setattr(m, "subir_servidor", MagicMock())
-    monkeypatch.setattr(m.agendador, "iniciar", MagicMock())
-    monkeypatch.setattr(m, "criar_app", MagicMock())
+@pytest.mark.parametrize("conteudo,viva", [(None, True), ("4321", False), ("lixo", True)])
+def test_segunda_instancia_sem_porta_viva_avisa(monkeypatch, conteudo, viva):
+    if conteudo is not None:
+        (caminhos.raiz() / "porta.txt").write_text(conteudo, encoding="utf-8")
+    monkeypatch.setattr(m, "instancia_unica", lambda: False)
+    monkeypatch.setattr(m, "porta_viva", lambda p: viva)
+    aberto = []
+    monkeypatch.setattr(m.webbrowser, "open", aberto.append)
+    avisos = []
+    monkeypatch.setattr(m.toast, "avisar", lambda t, x: avisos.append(x))
+    assert m.main() == 0
+    assert aberto == []
+    assert avisos == ["O Logos Match ainda está iniciando. Tente de novo em instantes."]
+
+
+def test_porta_viva_real():
+    s = m.abrir_socket()
+    s.listen()
+    porta = s.getsockname()[1]
+    try:
+        assert m.porta_viva(porta) is True
+    finally:
+        s.close()
+    assert m.porta_viva(porta) is False
+
+
+def test_main_orquestra_e_porta_so_apos_started(monkeypatch):
+    _prepara(monkeypatch)
+    (caminhos.raiz() / "porta.txt").write_text("velha", encoding="utf-8")
+    existia = []
+    monkeypatch.setattr(m, "aguardar_inicio",
+                        lambda s, timeout=10.0: existia.append(
+                            (caminhos.raiz() / "porta.txt").exists()) or True)
     chamado = {}
 
     def _rodar(*a, **k):
-        chamado["a"] = a
         chamado["porta"] = (caminhos.raiz() / "porta.txt").read_text()
 
     monkeypatch.setattr(m.bandeja, "rodar", _rodar)
+    monkeypatch.delenv("LOGOS_NAVEGADOR_CANAL", raising=False)
     assert m.main() == 0
+    assert existia == [False]  # porta.txt velho apagado e ainda não gravado antes do started
     assert chamado["porta"] == "4999"
     assert not (caminhos.raiz() / "porta.txt").exists()
-    assert os.environ["LOGOS_NAVEGADOR_CANAL"]
-    assert m.subir_servidor.call_args.args[1] == 4999
-    assert chamado["a"]
+    assert os.environ["LOGOS_NAVEGADOR_CANAL"] == "msedge"
+
+
+def test_servidor_que_nao_inicia_sai_com_erro(monkeypatch):
+    avisos = _prepara(monkeypatch, ok=False)
+    rodar = MagicMock()
+    monkeypatch.setattr(m.bandeja, "rodar", rodar)
+    assert m.main() != 0
+    assert avisos == ["O Logos Match não conseguiu abrir o painel."]
+    assert not (caminhos.raiz() / "porta.txt").exists()
+    rodar.assert_not_called()
+
+
+def test_falha_na_partida_remove_porta(monkeypatch):
+    _prepara(monkeypatch)
+    m.agendador.iniciar.side_effect = RuntimeError("x")
+    (caminhos.raiz() / "porta.txt").write_text("velha", encoding="utf-8")
+    with pytest.raises(RuntimeError):
+        m.main()
+    assert not (caminhos.raiz() / "porta.txt").exists()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="mutex do Windows")
+def test_mutex_real(monkeypatch):
+    nome = f"Global\\LogosMatchTeste{os.getpid()}"
+    monkeypatch.setattr(m, "MUTEX", nome)
+    assert m.instancia_unica() is True
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.CreateMutexW.restype = ctypes.c_void_p
+    k32.CreateMutexW.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_wchar_p]
+    k32.CloseHandle.argtypes = [ctypes.c_void_p]
+    ctypes.set_last_error(0)
+    h = k32.CreateMutexW(None, False, nome)
+    try:
+        assert h
+        assert ctypes.get_last_error() == 183
+        assert m.instancia_unica() is False
+    finally:
+        k32.CloseHandle(h)
+        k32.CloseHandle(m._mutex)
+
+
+def test_dica_com_falha_cai_para_nome(monkeypatch):
+    def _quebra(con=None):
+        raise OSError("x")
+
+    monkeypatch.setattr(m, "dica", _quebra)
+    assert m._dica_segura() == "Logos Match"
 
 
 def test_log_rotativo(pasta):
     m.configurar_log()
     h = [x for x in logging.getLogger().handlers
          if isinstance(x, logging.handlers.RotatingFileHandler)][-1]
-    try:
-        assert h.maxBytes == 1_000_000 and h.backupCount == 5
-        assert h.baseFilename.endswith("match.log")
-    finally:
-        logging.getLogger().removeHandler(h)
-        h.close()
+    assert h.maxBytes == 1_000_000 and h.backupCount == 5
+    assert h.baseFilename.endswith("match.log")
 
 
 def test_dica_sem_coleta_e_com_coleta():
