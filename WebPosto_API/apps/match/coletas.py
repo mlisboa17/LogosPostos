@@ -44,6 +44,20 @@ def _ja_coletado(con, fonte_id: int, dia: date) -> bool:
     return bool(row and row["situacao"] in _JA_COLETADO)
 
 
+class _AdquirenteSemVendasAinda(Exception):
+    """Adquirente vazia no dia mas webPosto com cartões dela: arquivo provavelmente não publicado."""
+
+    def __init__(self, nome: str, dia: date):
+        super().__init__(
+            f"O {nome} ainda não mostra vendas de {dia:%d/%m/%Y}, mas o webPosto tem cartões"
+            " lançados. Nova tentativa na repescagem.")
+
+
+def _exigir_vendas(transacoes_do_dia, cartoes, dia: date, nome: str) -> None:
+    if not transacoes_do_dia and any(c.momento.date() == dia for c in cartoes):
+        raise _AdquirenteSemVendasAinda(nome, dia)
+
+
 async def _premmia(unidade, posto_id: int, dia: date, visivel: bool, comparar: bool):
     diretorio = caminhos.premmia(posto_id)
     if visivel:
@@ -56,6 +70,7 @@ async def _premmia(unidade, posto_id: int, dia: date, visivel: bool, comparar: b
     cartoes, abastecimentos, itens = await conciliar_cartoes.coletar_contexto_cartoes(emp, dia)
     cartoes = [c for c in cartoes
                if conciliar_cartoes.da_adquirente(c, "PREMMIA", unidade.administradoras)]
+    _exigir_vendas([t for t in transacoes if t.momento.date() == dia], cartoes, dia, "Premmia")
     return transacoes, conciliar_cartoes.conciliar(
         emp, "PREMMIA", dia, transacoes, cartoes, abastecimentos, itens)
 
@@ -65,11 +80,15 @@ async def _pagbank(unidade, dia: date, comparar: bool):
     do_dia = await pagbank_edi.buscar_transacoes(emp, dia)
     if not comparar:
         return do_dia, None
-    vizinhos = [t for d in (dia - timedelta(days=1), dia + timedelta(days=1))
-                for t in await pagbank_edi.buscar_transacoes(emp, d)]
     cartoes, abastecimentos, itens = await conciliar_cartoes.coletar_contexto_cartoes(emp, dia)
     if unidade.premmia_ativo:
         cartoes = [c for c in cartoes if "PREMMIA" not in c.administradora.upper()]
+    _exigir_vendas(
+        [t for t in do_dia if t.momento.date() == dia],
+        [c for c in cartoes if conciliar_cartoes.da_adquirente(c, "PAGBANK", unidade.administradoras)],
+        dia, "PagBank")
+    vizinhos = [t for d in (dia - timedelta(days=1), dia + timedelta(days=1))
+                for t in await pagbank_edi.buscar_transacoes(emp, d)]
     return do_dia, conciliar_cartoes.conciliar(
         emp, "PAGBANK", dia, do_dia + vizinhos, cartoes, abastecimentos, itens)
 
@@ -93,12 +112,6 @@ async def _coletar_fonte(con, posto, fonte, unidade, dia, visivel, comparar) -> 
             transacoes, resultado = await _premmia(unidade, posto_id, dia, visivel, comparar)
         else:
             transacoes, resultado = await _pagbank(unidade, dia, comparar)
-    except premmia_portal.PremmiaVerificacaoHumana as exc:
-        situacao, mensagem = "verificacao_humana", explicar.erro_pt(exc)
-    except Exception as exc:  # cada fonte isolada: falha numa não para as outras
-        logger.warning("Coleta falhou posto=%s fonte=%s tipo=%s", posto_id, tipo, type(exc).__name__)
-        situacao, mensagem = "erro", explicar.erro_pt(exc)
-    else:
         do_dia = [t for t in transacoes if t.momento.date() == dia]
         total = sum((t.valor for t in do_dia if t.situacao is None), Decimal(0))
         itens = explicar.divergencias(resultado) if resultado is not None else []
@@ -112,22 +125,37 @@ async def _coletar_fonte(con, posto, fonte, unidade, dia, visivel, comparar) -> 
         return ResultadoFonte(posto_id, tipo, dia, situacao, len(do_dia), total,
                               _mensagem(_NOME[tipo], len(do_dia), total, resultado is not None,
                                         len(itens)), itens)
+    except premmia_portal.PremmiaVerificacaoHumana as exc:
+        situacao, mensagem = "verificacao_humana", explicar.erro_pt(exc)
+    except _AdquirenteSemVendasAinda as exc:
+        situacao, mensagem = "erro", str(exc)
+    except Exception as exc:  # cada fonte isolada: falha numa não para as outras
+        logger.warning("Coleta falhou posto=%s fonte=%s tipo=%s", posto_id, tipo, type(exc).__name__)
+        situacao, mensagem = "erro", explicar.erro_pt(exc)
+    con.rollback()
     banco.registrar_coleta(con, fonte["id"], dia, situacao, 0, Decimal(0), mensagem)
+    banco.gravar_divergencias(con, posto_id, dia, tipo, [])  # sem divergência antiga ao lado do erro
     return ResultadoFonte(posto_id, tipo, dia, situacao, 0, Decimal(0), mensagem, [])
+
+
+def _fontes_ativas(con, posto_id: int) -> dict:
+    return {f["tipo"]: f for f in banco.fontes_do_posto(con, posto_id) if f["ativo"]}
 
 
 async def coletar_posto(con, posto_id: int, dia: date, *, visivel: bool = False,
                         so_falhas: bool = False) -> list[ResultadoFonte]:
     posto = con.execute("SELECT * FROM posto WHERE id=?", (posto_id,)).fetchone()
-    fontes = {f["tipo"]: f for f in banco.fontes_do_posto(con, posto_id)}
+    if posto is None or not posto["ativo"]:
+        return []
+    fontes = _fontes_ativas(con, posto_id)
     comparar = _tem_chave_webposto(posto, fontes)
-    unidade = unidades.montar(con)[unidades.codigo_empresa(posto)]
+    unidade = unidades.montar(con).get(unidades.codigo_empresa(posto))
+    if unidade is None:
+        return []
     resultados = []
     for tipo in _FONTES:
         fonte = fontes.get(tipo)
-        if not fonte or not fonte["ativo"]:
-            continue
-        if so_falhas and _ja_coletado(con, fonte["id"], dia):
+        if not fonte or (so_falhas and _ja_coletado(con, fonte["id"], dia)):
             continue
         resultados.append(await _coletar_fonte(con, posto, fonte, unidade, dia, visivel, comparar))
     return resultados
@@ -136,5 +164,12 @@ async def coletar_posto(con, posto_id: int, dia: date, *, visivel: bool = False,
 async def coletar_todos(con, dia: date, *, so_falhas: bool = False) -> list[ResultadoFonte]:
     resultados = []
     for posto in banco.listar_postos(con):
-        resultados.extend(await coletar_posto(con, posto["id"], dia, so_falhas=so_falhas))
+        try:
+            resultados.extend(await coletar_posto(con, posto["id"], dia, so_falhas=so_falhas))
+        except Exception as exc:  # um posto ruim não impede os outros
+            logger.warning("Coleta do posto falhou posto=%s tipo=%s", posto["id"], type(exc).__name__)
+            mensagem = explicar.erro_pt(exc)
+            resultados.extend(
+                ResultadoFonte(posto["id"], t, dia, "erro", 0, Decimal(0), mensagem, [])
+                for t in _FONTES if t in _fontes_ativas(con, posto["id"]))
     return resultados

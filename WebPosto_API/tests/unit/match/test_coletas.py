@@ -50,7 +50,7 @@ def _posto(con, *, chave=True, premmia=True, pagbank=True):
 
 @pytest.fixture
 def adaptadores(monkeypatch):
-    chamadas = {"coletar": [], "liberar": [], "contexto": 0, "pagbank": []}
+    chamadas = {"coletar": [], "liberar": [], "contexto": 0, "pagbank": [], "ordem": []}
     estado = {"premmia": [_t("PREMMIA", "P1", "50.00")],
               "pagbank": {DIA: [_t("PAGBANK", "123", "150.00")]},
               "cartoes": [_cartao(1, "P1", "50.00", "PREMMIA"), _cartao(2, "999", "80.00", "PAGSEGURO")],
@@ -58,6 +58,7 @@ def adaptadores(monkeypatch):
 
     async def coletar(unidade, *, ate=None, visivel=False, diretorio=None):
         chamadas["coletar"].append((unidade.empresa_codigo, ate, visivel, diretorio))
+        chamadas["ordem"].append("coletar")
         if estado["erro_premmia"]:
             raise estado["erro_premmia"]
 
@@ -66,6 +67,7 @@ def adaptadores(monkeypatch):
 
     def liberar(unidade, diretorio):
         chamadas["liberar"].append((unidade.empresa_codigo, diretorio))
+        chamadas["ordem"].append("liberar")
 
     async def buscar_pagbank(emp, dia):
         chamadas["pagbank"].append(dia)
@@ -160,6 +162,7 @@ def test_visivel_libera_travas(con, adaptadores, tmp_path):
     diretorio = tmp_path / "dados" / "premmia" / str(pid)
     assert chamadas["liberar"] == [(74014, diretorio)]
     assert chamadas["coletar"] == [(74014, DIA, True, diretorio)]
+    assert chamadas["ordem"] == ["liberar", "coletar"]
 
 
 def test_so_falhas_pula_ok(con, adaptadores):
@@ -180,3 +183,76 @@ def test_coletar_todos_percorre_postos_ativos(con, adaptadores):
     con.execute("UPDATE posto SET ativo=0 WHERE id=?", (outro,))
     resultados = asyncio.run(coletas.coletar_todos(con, DIA))
     assert {r.posto_id for r in resultados} == {pid} and len(resultados) == 2
+
+
+MSG_ATRASO = ("O PagBank ainda não mostra vendas de 17/10/2026, mas o webPosto tem cartões lançados."
+              " Nova tentativa na repescagem.")
+
+
+def test_pagbank_vazio_com_cartoes_no_webposto_vira_erro_e_repesca(con, adaptadores):
+    pid = _posto(con, premmia=False)
+    banco.gravar_divergencias(con, pid, DIA, "pagbank_edi", [{"tipo": "antiga"}])
+    adaptadores[1]["pagbank"] = {}
+    [r] = asyncio.run(coletas.coletar_posto(con, pid, DIA))
+    assert r.situacao == "erro" and r.mensagem == MSG_ATRASO and r.divergencias == []
+    assert con.execute("SELECT COUNT(*) FROM divergencia").fetchone()[0] == 0
+    coleta = con.execute("SELECT situacao, erro_texto FROM coleta").fetchone()
+    assert (coleta["situacao"], coleta["erro_texto"]) == ("erro", MSG_ATRASO)
+    adaptadores[1]["pagbank"] = {DIA: [_t("PAGBANK", "999", "80.00")]}
+    [r] = asyncio.run(coletas.coletar_posto(con, pid, DIA, so_falhas=True))
+    assert r.situacao == "ok" and r.divergencias == []
+
+
+def test_pagbank_vazio_sem_cartoes_pagbank_e_sem_movimento(con, adaptadores):
+    pid = _posto(con, premmia=False)
+    adaptadores[1]["pagbank"] = {}
+    adaptadores[1]["cartoes"] = [_cartao(1, "P1", "50.00", "PREMMIA")]
+    [r] = asyncio.run(coletas.coletar_posto(con, pid, DIA))
+    assert r.situacao == "sem_movimento" and "sem vendas registradas" in r.mensagem
+
+
+def test_premmia_vazio_com_cartoes_premmia_vira_erro(con, adaptadores):
+    pid = _posto(con, pagbank=False)
+    adaptadores[1]["premmia"] = []
+    [r] = asyncio.run(coletas.coletar_posto(con, pid, DIA))
+    assert r.situacao == "erro" and r.mensagem.startswith("O Premmia ainda não mostra vendas de 17/10/2026")
+
+
+def test_falha_na_gravacao_vira_erro_da_fonte(con, adaptadores, monkeypatch):
+    pid = _posto(con)
+    original = banco.gravar_transacoes
+
+    def falha(con_, coleta_id, posto_id, fonte, transacoes):
+        if fonte == "premmia":
+            raise RuntimeError("disco")
+        return original(con_, coleta_id, posto_id, fonte, transacoes)
+
+    monkeypatch.setattr(banco, "gravar_transacoes", falha)
+    res = _rodar(con, pid)
+    assert res["premmia"].situacao == "erro" and res["pagbank_edi"].situacao == "ok"
+
+
+def test_posto_inexistente_ou_inativo_retorna_vazio(con, adaptadores):
+    pid = _posto(con)
+    assert asyncio.run(coletas.coletar_posto(con, 999, DIA)) == []
+    con.execute("UPDATE posto SET ativo=0 WHERE id=?", (pid,))
+    assert asyncio.run(coletas.coletar_posto(con, pid, DIA)) == []
+
+
+def test_coletar_todos_isola_posto_com_falha(con, adaptadores, monkeypatch):
+    ruim = _posto(con, chave=False)
+    bom = banco.inserir_posto(con, "Zeta", "Zeta", None, 5)
+    banco.salvar_fonte(con, bom, "pagbank_edi", True, {})
+    original = coletas.coletar_posto
+
+    async def talvez_falha(con_, posto_id, dia, **kw):
+        if posto_id == ruim:
+            raise RuntimeError("token=abc")
+        return await original(con_, posto_id, dia, **kw)
+
+    monkeypatch.setattr(coletas, "coletar_posto", talvez_falha)
+    resultados = asyncio.run(coletas.coletar_todos(con, DIA))
+    por_posto = {(r.posto_id, r.fonte): r.situacao for r in resultados}
+    assert por_posto[(ruim, "premmia")] == "erro" and por_posto[(ruim, "pagbank_edi")] == "erro"
+    assert (bom, "pagbank_edi") in por_posto
+    assert all("abc" not in r.mensagem for r in resultados)
