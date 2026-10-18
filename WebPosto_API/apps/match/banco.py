@@ -73,7 +73,12 @@ CREATE TABLE log_acesso (
     momento TEXT NOT NULL, acao TEXT NOT NULL, detalhe TEXT);
 """
 
-_MIGRACOES = [(1, _SCHEMA_V1)]
+_SCHEMA_V2 = """
+ALTER TABLE instalacao ADD COLUMN hora_coleta TEXT DEFAULT '06:00';
+ALTER TABLE instalacao ADD COLUMN hora_repescagem TEXT DEFAULT '10:00';
+"""
+
+_MIGRACOES = [(1, _SCHEMA_V1), (2, _SCHEMA_V2)]
 
 
 def _agora() -> str:
@@ -87,13 +92,15 @@ def _migrar(con: sqlite3.Connection) -> None:
         if versao > atual:
             con.executescript(sql)
             con.execute("INSERT INTO schema_version(version) VALUES (?)", (versao,))
+    id_instalacao(con)  # garante a linha de configuração (horários da rotina)
     con.commit()
 
 
 def conectar(caminho: Path | None = None) -> sqlite3.Connection:
     caminho = caminho or (caminhos.raiz() / "logosmatch.db")
-    con = sqlite3.connect(str(caminho))
+    con = sqlite3.connect(str(caminho), timeout=30)
     con.row_factory = sqlite3.Row
+    con.execute("PRAGMA journal_mode=WAL")
     con.execute("PRAGMA foreign_keys=ON")
     _migrar(con)
     return con
