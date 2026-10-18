@@ -1,6 +1,7 @@
 """Planilha do dia: um .xlsx por posto/dia, montado a partir do banco local."""
 from __future__ import annotations
 
+import re
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -14,6 +15,8 @@ from src.modules.cash_reconciliation.domain.tempo import FUSO
 
 FORMATO_REAIS = "R$ #,##0.00"
 _ROTULO_FONTE = {"premmia": "Premmia", "pagbank_edi": "PagBank"}
+_ROTULO_SITUACAO = {"ok": "OK", "sem_movimento": "Sem movimento", "erro": "Erro",
+                    "verificacao_humana": "Precisa de verificação humana"}
 _MSG_SITUACAO = {"ok": "Coleta concluída", "sem_movimento": "Sem vendas registradas no dia"}
 
 
@@ -61,8 +64,9 @@ def _resumo(con, wb, posto_id: int, dia: date) -> None:
         (posto_id, str(dia))).fetchall()
     for r in rows:
         msg = r["erro_texto"] or _MSG_SITUACAO.get(r["situacao"], "")
-        ws.append([_ROTULO_FONTE.get(r["tipo"], r["tipo"]), r["situacao"], r["qtd"],
-                   _valor(r["total"]), msg])
+        total = None if r["situacao"] in ("erro", "verificacao_humana") else _valor(r["total"])
+        ws.append([_ROTULO_FONTE.get(r["tipo"], r["tipo"]),
+                   _ROTULO_SITUACAO.get(r["situacao"], r["situacao"]), r["qtd"], total, msg])
     _moeda(ws, 4)
     _ajustar(ws)
 
@@ -97,9 +101,15 @@ def _divergencias(con, wb, posto_id: int, dia: date) -> None:
     _ajustar(ws)
 
 
+def _nome_seguro(apelido: str | None, posto_id: int) -> str:
+    limpo = re.sub(r"[^\w -]", "_", apelido or "")
+    limpo = re.sub(r"\s+", "_", limpo.strip()).strip("_")
+    return limpo or f"P{posto_id}"
+
+
 def gerar(con, posto_id: int, dia: date, destino: Path | None = None) -> Path:
     posto = con.execute("SELECT apelido FROM posto WHERE id=?", (posto_id,)).fetchone()
-    apelido = (posto["apelido"] if posto and posto["apelido"] else f"P{posto_id}")
+    apelido = _nome_seguro(posto["apelido"] if posto else None, posto_id)
     destino = destino or caminhos.planilhas() / f"Logos_{apelido}_{dia.strftime('%d-%m-%Y')}.xlsx"
     wb = Workbook()
     _resumo(con, wb, posto_id, dia)

@@ -19,9 +19,9 @@ def con(tmp_path, monkeypatch):
     c.close()
 
 
-def _t(ident, nsu, valor):
+def _t(ident, nsu, valor, momento=datetime(2026, 10, 17, 14, 5, tzinfo=FUSO)):
     return SimpleNamespace(identificador=ident, nsu=nsu, autorizacao="A1", valor=Decimal(valor),
-                           momento=datetime(2026, 10, 17, 14, 5, tzinfo=FUSO), bandeira="VISA",
+                           momento=momento, bandeira="VISA",
                            terminal="T1", situacao="aprovada")
 
 
@@ -47,8 +47,8 @@ def test_abas_e_nome_do_arquivo(con, posto, tmp_path):
     wb = openpyxl.load_workbook(p)
     assert wb.sheetnames == ["Resumo", "Premmia", "PagBank", "Divergências"]
     resumo = [[c.value for c in r] for r in wb["Resumo"].iter_rows()]
-    assert ["Premmia", "ok", 1, 100.5, "Coleta concluída"] in resumo
-    assert ["PagBank", "erro", 0, 0, "Falha ao entrar"] in resumo
+    assert ["Premmia", "OK", 1, 100.5, "Coleta concluída"] in resumo
+    assert ["PagBank", "Erro", 0, None, "Falha ao entrar"] in resumo
 
 
 def test_data_no_formato_brasil(con, posto):
@@ -73,3 +73,36 @@ def test_sem_segredo_na_planilha(con, posto, tmp_path):
         for row in ws.iter_rows():
             for c in row:
                 assert "S3nh@-Ultra-Secreta" not in str(c.value)
+
+
+def test_apelido_com_caracteres_invalidos(con, tmp_path):
+    pid = banco.inserir_posto(con, "Real", "Real S/A: 24h?", None, 1)
+    p = relatorio_xlsx.gerar(con, pid, DIA)
+    assert p.name == "Logos_Real_S_A__24h_17-10-2026.xlsx"
+    assert not set("/:?") & set(p.name)
+    assert p.parent == tmp_path / "dados" / "planilhas" and p.exists()
+
+
+def test_apelido_ausente_usa_id(con):
+    pid = banco.inserir_posto(con, "Sem", None, None, 1)
+    assert relatorio_xlsx.gerar(con, pid, DIA).name == f"Logos_P{pid}_17-10-2026.xlsx"
+
+
+def test_so_transacoes_do_dia_em_recife(con):
+    pid = banco.inserir_posto(con, "X", "X", None, 1)
+    f = banco.salvar_fonte(con, pid, "premmia", True, {})
+    c = banco.registrar_coleta(con, f, DIA, "ok", 3, Decimal("3"), None)
+    banco.gravar_transacoes(con, c, pid, "premmia", [
+        _t("a", "1", "1", datetime(2026, 10, 16, 23, 59, tzinfo=FUSO)),
+        _t("b", "2", "1", datetime(2026, 10, 17, 23, 59, tzinfo=FUSO)),
+        _t("c", "3", "1", datetime(2026, 10, 18, 0, 1, tzinfo=FUSO))])
+    ws = openpyxl.load_workbook(relatorio_xlsx.gerar(con, pid, DIA))["Premmia"]
+    assert [r[0].value for r in ws.iter_rows(min_row=2)] == ["17/10/2026 23:59"]
+
+
+def test_sem_movimento(con):
+    pid = banco.inserir_posto(con, "X", "X", None, 1)
+    f = banco.salvar_fonte(con, pid, "pagbank_edi", True, {})
+    banco.registrar_coleta(con, f, DIA, "sem_movimento", 0, Decimal("0"), None)
+    ws = openpyxl.load_workbook(relatorio_xlsx.gerar(con, pid, DIA))["Resumo"]
+    assert [c.value for c in ws[2]] == ["PagBank", "Sem movimento", 0, 0, "Sem vendas registradas no dia"]
