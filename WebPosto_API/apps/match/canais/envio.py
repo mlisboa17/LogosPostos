@@ -6,8 +6,8 @@ import logging
 from collections import defaultdict
 from datetime import date
 
-from apps.match import banco, explicar, relatorio_xlsx
-from apps.match.canais import CanalErro, email_smtp, telegram, toast
+from apps.match import banco, relatorio_xlsx
+from apps.match.canais import CanalErro, email_smtp, erro_envio_pt, telegram, toast
 
 logger = logging.getLogger(__name__)
 
@@ -38,17 +38,15 @@ def _atende(canal, posto_id: int) -> bool:
     return not postos or posto_id in postos
 
 
-def _erro_pt(exc: Exception) -> str:
-    return str(exc) if isinstance(exc, CanalErro) else explicar.erro_pt(exc)
-
-
 def _despachar(canal, assunto: str, texto: str, anexo) -> None:
     if canal["tipo"] == "telegram":
         telegram.enviar(canal, texto, anexo)
     elif canal["tipo"] == "email":
         email_smtp.enviar(canal, assunto, texto, anexo)
-    else:
+    elif canal["tipo"] == "toast":
         toast.avisar(assunto, texto)
+    else:
+        raise CanalErro("Tipo de canal desconhecido.")
 
 
 def enviar_dia(con, resultados, dia: date) -> None:
@@ -56,12 +54,11 @@ def enviar_dia(con, resultados, dia: date) -> None:
     for r in resultados:
         por_posto[r.posto_id].append(r)
     canais = con.execute("SELECT * FROM canal WHERE ativo=1 ORDER BY id").fetchall()
+    if not canais:
+        return
     for posto_id, itens in por_posto.items():
         posto = con.execute("SELECT * FROM posto WHERE id=?", (posto_id,)).fetchone()
         if posto is None:
-            continue
-        alvos = [c for c in canais if _atende(c, posto_id)]
-        if not alvos:
             continue
         texto = texto_resumo(itens, posto, dia)
         assunto = texto.splitlines()[0]
@@ -70,13 +67,15 @@ def enviar_dia(con, resultados, dia: date) -> None:
         except Exception as exc:  # noqa: BLE001 - segue só com o texto
             logger.warning("Planilha do posto %s falhou (%s)", posto_id, type(exc).__name__)
             anexo = None
-        for canal in alvos:
+        for canal in canais:
             try:
+                if not _atende(canal, posto_id):
+                    continue
                 _despachar(canal, assunto, texto, anexo)
                 banco.registrar_envio(con, canal["id"], dia, "ok", None)
             except Exception as exc:  # noqa: BLE001 - um canal não derruba os outros
                 logger.warning("Envio pelo canal %s falhou (%s)", canal["id"], type(exc).__name__)
-                banco.registrar_envio(con, canal["id"], dia, "erro", _erro_pt(exc))
+                banco.registrar_envio(con, canal["id"], dia, "erro", erro_envio_pt(exc))
 
 
 def testar_canal(con, canal_id: int) -> str:
@@ -87,4 +86,4 @@ def testar_canal(con, canal_id: int) -> str:
         _despachar(canal, "Teste do Logos Match", "Teste do Logos Match", None)
         return "ok"
     except Exception as exc:  # noqa: BLE001
-        return _erro_pt(exc)
+        return erro_envio_pt(exc)
