@@ -8,12 +8,13 @@ Credenciais por unidade: PAGBANK_USER_<empresa> e PAGBANK_TOKEN_<empresa> (nunca
 """
 from __future__ import annotations
 
-import os
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
 import httpx
+
+from src.shared.segredos import obter_segredo
 
 from ..domain.cartoes import TransacaoAdquirente
 from ..domain.tempo import ler_data_hora
@@ -66,8 +67,8 @@ def para_transacao(r: dict[str, Any]) -> TransacaoAdquirente:
 async def buscar_transacoes(
     empresa_codigo: int, dia: date, *, client: httpx.AsyncClient | None = None, page_size: int = 1000
 ) -> list[TransacaoAdquirente]:
-    user = (os.getenv(f"PAGBANK_USER_{empresa_codigo}") or "").strip()
-    token = (os.getenv(f"PAGBANK_TOKEN_{empresa_codigo}") or "").strip()
+    user = obter_segredo(f"PAGBANK_USER_{empresa_codigo}")
+    token = obter_segredo(f"PAGBANK_TOKEN_{empresa_codigo}")
     if not user or not token:
         raise PagBankCredencialInvalida(f"credenciais PagBank ausentes para {empresa_codigo}")
     proprio = client is None

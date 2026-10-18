@@ -25,6 +25,8 @@ from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
+from src.shared.segredos import obter_segredo
+
 from ..domain.cartoes import TransacaoAdquirente
 from ..domain.models import Unidade
 from ..domain.tempo import FUSO, agora, ontem
@@ -446,8 +448,8 @@ def coletar_sync(
 ) -> None:
     if not dias:
         return
-    usuario = os.getenv(unidade.premmia_usuario_env or "", "")
-    senha = os.getenv(unidade.premmia_senha_env or "", "")
+    usuario = obter_segredo(unidade.premmia_usuario_env or "")
+    senha = obter_segredo(unidade.premmia_senha_env or "")
     if not usuario or not senha:
         erro = PremmiaVerificacaoHumana()
         erro.etapa = "validar credenciais"

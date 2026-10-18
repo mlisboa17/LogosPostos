@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from typing import Callable
 
 from ..domain.models import ContaCompartilhada, Unidade
 
@@ -10,7 +11,17 @@ ARQUIVO = Path(__file__).with_name("units.json")
 DIAS_TOLERANCIA_CONSOLIDACAO_PADRAO = 2
 
 
+_provedor_unidades: Callable[[], dict[int, Unidade]] | None = None
+
+
+def definir_provedor_unidades(f: Callable[[], dict[int, Unidade]] | None) -> None:
+    global _provedor_unidades
+    _provedor_unidades = f
+
+
 def carregar_unidades(caminho: Path = ARQUIVO) -> dict[int, Unidade]:
+    if _provedor_unidades is not None and caminho == ARQUIVO:
+        return _provedor_unidades()
     dados = json.loads(Path(caminho).read_text(encoding="utf-8"))
     return {u["empresa_codigo"]: Unidade.model_validate(u) for u in dados["unidades"]}
 

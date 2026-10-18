@@ -11,6 +11,8 @@ from typing import Any, Protocol
 
 import httpx
 
+from src.shared.segredos import obter_segredo
+
 class UnidadeIntegrada(Protocol):
     @property
     def empresa_codigo(self) -> int: ...
@@ -40,7 +42,7 @@ async def paginar(
     limite: int = 1000,  # validado no webPosto em 2026-10-07; metade das chamadas de 500
     client: httpx.AsyncClient | None = None,
 ) -> list[dict[str, Any]]:
-    chave = (os.getenv(unidade.chave_env) or "").strip()
+    chave = obter_segredo(unidade.chave_env)
     if not chave:
         raise WebPostoErro(f"variavel {unidade.chave_env} ausente")
     base = base_url or os.getenv("WEBPOSTO_BASE_URL") or BASE_URL_PADRAO
