@@ -23,7 +23,7 @@ class _KeyringMemoria(KeyringBackend):
         del self._d[(servico, usuario)]
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def keyring_falso():
     anterior = keyring.get_keyring()
     falso = _KeyringMemoria()

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Callable
 
@@ -21,8 +22,15 @@ def codigo_empresa(posto) -> int:
     return codigo if codigo is not None else -posto["id"]
 
 
+_RE_SEGREDO = re.compile(r"senha|token|chave|secret|password", re.IGNORECASE)
+
+
 def _config(fonte) -> dict:
     return json.loads(fonte["config_json"] or "{}")
+
+
+def _sem_segredos(cfg: dict) -> dict:
+    return {k: v for k, v in cfg.items() if not _RE_SEGREDO.search(str(k))}
 
 
 def montar(con) -> dict[int, Unidade]:
@@ -44,7 +52,23 @@ def montar(con) -> dict[int, Unidade]:
     return resultado
 
 
+@contextmanager
+def _conexao_propria(caminho: str):
+    """Conexão curta por chamada: sqlite3 não atravessa threads (asyncio.to_thread)."""
+    c = banco.conectar(Path(caminho))
+    try:
+        yield c
+    finally:
+        c.close()
+
+
+def _caminho_db(con) -> str:
+    return con.execute("PRAGMA database_list").fetchone()[2]
+
+
 def resolvedor(con) -> Callable[[str], str | None]:
+    caminho = _caminho_db(con)
+
     def resolver(nome: str) -> str | None:
         m = _RE_LC.match(nome)
         if m:
@@ -53,7 +77,9 @@ def resolvedor(con) -> Callable[[str], str | None]:
         m = _RE_PAGBANK.match(nome)
         if m:
             emp = int(m.group(2))
-            for p in banco.listar_postos(con):
+            with _conexao_propria(caminho) as c:
+                postos = banco.listar_postos(c)
+            for p in postos:
                 if codigo_empresa(p) == emp:
                     return credenciais.ler(f"{p['id']}/pagbank/{_CAMPO_PAGBANK[m.group(1)]}")
         return None
@@ -62,7 +88,13 @@ def resolvedor(con) -> Callable[[str], str | None]:
 
 def ativar(con) -> None:
     definir_resolvedor(resolvedor(con))
-    definir_provedor_unidades(lambda: montar(con))
+    caminho = _caminho_db(con)
+
+    def provedor() -> dict[int, Unidade]:
+        with _conexao_propria(caminho) as c:
+            return montar(c)
+
+    definir_provedor_unidades(provedor)
 
 
 def importar_units_json(con, caminho: Path) -> int:
@@ -92,10 +124,10 @@ def exportar_config(con) -> dict:
         postos.append({
             "nome": p["nome"], "apelido": p["apelido"], "cnpj": p["cnpj"],
             "empresa_codigo_webposto": p["empresa_codigo_webposto"], "ativo": bool(p["ativo"]),
-            "fontes": [{"tipo": f["tipo"], "ativo": bool(f["ativo"]), "config": _config(f)}
+            "fontes": [{"tipo": f["tipo"], "ativo": bool(f["ativo"]), "config": _sem_segredos(_config(f))}
                        for f in banco.fontes_do_posto(con, p["id"])]})
     canais = [{"tipo": c["tipo"], "ativo": bool(c["ativo"]),
-               "config": json.loads(c["config_json"] or "{}")}
+               "config": _sem_segredos(json.loads(c["config_json"] or "{}"))}
               for c in con.execute("SELECT * FROM canal ORDER BY id")]
     return {"postos": postos, "canais": canais}
 
@@ -116,9 +148,14 @@ def importar_config(con, dados: dict) -> int:
             banco.salvar_fonte(con, pid, f["tipo"], f.get("ativo", False), f.get("config", {}))
         existentes.add(chave)
         criados += 1
+    canais_existentes = {(c["tipo"], c["config_json"])
+                         for c in con.execute("SELECT tipo, config_json FROM canal")}
     for c in dados.get("canais", []):
+        cfg_json = json.dumps(c.get("config", {}), ensure_ascii=False)
+        if (c["tipo"], cfg_json) in canais_existentes:
+            continue
+        canais_existentes.add((c["tipo"], cfg_json))
         con.execute("INSERT INTO canal(tipo, config_json, ativo) VALUES (?,?,?)",
-                    (c["tipo"], json.dumps(c.get("config", {}), ensure_ascii=False),
-                     int(c.get("ativo", True))))
+                    (c["tipo"], cfg_json, int(c.get("ativo", True))))
     con.commit()
     return criados

@@ -1,4 +1,5 @@
 import json
+import threading
 from pathlib import Path
 
 import pytest
@@ -65,21 +66,44 @@ def test_montar_usa_fonte_premmia_e_administradoras(con):
     assert u.administradoras == {"PREMMIA": ("PREMMIA",)}
 
 
+def test_resolvedor_nao_cai_no_ambiente(con, keyring_falso, monkeypatch):
+    pid = banco.inserir_posto(con, "Doze", None, None, 74014)
+    monkeypatch.setenv(f"LC_{pid}_WEBPOSTO_CHAVE", "do-ambiente")
+    monkeypatch.setenv("PAGBANK_TOKEN_74014", "do-ambiente")
+    r = unidades.resolvedor(con)
+    assert r(f"LC_{pid}_WEBPOSTO_CHAVE") is None
+    assert r("PAGBANK_TOKEN_74014") is None
+
+
 def test_exportar_nao_tem_segredo(con, keyring_falso):
     pid = banco.inserir_posto(con, "Doze", "Doze", None, 74014)
-    banco.salvar_fonte(con, pid, "premmia", True, {"administradoras": {}})
+    banco.salvar_fonte(con, pid, "premmia", True, {"administradoras": {}, "senha": "S-cfg"})
+    banco.salvar_fonte(con, pid, "pagbank_edi", True, {})
+    banco.salvar_fonte(con, pid, "webposto", True, {})
     credenciais.salvar(f"{pid}/premmia/senha", "S3gr3d0!")
-    assert "S3gr3d0!" not in json.dumps(unidades.exportar_config(con))
+    credenciais.salvar(f"{pid}/pagbank/token", "TOK-PB")
+    credenciais.salvar(f"{pid}/webposto/chave", "CHAVE-WP")
+    con.execute("INSERT INTO canal(tipo, config_json, ref_credencial) VALUES (?,?,?)",
+                ("telegram", json.dumps({"chat_id": "1", "token": "TOK-TG"}), "canal/1/token"))
+    credenciais.salvar("canal/1/token", "TOK-TG-KR")
+    con.commit()
+    saida = json.dumps(unidades.exportar_config(con))
+    for segredo in ("S3gr3d0!", "TOK-PB", "CHAVE-WP", "TOK-TG", "TOK-TG-KR", "S-cfg", "ref_credencial"):
+        assert segredo not in saida
+    assert '"chat_id": "1"' in saida
 
 
 def test_exportar_importar_roundtrip(con, tmp_path):
     pid = banco.inserir_posto(con, "Doze", "Doze", None, 74014)
     banco.salvar_fonte(con, pid, "webposto", True, {})
+    con.execute("INSERT INTO canal(tipo, config_json) VALUES (?,?)", ("telegram", '{"chat_id": "1"}'))
+    con.commit()
     dados = unidades.exportar_config(con)
     c2 = banco.conectar(tmp_path / "b.db")
     assert unidades.importar_config(c2, dados) == 1
     assert unidades.importar_config(c2, dados) == 0
     assert len(banco.fontes_do_posto(c2, banco.listar_postos(c2)[0]["id"])) == 1
+    assert c2.execute("SELECT COUNT(*) FROM canal").fetchone()[0] == 1
     c2.close()
 
 
@@ -92,3 +116,19 @@ def test_importar_units_json_idempotente(con):
     assert set(fontes) == {"premmia", "pagbank_edi", "webposto"}
     assert not any(f["ativo"] for f in fontes.values())
     assert "PAGBANK" in json.loads(fontes["pagbank_edi"]["config_json"])["administradoras"]
+
+
+def test_resolvedor_e_provedor_funcionam_em_outra_thread(con, keyring_falso):
+    pid = banco.inserir_posto(con, "Doze", "Doze", None, 74014)
+    credenciais.salvar(f"{pid}/pagbank/token", "TOK")
+    unidades.ativar(con)
+    saida = {}
+
+    def trabalho():
+        saida["tok"] = segredos.obter_segredo("PAGBANK_TOKEN_74014")
+        saida["un"] = list(cfg.carregar_unidades())
+
+    t = threading.Thread(target=trabalho)
+    t.start()
+    t.join()
+    assert saida == {"tok": "TOK", "un": [74014]}
