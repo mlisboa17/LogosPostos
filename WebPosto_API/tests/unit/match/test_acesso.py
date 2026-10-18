@@ -138,3 +138,68 @@ def test_redefinir_admin(con):
 def test_registrar_trunca(con):
     acesso.registrar(con, None, "login", "x" * 900)
     assert len(con.execute("SELECT detalhe FROM log_acesso").fetchone()[0]) == 500
+
+
+def test_pode_agora_reflete_mudancas_imediatas(con):
+    u = _user(con, Perfil.GERENTE, [P1, P2], "g")
+    assert acesso.pode_agora(con, u["id"], Acao.VER, P1)
+    con.execute("DELETE FROM usuario_posto WHERE usuario_id=? AND posto_id=?", (u["id"], P1))
+    con.commit()
+    assert not acesso.pode_agora(con, u["id"], Acao.VER, P1)
+    assert acesso.postos_visiveis_agora(con, u["id"]) == [P2]
+    assert pode(u, Acao.VER, P1)  # snapshot antigo continua desatualizado
+    con.execute("UPDATE usuario SET perfil='conferente' WHERE id=?", (u["id"],))
+    con.commit()
+    assert not acesso.pode_agora(con, u["id"], Acao.TROCAR_CREDENCIAL, P2)
+    con.execute("UPDATE usuario SET ativo=0 WHERE id=?", (u["id"],))
+    con.commit()
+    assert not acesso.pode_agora(con, u["id"], Acao.VER, P2)
+    assert acesso.postos_visiveis_agora(con, u["id"]) == []
+    assert not acesso.pode_agora(con, 9999, Acao.VER) and acesso.postos_visiveis_agora(con, 9999) == []
+
+
+def test_pode_com_row_crua_falha_para_todos_os_perfis(con):
+    _user(con, Perfil.ADMINISTRADOR, [], "a")
+    crua = con.execute("SELECT * FROM usuario WHERE login='a'").fetchone()
+    with pytest.raises(IndexError):
+        pode(crua, Acao.VER, P1)
+
+
+def test_agora_ingenuo_recusado(con):
+    _user(con, Perfil.GERENTE, [P1], "g")
+    with pytest.raises(ValueError, match="fuso horário"):
+        acesso.autenticar(con, "g", "senha-forte-1", datetime(2026, 10, 18, 8, 0))
+
+
+def test_timestamps_em_utc(con):
+    from zoneinfo import ZoneInfo
+    _user(con, Perfil.GERENTE, [P1], "g")
+    acesso.autenticar(con, "g", "senha-forte-1", datetime(2026, 10, 18, 5, 0, tzinfo=ZoneInfo("America/Recife")))
+    v = con.execute("SELECT ultimo_acesso_em FROM usuario").fetchone()[0]
+    assert v.endswith("+00:00") and "08:00" in v
+
+
+def test_login_normalizado(con):
+    acesso.criar_usuario(con, "X", "  Maria ", "senha-forte-1", Perfil.GERENTE, [P1])
+    assert con.execute("SELECT login FROM usuario").fetchone()[0] == "maria"
+    assert acesso.autenticar(con, " MARIA", "senha-forte-1", T0) is not None
+
+
+def test_login_desconhecido_gasta_hash(con, monkeypatch):
+    chamadas = []
+    orig = acesso._confere
+    monkeypatch.setattr(acesso, "_confere", lambda s, h: chamadas.append(h) or orig(s, h))
+    assert acesso.autenticar(con, "fantasma", "qualquer-coisa", T0) is None
+    assert len(chamadas) == 1
+
+
+def test_redefinir_admin_bloqueado_e_nome(con):
+    acesso.redefinir_admin(con, "nova-senha-1")
+    for _ in range(5):
+        acesso.autenticar(con, "admin", "errada-errada", T0)
+    assert acesso.autenticar(con, "admin", "nova-senha-1", T0) is None
+    con.execute("UPDATE usuario SET nome='Outro' WHERE login='admin'")
+    con.commit()
+    acesso.redefinir_admin(con, "outra-senha-2")
+    u = acesso.autenticar(con, "admin", "outra-senha-2", T0)
+    assert u is not None and u["nome"] == "Administrador"
