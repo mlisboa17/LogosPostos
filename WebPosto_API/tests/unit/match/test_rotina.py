@@ -114,15 +114,16 @@ def test_limpar_antigos_13_meses(con):
     con.commit()
     pasta = rotina.caminhos.planilhas()
     velha = pasta / "Logos_Doze_17-09-2025.xlsx"
+    velha2 = pasta / "Logos_Casa-Caiada-2_17-09-2025.xlsx"
     nova = pasta / "Logos_Doze_18-09-2025.xlsx"
     outra = pasta / "notas.xlsx"
-    for a in (velha, nova, outra):
+    for a in (velha, velha2, nova, outra):
         a.write_bytes(b"x")
     rotina.limpar_antigos(con, date(2026, 10, 18))  # limite 2025-09-18
     for t in ("coleta", "divergencia", "envio"):
         assert [r["dia"] for r in con.execute(f"SELECT dia FROM {t}")] == ["2025-09-18"]
     assert con.execute("SELECT COUNT(*) FROM transacao").fetchone()[0] == 0
-    assert not velha.exists() and nova.exists() and outra.exists()
+    assert not velha.exists() and not velha2.exists() and nova.exists() and outra.exists()
 
 
 def test_menos_meses_ajusta_dia():
@@ -200,8 +201,8 @@ def test_agendador_jobs_e_horarios(tmp_path, monkeypatch):
         c = fabrica()
         c.execute("UPDATE instalacao SET hora_coleta='07:30'")
         c.commit()
-        agendador.reagendar(sched, c)
         c.close()
+        agendador.reagendar(sched, fabrica)
         assert _campos({j.id: j for j in sched.get_jobs()}["coleta"])["hour"] == "7"
     finally:
         sched.shutdown(wait=False)
@@ -215,3 +216,87 @@ def test_agendador_agenda_recuperacao(tmp_path, monkeypatch):
         assert "recuperacao" in {j.id for j in sched.get_jobs()}
     finally:
         sched.shutdown(wait=False)
+
+
+def test_horario_invalido_cai_no_padrao(con):
+    con.execute("UPDATE instalacao SET hora_coleta='abc', hora_repescagem='25:99'")
+    con.commit()
+    assert rotina.horarios(con) == ("06:00", "10:00")
+
+
+def test_lock_impede_execucao_simultanea(con, falsos, monkeypatch):
+    dentro, soltar, chamadas = threading.Event(), threading.Event(), []
+
+    async def todos(c, dia, *, so_falhas=False):
+        chamadas.append(dia)
+        dentro.set()
+        await asyncio.get_running_loop().run_in_executor(None, soltar.wait, 5)
+        return []
+    monkeypatch.setattr(coletas, "coletar_todos", todos)
+    t = threading.Thread(target=lambda: asyncio.run(rotina.executar(con, dia=DIA)))
+    t.start()
+    assert dentro.wait(5)
+    con2 = banco.conectar(rotina.caminhos.raiz() / "outra.db")
+    try:
+        assert asyncio.run(rotina.executar(con2, dia=DIA)) == []
+    finally:
+        con2.close()
+        soltar.set()
+        t.join()
+    assert chamadas == [DIA]
+    # liberado: nova execução volta a coletar
+    asyncio.run(rotina.executar(con, dia=DIA))
+    assert chamadas == [DIA, DIA]
+
+
+class _ConFalsa:
+    fechada = False
+
+    def close(self):
+        self.fechada = True
+
+
+@pytest.fixture
+def jobs(monkeypatch):
+    f = {"calls": [], "toasts": [], "con": _ConFalsa(), "erro": None}
+
+    async def executar(con, *, so_falhas=False, **kw):
+        f["calls"].append(("executar", so_falhas))
+        if f["erro"]:
+            raise f["erro"]
+
+    def limpar(con, hoje):
+        f["calls"].append(("limpar",))
+        if f.get("erro_limpar"):
+            raise RuntimeError("x")
+    monkeypatch.setattr(agendador.rotina, "executar", executar)
+    monkeypatch.setattr(agendador.rotina, "limpar_antigos", limpar)
+    monkeypatch.setattr(toast, "avisar", lambda t, x: f["toasts"].append((t, x)))
+    monkeypatch.setattr(agendador, "ontem", lambda: DIA)
+    return f
+
+
+def test_job_coleta_executa_e_limpa(jobs):
+    agendador._job_coleta(lambda: jobs["con"])
+    assert jobs["calls"] == [("executar", False), ("limpar",)]
+    assert jobs["con"].fechada and jobs["toasts"] == []
+
+
+def test_job_repescagem_nao_limpa(jobs):
+    agendador._job_repescagem(lambda: jobs["con"])
+    assert jobs["calls"] == [("executar", True)] and jobs["con"].fechada
+
+
+def test_job_contem_erro_avisa_e_ainda_limpa(jobs):
+    jobs["erro"] = RuntimeError("segredo-xyz")
+    agendador._job_coleta(lambda: jobs["con"])
+    assert jobs["calls"] == [("executar", False), ("limpar",)]
+    assert jobs["con"].fechada
+    titulo, texto = jobs["toasts"][0]
+    assert "17/10/2026" in texto and "Coletar agora" in texto and "segredo-xyz" not in texto
+
+
+def test_job_erro_na_limpeza_nao_propaga(jobs):
+    jobs["erro_limpar"] = True
+    agendador._job_coleta(lambda: jobs["con"])
+    assert jobs["con"].fechada

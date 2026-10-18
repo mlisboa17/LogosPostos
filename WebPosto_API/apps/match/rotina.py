@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from datetime import date, datetime, time as hora_t, timedelta, timezone
 
 from apps.match import banco, caminhos, unidades
@@ -17,15 +18,29 @@ _MESES_RETENCAO = 13
 _PADRAO_COLETA, _PADRAO_REPESCAGEM = "06:00", "10:00"
 
 
-def horarios(con) -> tuple[str, str]:
-    banco.id_instalacao(con)
-    row = con.execute("SELECT hora_coleta, hora_repescagem FROM instalacao LIMIT 1").fetchone()
-    return (row["hora_coleta"] or _PADRAO_COLETA, row["hora_repescagem"] or _PADRAO_REPESCAGEM)
+_TRAVA = threading.Lock()  # uma coleta por vez (agendador, recuperação, "Coletar agora")
 
 
 def _hhmm(valor: str) -> hora_t:
     h, m = valor.split(":")
     return hora_t(int(h), int(m))
+
+
+def _valido(valor, padrao: str) -> str:
+    try:
+        _hhmm(valor)
+        return valor
+    except (TypeError, ValueError, AttributeError):
+        if valor:
+            logger.warning("Horário inválido na configuração; usando %s.", padrao)
+        return padrao
+
+
+def horarios(con) -> tuple[str, str]:
+    banco.id_instalacao(con)
+    row = con.execute("SELECT hora_coleta, hora_repescagem FROM instalacao LIMIT 1").fetchone()
+    return (_valido(row["hora_coleta"], _PADRAO_COLETA),
+            _valido(row["hora_repescagem"], _PADRAO_REPESCAGEM))
 
 
 def _nome_posto(con, posto_id: int) -> str:
@@ -49,17 +64,23 @@ def _avisar_falhas(con, resultados, dia: date, so_falhas: bool) -> None:
 
 async def executar(con, *, dia: date | None = None, so_falhas: bool = False,
                    visivel: bool = False, posto_id: int | None = None):
-    dia = dia or ontem()
-    unidades.ativar(con)
-    if posto_id is None:
-        resultados = await coletas.coletar_todos(con, dia, so_falhas=so_falhas)
-    else:
-        resultados = await coletas.coletar_posto(con, posto_id, dia, visivel=visivel,
-                                                 so_falhas=so_falhas)
-    _avisar_falhas(con, resultados, dia, so_falhas)
-    if resultados:
-        envio.enviar_dia(con, resultados, dia)
-    return resultados
+    if not _TRAVA.acquire(blocking=False):
+        logger.info("coleta já em andamento")
+        return []
+    try:
+        dia = dia or ontem()
+        unidades.ativar(con)
+        if posto_id is None:
+            resultados = await coletas.coletar_todos(con, dia, so_falhas=so_falhas)
+        else:
+            resultados = await coletas.coletar_posto(con, posto_id, dia, visivel=visivel,
+                                                     so_falhas=so_falhas)
+        _avisar_falhas(con, resultados, dia, so_falhas)
+        if resultados:
+            envio.enviar_dia(con, resultados, dia)
+        return resultados
+    finally:
+        _TRAVA.release()
 
 
 def precisa_recuperar(con, agora_: datetime) -> bool:
