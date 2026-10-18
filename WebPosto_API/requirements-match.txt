@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+jinja2
+apscheduler<4
+pystray
+pillow
+keyring
+windows-toasts
+openpyxl
+httpx
+playwright==1.58.0
+pydantic
+pyinstaller
