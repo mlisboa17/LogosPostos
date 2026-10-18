@@ -185,3 +185,18 @@ def id_instalacao(con) -> str:
                 (novo, _agora(), VERSAO))
     con.commit()
     return novo
+
+
+def inserir_canal(con, tipo: str, config: dict, ativo: bool = True) -> int:
+    cur = con.execute("INSERT INTO canal(tipo, config_json, ativo) VALUES (?,?,?)",
+                      (tipo, json.dumps(config, ensure_ascii=False), int(ativo)))
+    con.commit()
+    return cur.lastrowid
+
+
+def registrar_envio(con, canal_id: int, dia, situacao: str, erro_texto: str | None) -> int:
+    cur = con.execute(
+        "INSERT INTO envio(canal_id, dia, enviado_em, situacao, erro_texto) VALUES (?,?,?,?,?)",
+        (canal_id, str(dia), _agora(), situacao, erro_texto))
+    con.commit()
+    return cur.lastrowid
