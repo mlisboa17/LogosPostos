@@ -23,19 +23,20 @@ def _rodar(con_factory, *, so_falhas: bool, limpar: bool) -> None:
     try:
         try:
             asyncio.run(rotina.executar(con, so_falhas=so_falhas))
-        except Exception:  # noqa: BLE001 - job nunca derruba o agendador
-            logger.exception("Rotina de coleta falhou")
+        except Exception as exc:  # noqa: BLE001 - job nunca derruba o agendador
+            logger.warning("Rotina de coleta falhou tipo=%s", type(exc).__name__)  # nunca a mensagem
             try:
                 toast.avisar("Logos Match — a rotina falhou",
                              f"A coleta de {ontem():%d/%m/%Y} não terminou. "
                              "Abra o Logos Match e clique em Coletar agora.")
-            except Exception:  # noqa: BLE001
-                logger.exception("Aviso de falha da rotina não pôde ser exibido")
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Aviso de falha da rotina não pôde ser exibido tipo=%s",
+                               type(exc).__name__)
         if limpar:
             try:
                 rotina.limpar_antigos(con, hoje())
-            except Exception:  # noqa: BLE001
-                logger.exception("Limpeza de dados antigos falhou")
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Limpeza de dados antigos falhou tipo=%s", type(exc).__name__)
     finally:
         con.close()
 

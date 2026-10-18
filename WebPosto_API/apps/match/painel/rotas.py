@@ -250,8 +250,8 @@ def _em_segundo_plano(nome: str, alvo, *args) -> threading.Thread:
     def rodar():
         try:
             alvo(*args)
-        except Exception:  # noqa: BLE001 - thread do painel nunca derruba o app
-            logger.exception("Tarefa %s falhou", nome)
+        except Exception as exc:  # noqa: BLE001 - thread do painel nunca derruba o app
+            logger.warning("Tarefa %s falhou tipo=%s", nome, type(exc).__name__)  # nunca a mensagem
     t = threading.Thread(target=rodar, name=f"logosmatch-{nome}", daemon=True)
     t.start()
     return t
@@ -646,7 +646,8 @@ async def canais(ctx: Ctx = Depends(_ctx)):
     return _pagina_canais(ctx)
 
 
-def _config_canal(tipo: str, form) -> dict:
+def _config_canal(tipo: str, form, atual: dict | None = None) -> dict:
+    """Mescla sobre a config atual: chaves que a tela não edita são preservadas."""
     if tipo == "telegram":
         cfg = {"chat_ids": _lista(_txt(form, "chat_ids"))}
     elif tipo == "email":
@@ -658,7 +659,7 @@ def _config_canal(tipo: str, form) -> dict:
     else:
         cfg = {}
     cfg["postos"] = _ints(form, "postos")
-    return cfg
+    return {**(atual or {}), **cfg}
 
 
 @router.post("/canais")
@@ -682,7 +683,7 @@ async def canais_gravar(ctx: Ctx = Depends(_ctx_post)):
         acesso.registrar(ctx.con, ctx.uid, f"{acao}_canal", f"canal={atual['id']}")
         return _ir("/canais")
     try:
-        cfg = _config_canal(tipo, f)
+        cfg = _config_canal(tipo, f, json.loads(atual["config_json"] or "{}") if atual else None)
     except ValueError as exc:  # mensagem própria, em português
         return _pagina_canais(ctx, 400, erro=str(exc))
     ativo = _txt(f, "ativo") == "1"
@@ -768,6 +769,8 @@ async def usuarios_gravar(ctx: Ctx = Depends(_ctx_post)):
     perfil = _txt(f, "perfil")
     if acao in ("criar", "editar") and perfil not in {p.value for p in Perfil}:
         return _pagina_usuarios(ctx, 400, erro="Escolha o perfil.")
+    if acao in ("criar", "editar") and any(banco.obter_posto(con, p) is None for p in _ints(f, "postos")):
+        return _pagina_usuarios(ctx, 400, erro="Posto inválido.")
     try:
         if acao == "criar":
             nome, login = _txt(f, "nome"), _txt(f, "login")

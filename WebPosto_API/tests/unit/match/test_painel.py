@@ -98,7 +98,7 @@ def test_primeiro_uso_cria_admin(cli, con):
     assert cli.get("/primeiro-uso").headers["location"] == "/entrar"
     r = cli.post("/primeiro-uso", data={"nome": "Intruso", "login": "intruso", "senha": SENHA,
                                         "senha2": SENHA, "csrf": tok})
-    assert r.status_code in (303, 403)
+    assert r.status_code == 403
     assert con.execute("SELECT COUNT(*) FROM usuario").fetchone()[0] == 1
     assert _entrar(cli, "dono").status_code == 303
 
@@ -430,3 +430,55 @@ def test_usuario_desativado_perde_sessao(fab, admin, con):
     con.execute("UPDATE usuario SET ativo=0 WHERE login='ge'")
     con.commit()
     assert c1.get("/").headers["location"] == "/entrar"
+
+
+def test_gerente_posto_alheio_403_fontes_e_reenviar(cli, admin, con):
+    _posto(con, "Meu", 1)
+    alheio = _posto(con, "Alheio", 2)
+    acesso.criar_usuario(con, "Gê", "gerente", SENHA, Perfil.GERENTE, [1])
+    tok = _logado(cli, "gerente")
+    for rota in (f"/postos/{alheio}/fontes/premmia", f"/postos/{alheio}/fontes/pagbank_edi/testar",
+                 f"/reenviar?posto_id={alheio}"):
+        r = cli.post(rota, data={"csrf": tok, "ativo": "1", "senha": SEGREDO})
+        assert r.status_code == 403, rota
+    assert not credenciais.tem(f"{alheio}/premmia/senha")
+
+
+def test_usuario_com_posto_invalido(cli, admin, con):
+    tok = _logado(cli)
+    r = cli.post("/usuarios", data={"csrf": tok, "acao": "criar", "nome": "Gê", "login": "ge",
+                                    "senha": SENHA, "perfil": "gerente", "postos": ["999"]})
+    assert r.status_code == 400 and "Posto inválido." in r.text and "já existe" not in r.text
+    assert con.execute("SELECT COUNT(*) FROM usuario WHERE login='ge'").fetchone()[0] == 0
+
+
+def test_editar_canal_preserva_chaves_desconhecidas(cli, admin, con):
+    cid = banco.inserir_canal(con, "telegram", {"chat_ids": ["1"], "extra": "manter"})
+    tok = _logado(cli)
+    cli.post("/canais", data={"csrf": tok, "acao": "editar", "id": cid, "chat_ids": "2", "ativo": "1"})
+    cfg = json.loads(con.execute("SELECT config_json FROM canal WHERE id=?", (cid,)).fetchone()[0])
+    assert cfg == {"chat_ids": ["2"], "extra": "manter", "postos": []}
+
+
+def test_falha_em_segundo_plano_nao_loga_mensagem(caplog, fab, monkeypatch):
+    import logging
+    from apps.match import agendador
+    from apps.match.canais import toast
+
+    def explode(*a, **k):
+        raise RuntimeError("SEGREDO-XYZ")
+
+    async def explode_async(*a, **k):
+        raise RuntimeError("SEGREDO-XYZ")
+
+    monkeypatch.setattr(rotina, "executar", explode_async)
+    monkeypatch.setattr(rotina, "limpar_antigos", explode)
+    monkeypatch.setattr(toast, "avisar", explode)
+    caplog.set_level(logging.DEBUG)
+    rotas._em_segundo_plano("teste", explode).join(5)
+    agendador._rodar(fab, so_falhas=False, limpar=True)
+    assert caplog.records
+    for rec in caplog.records:
+        assert "SEGREDO-XYZ" not in rec.getMessage()
+        assert "SEGREDO-XYZ" not in (rec.exc_text or "")
+        assert rec.exc_info is None
