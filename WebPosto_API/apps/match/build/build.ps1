@@ -8,7 +8,7 @@ $ErrorActionPreference = "Stop"
 $raiz = Resolve-Path (Join-Path $PSScriptRoot "..\..\..")
 Set-Location $raiz
 
-$versao = & python -c "import re,pathlib;print(re.search(r'VERSAO\s*=\s*\"([^\"]+)\"',pathlib.Path('apps/match/__init__.py').read_text(encoding='utf-8')).group(1))"
+$versao = [regex]::Match((Get-Content "apps\match\__init__.py" -Raw -Encoding UTF8), 'VERSAO\s*=\s*"([^"]+)"').Groups[1].Value
 if (-not $versao) { throw "Nao consegui ler a VERSAO de apps/match/__init__.py" }
 Write-Host "Logos Match $versao"
 
