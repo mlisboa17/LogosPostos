@@ -59,6 +59,6 @@ Pendente (rodar num Windows limpo ou em outro usuário Windows) e registrar o re
 - [ ] Reiniciar/fazer logon: o app sobe sozinho (ícone na bandeja; atalho em Inicializar).
 - [ ] Criar o administrador no primeiro acesso e cadastrar um posto.
 - [ ] Coleta do Premmia abre o Microsoft Edge.
-- [ ] `LogosMatch.exe --redefinir-admin` redefine a senha.
+- [ ] `LogosMatchCLI.exe --redefinir-admin` redefine a senha.
 - [ ] Desinstalar marcando "Apagar também os dados": some `%LOCALAPPDATA%\LogosMatch`, as entradas
       `LogosMatch` do Credential Manager e o atalho de Inicializar. Com o app aberto, o desinstalador o fecha antes.

@@ -132,3 +132,45 @@ def test_resolvedor_e_provedor_funcionam_em_outra_thread(con, keyring_falso):
     t.start()
     t.join()
     assert saida == {"tok": "TOK", "un": [74014]}
+
+
+def test_validar_codigo(con):
+    pid = banco.inserir_posto(con, "Doze", "Doze", None, 74014)
+    unidades.validar_codigo(con, None)
+    unidades.validar_codigo(con, 74014, posto_id=pid)  # o próprio posto
+    with pytest.raises(unidades.CodigoInvalido, match="Já existe um posto com esse código do webPosto."):
+        unidades.validar_codigo(con, 74014)
+    for ruim in (0, -1, -pid):
+        with pytest.raises(unidades.CodigoInvalido, match="Código do webPosto inválido."):
+            unidades.validar_codigo(con, ruim)
+
+
+def test_do_posto_monta_a_unidade_do_proprio_posto(con):
+    a = banco.inserir_posto(con, "A", "A", None, 74014)
+    b = banco.inserir_posto(con, "B", "B", None, 74014)  # legado: duplicado no banco
+    ub = unidades.do_posto(con, banco.obter_posto(con, b))
+    assert ub.nome == "B" and ub.chave_env == f"LC_{b}_WEBPOSTO_CHAVE"
+    assert unidades.codigo_em_conflito(con, banco.obter_posto(con, a))
+    c = banco.inserir_posto(con, "C", "C", None, 5)
+    assert not unidades.codigo_em_conflito(con, banco.obter_posto(con, c))
+
+
+def test_importar_units_json_recusa_codigo_invalido_ou_repetido(con, tmp_path):
+    arq = tmp_path / "u.json"
+    arq.write_text(json.dumps({"unidades": [{"nome": "X", "empresa_codigo": 0}]}), encoding="utf-8")
+    with pytest.raises(unidades.CodigoInvalido):
+        unidades.importar_units_json(con, arq)
+    arq.write_text(json.dumps({"unidades": [{"nome": "X", "empresa_codigo": 7},
+                                            {"nome": "Y", "empresa_codigo": 7}]}), encoding="utf-8")
+    with pytest.raises(unidades.CodigoInvalido):
+        unidades.importar_units_json(con, arq)
+    assert banco.listar_postos(con, so_ativos=False) == []
+
+
+def test_importar_config_recusa_codigo_de_outro_posto(con):
+    banco.inserir_posto(con, "Doze", "Doze", None, 74014)
+    with pytest.raises(unidades.CodigoInvalido, match="Já existe um posto"):
+        unidades.importar_config(con, {"postos": [{"nome": "Outro", "empresa_codigo_webposto": 74014}]})
+    with pytest.raises(unidades.CodigoInvalido, match="inválido"):
+        unidades.importar_config(con, {"postos": [{"nome": "Neg", "empresa_codigo_webposto": -3}]})
+    assert len(banco.listar_postos(con, so_ativos=False)) == 1

@@ -61,7 +61,7 @@ def _res(pid, situacao, msg="msg"):
 
 
 def _fake_coleta(monkeypatch, resultados, chamadas=None):
-    async def todos(c, dia, *, so_falhas=False):
+    async def todos(c, dia, *, so_falhas=False, **_):
         if chamadas is not None:
             chamadas.append((dia, so_falhas))
         return resultados
@@ -227,7 +227,7 @@ def test_horario_invalido_cai_no_padrao(con):
 def test_lock_impede_execucao_simultanea(con, falsos, monkeypatch):
     dentro, soltar, chamadas = threading.Event(), threading.Event(), []
 
-    async def todos(c, dia, *, so_falhas=False):
+    async def todos(c, dia, *, so_falhas=False, **_):
         chamadas.append(dia)
         dentro.set()
         await asyncio.get_running_loop().run_in_executor(None, soltar.wait, 5)
@@ -300,3 +300,14 @@ def test_job_erro_na_limpeza_nao_propaga(jobs):
     jobs["erro_limpar"] = True
     agendador._job_coleta(lambda: jobs["con"])
     assert jobs["con"].fechada
+
+
+def test_coletar_agora_visivel_sem_posto_repassa_visivel(con, falsos, monkeypatch):
+    visto = {}
+
+    async def todos(c, dia, *, so_falhas=False, visivel=False):
+        visto.update(so_falhas=so_falhas, visivel=visivel)
+        return []
+    monkeypatch.setattr(coletas, "coletar_todos", todos)
+    asyncio.run(rotina.executar(con, dia=DIA, visivel=True))
+    assert visto == {"so_falhas": False, "visivel": True}

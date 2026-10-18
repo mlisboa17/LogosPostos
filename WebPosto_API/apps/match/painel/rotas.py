@@ -22,11 +22,12 @@ from pathlib import Path
 
 import jinja2
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import RedirectResponse, Response
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
-from apps.match import acesso, agendador, banco, coletas, credenciais, explicar, rotina, unidades
+from apps.match import (acesso, agendador, banco, coletas, credenciais, explicar, relatorio_xlsx,
+                        rotina, unidades)
 from apps.match.acesso import Acao, Perfil
 from apps.match.canais import envio
 from src.modules.cash_reconciliation import config as config_cr
@@ -437,6 +438,30 @@ async def reenviar(posto_id: int, ctx: Ctx = Depends(_ctx_post)):
     return _pagina_hoje(ctx, mensagem=f"Reenvio iniciado: resumo de {dia:%d/%m/%Y} pelos canais ativos.")
 
 
+def _dia_param(texto: str) -> date | None:
+    for formato in ("%d-%m-%Y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(texto, formato).date()
+        except ValueError:
+            continue
+    return None
+
+
+XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+@router.get("/planilha")
+async def planilha(posto_id: int, dia: str = "", ctx: Ctx = Depends(_ctx)):
+    ctx.exigir(Acao.VER, posto_id)
+    _posto_ou_404(ctx, posto_id)
+    d = _dia_param(dia)
+    if d is None:
+        raise Recusado(400, "Dia inválido. Use dd-mm-aaaa.")
+    arquivo = relatorio_xlsx.gerar(ctx.con, posto_id, d)
+    acesso.registrar(ctx.con, ctx.uid, "baixar_planilha", f"posto={posto_id} dia={d}")
+    return FileResponse(arquivo, media_type=XLSX, filename=arquivo.name)
+
+
 # ---------------------------------------------------------------- Postos
 
 def _pagina_postos(ctx: Ctx, status: int = 200, **dados):
@@ -475,8 +500,12 @@ async def postos_gravar(ctx: Ctx = Depends(_ctx_post)):
         return _pagina_postos(ctx, 400, erro="Informe o nome do posto.")
     if codigo_txt and not codigo_txt.lstrip("-").isdigit():
         return _pagina_postos(ctx, 400, erro="O código da empresa no webPosto deve ser um número.")
-    dados = (nome, _txt(f, "apelido") or None, _txt(f, "cnpj") or None,
-             int(codigo_txt) if codigo_txt else None)
+    codigo = int(codigo_txt) if codigo_txt else None
+    try:
+        unidades.validar_codigo(ctx.con, codigo, pid if acao == "editar" else None)
+    except unidades.CodigoInvalido as exc:  # mensagem própria, em português
+        return _pagina_postos(ctx, 400, erro=str(exc))
+    dados = (nome, _txt(f, "apelido") or None, _txt(f, "cnpj") or None, codigo)
     if acao == "novo":
         pid = banco.inserir_posto(ctx.con, *dados)
     else:
@@ -493,6 +522,9 @@ async def importar_logos(ctx: Ctx = Depends(_ctx_post)):
         return _pagina_postos(ctx, 404, erro="Arquivo units.json não encontrado nesta instalação.")
     try:
         n = unidades.importar_units_json(ctx.con, caminho)
+    except unidades.CodigoInvalido as exc:  # mensagem própria, em português
+        ctx.con.rollback()
+        return _pagina_postos(ctx, 400, erro=f"units.json não importado: {exc}")
     except (ValueError, KeyError, TypeError, sqlite3.Error):
         ctx.con.rollback()
         return _pagina_postos(ctx, 400, erro="Não foi possível ler o units.json.")
@@ -523,6 +555,9 @@ async def importar(ctx: Ctx = Depends(_ctx_post)):
         if not isinstance(dados, dict):
             raise ValueError
         n = unidades.importar_config(ctx.con, dados)
+    except unidades.CodigoInvalido as exc:  # mensagem própria, em português
+        ctx.con.rollback()
+        return _pagina_postos(ctx, 400, erro=f"Configuração não importada: {exc}")
     except (ValueError, KeyError, TypeError, AttributeError, sqlite3.Error):
         ctx.con.rollback()
         return _pagina_postos(ctx, 400, erro="Arquivo de configuração inválido.")
@@ -599,9 +634,11 @@ async def _testar(con, posto, tipo: str) -> tuple[bool, str]:
         return True, f"PagBank respondeu: {len(transacoes)} venda(s) em {d:%d/%m/%Y}."
     if posto["empresa_codigo_webposto"] is None:
         return False, "Informe o código da empresa no webPosto (em Postos) antes de testar."
-    unidade = unidades.montar(con).get(posto["empresa_codigo_webposto"])
-    if unidade is None:
+    if not posto["ativo"]:
         return False, "Ative o posto antes de testar."
+    if unidades.codigo_em_conflito(con, posto):
+        return False, coletas.CODIGO_REPETIDO
+    unidade = unidades.do_posto(con, posto)
     try:
         caixas = await webposto_caixas.buscar_caixas(unidade, d, d)
     except Exception as exc:  # noqa: BLE001 - nunca str(exc)

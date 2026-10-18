@@ -482,3 +482,63 @@ def test_falha_em_segundo_plano_nao_loga_mensagem(caplog, fab, monkeypatch):
         assert "SEGREDO-XYZ" not in rec.getMessage()
         assert "SEGREDO-XYZ" not in (rec.exc_text or "")
         assert rec.exc_info is None
+
+
+def test_postos_recusa_codigo_repetido_ou_invalido(cli, admin, con):
+    pid = _posto(con)
+    tok = _logado(cli)
+    r = cli.post("/postos", data={"csrf": tok, "acao": "novo", "nome": "Clone",
+                                  "empresa_codigo_webposto": "74014"})
+    assert r.status_code == 400 and "Já existe um posto com esse código do webPosto." in r.text
+    for ruim in ("0", "-1", f"-{pid + 1}"):
+        r = cli.post("/postos", data={"csrf": tok, "acao": "novo", "nome": "Neg",
+                                      "empresa_codigo_webposto": ruim})
+        assert r.status_code == 400 and "Código do webPosto inválido." in r.text, ruim
+    outro = _posto(con, "Outro", 5)
+    r = cli.post("/postos", data={"csrf": tok, "acao": "editar", "id": str(outro), "nome": "Outro",
+                                  "empresa_codigo_webposto": "74014"})
+    assert r.status_code == 400 and "Já existe um posto" in r.text
+    r = cli.post("/postos", data={"csrf": tok, "acao": "editar", "id": str(pid), "nome": "Doze 2",
+                                  "empresa_codigo_webposto": "74014"})
+    assert r.status_code == 303  # o próprio posto mantém o código
+    assert len(banco.listar_postos(con)) == 2
+
+
+def test_importar_config_codigo_repetido_mostra_motivo(cli, admin, con):
+    _posto(con)
+    tok = _logado(cli)
+    dados = json.dumps({"postos": [{"nome": "Outro", "empresa_codigo_webposto": 74014}]})
+    r = cli.post("/config/importar", data={"csrf": tok},
+                 files={"arquivo": ("c.json", dados, "application/json")})
+    assert r.status_code == 400 and "Já existe um posto com esse código do webPosto." in r.text
+    assert len(banco.listar_postos(con)) == 1
+
+
+XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def test_baixar_planilha(cli, admin, con, tmp_path, monkeypatch):
+    monkeypatch.setenv("LOGOS_MATCH_DIR", str(tmp_path / "dados"))
+    a, b = _posto(con, "Alfa", 1), _posto(con, "Beta", 2)
+    acesso.criar_usuario(con, "Cê", "conf", SENHA, Perfil.CONFERENTE, [a])
+    _logado(cli, "conf")
+    r = cli.get(f"/planilha?posto_id={a}&dia=17-10-2026")
+    assert r.status_code == 200 and r.headers["content-type"] == XLSX
+    assert r.content[:2] == b"PK"
+    assert "Logos_Alfa_17-10-2026.xlsx" in r.headers["content-disposition"]
+    assert cli.get(f"/planilha?posto_id={a}&dia=2026-10-17").status_code == 200
+    assert cli.get(f"/planilha?posto_id={b}&dia=17-10-2026").status_code == 403
+    assert cli.get(f"/planilha?posto_id={a}&dia=31-02-2026").status_code == 400
+    assert cli.get(f"/planilha?posto_id={a}&dia=abc").status_code == 400
+    acoes = [x["acao"] for x in con.execute("SELECT acao FROM log_acesso")]
+    assert acoes.count("baixar_planilha") == 2
+
+
+def test_hoje_e_historico_tem_link_da_planilha(cli, admin, con):
+    pid = _posto(con)
+    fid = banco.salvar_fonte(con, pid, "pagbank_edi", True, {})
+    banco.registrar_coleta(con, fid, ontem(), "ok", 1, "10", None)
+    _logado(cli)
+    link = f"/planilha?posto_id={pid}&amp;dia={ontem():%d-%m-%Y}"
+    assert link in cli.get("/").text
+    assert f"/planilha?posto_id={pid}&amp;dia={ontem().isoformat()}" in cli.get("/historico").text

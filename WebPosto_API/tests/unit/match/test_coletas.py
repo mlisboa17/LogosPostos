@@ -256,3 +256,44 @@ def test_coletar_todos_isola_posto_com_falha(con, adaptadores, monkeypatch):
     assert por_posto[(ruim, "premmia")] == "erro" and por_posto[(ruim, "pagbank_edi")] == "erro"
     assert (bom, "pagbank_edi") in por_posto
     assert all("abc" not in r.mensagem for r in resultados)
+
+
+def test_premmia_sem_credenciais_vira_erro_explicado(con, adaptadores):
+    pid = _posto(con)
+    erro = premmia_portal.PremmiaVerificacaoHumana()
+    erro.etapa = "validar credenciais"
+    adaptadores[1]["erro_premmia"] = erro
+    res = _rodar(con, pid)
+    assert res["premmia"].situacao == "erro"
+    assert res["premmia"].mensagem == "Falta usuário/senha do Premmia em Fontes do posto."
+    assert con.execute("SELECT situacao FROM coleta c JOIN fonte f ON f.id=c.fonte_id"
+                       " WHERE f.tipo='premmia'").fetchone()[0] == "erro"
+
+
+def test_coletar_todos_visivel_libera_travas(con, adaptadores):
+    _posto(con)
+    asyncio.run(coletas.coletar_todos(con, DIA, visivel=True))
+    assert len(adaptadores[0]["liberar"]) == 1
+    assert adaptadores[0]["coletar"][0][2] is True
+
+
+def test_coletar_posto_usa_unidade_do_proprio_posto(con, adaptadores, monkeypatch):
+    vistos = []
+
+    async def coletar(unidade, *, ate=None, visivel=False, diretorio=None):
+        vistos.append(unidade)
+
+    monkeypatch.setattr(premmia_portal, "coletar", coletar)
+    pid = _posto(con, pagbank=False)
+    asyncio.run(coletas.coletar_posto(con, pid, DIA))
+    assert vistos and vistos[0].premmia_usuario_env == f"LC_{pid}_PREMMIA_USUARIO"
+
+
+def test_codigo_webposto_repetido_nao_coleta_com_dados_do_outro(con, adaptadores):
+    _posto(con)
+    outro = banco.inserir_posto(con, "Clone", "Clone", None, 74014)
+    banco.salvar_fonte(con, outro, "premmia", True, {})
+    res = asyncio.run(coletas.coletar_posto(con, outro, DIA))
+    assert [(r.fonte, r.situacao) for r in res] == [("premmia", "erro")]
+    assert res[0].mensagem == "Outro posto usa o mesmo código do webPosto. Corrija em Postos."
+    assert adaptadores[0]["coletar"] == []

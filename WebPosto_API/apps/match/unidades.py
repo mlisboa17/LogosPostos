@@ -22,6 +22,34 @@ def codigo_empresa(posto) -> int:
     return codigo if codigo is not None else -posto["id"]
 
 
+class CodigoInvalido(ValueError):
+    """Mensagem própria, em português, pronta para a tela."""
+
+
+CODIGO_INVALIDO = "Código do webPosto inválido."
+CODIGO_REPETIDO = "Já existe um posto com esse código do webPosto."
+
+
+def validar_codigo(con, codigo: int | None, posto_id: int | None = None, *,
+                   reservados: set[int] = frozenset()) -> None:
+    """Código digitado/importado: positivo e de um só posto (negativos são o sintético -id)."""
+    if codigo is None:
+        return
+    if isinstance(codigo, bool) or not isinstance(codigo, int) or codigo <= 0:
+        raise CodigoInvalido(CODIGO_INVALIDO)
+    if codigo in reservados or any(
+            p["id"] != posto_id and p["empresa_codigo_webposto"] == codigo
+            for p in banco.listar_postos(con, so_ativos=False)):
+        raise CodigoInvalido(CODIGO_REPETIDO)
+
+
+def codigo_em_conflito(con, posto) -> bool:
+    """Outro posto resolve para o mesmo código (dados antigos): coletar misturaria os dois."""
+    meu = codigo_empresa(posto)
+    return any(p["id"] != posto["id"] and codigo_empresa(p) == meu
+               for p in banco.listar_postos(con, so_ativos=False))
+
+
 _RE_SEGREDO = re.compile(r"senha|token|chave|secret|password", re.IGNORECASE)
 
 
@@ -33,23 +61,25 @@ def _sem_segredos(cfg: dict) -> dict:
     return {k: v for k, v in cfg.items() if not _RE_SEGREDO.search(str(k))}
 
 
+def do_posto(con, p) -> Unidade:
+    """Unidade de um posto pelo seu id (credenciais LC_{id}_*), nunca a de outro posto."""
+    fontes = {f["tipo"]: f for f in banco.fontes_do_posto(con, p["id"])}
+    premmia, pagbank = fontes.get("premmia"), fontes.get("pagbank_edi")
+    origem = premmia or pagbank
+    adm = _config(origem).get("administradoras", {}) if origem else {}
+    pid = p["id"]
+    codigo = codigo_empresa(p)
+    return Unidade(
+        empresa_codigo=codigo, nome=p["nome"], apelido=p["apelido"] or f"P{pid}",
+        chave_env=f"LC_{pid}_WEBPOSTO_CHAVE",
+        premmia_ativo=bool(premmia and premmia["ativo"]),
+        premmia_usuario_env=f"LC_{pid}_PREMMIA_USUARIO",
+        premmia_senha_env=f"LC_{pid}_PREMMIA_SENHA",
+        destinos=(), administradoras={k: tuple(v) for k, v in adm.items()})
+
+
 def montar(con) -> dict[int, Unidade]:
-    resultado: dict[int, Unidade] = {}
-    for p in banco.listar_postos(con):
-        fontes = {f["tipo"]: f for f in banco.fontes_do_posto(con, p["id"])}
-        premmia, pagbank = fontes.get("premmia"), fontes.get("pagbank_edi")
-        origem = premmia or pagbank
-        adm = _config(origem).get("administradoras", {}) if origem else {}
-        pid = p["id"]
-        codigo = codigo_empresa(p)
-        resultado[codigo] = Unidade(
-            empresa_codigo=codigo, nome=p["nome"], apelido=p["apelido"] or f"P{pid}",
-            chave_env=f"LC_{pid}_WEBPOSTO_CHAVE",
-            premmia_ativo=bool(premmia and premmia["ativo"]),
-            premmia_usuario_env=f"LC_{pid}_PREMMIA_USUARIO",
-            premmia_senha_env=f"LC_{pid}_PREMMIA_SENHA",
-            destinos=(), administradoras={k: tuple(v) for k, v in adm.items()})
-    return resultado
+    return {codigo_empresa(p): do_posto(con, p) for p in banco.listar_postos(con)}
 
 
 @contextmanager
@@ -100,6 +130,12 @@ def ativar(con) -> None:
 def importar_units_json(con, caminho: Path) -> int:
     dados = json.loads(Path(caminho).read_text(encoding="utf-8"))
     existentes = {p["empresa_codigo_webposto"] for p in banco.listar_postos(con, so_ativos=False)}
+    novos: set[int] = set()
+    for u in dados.get("unidades", []):  # valida tudo antes de gravar qualquer posto
+        codigo = u["empresa_codigo"]
+        if codigo is None or codigo not in existentes:
+            validar_codigo(con, codigo, reservados=novos)
+            novos.add(codigo)
     criados = 0
     for u in dados.get("unidades", []):
         codigo = u["empresa_codigo"]
@@ -135,6 +171,13 @@ def exportar_config(con) -> dict:
 def importar_config(con, dados: dict) -> int:
     existentes = {(p["nome"], p["empresa_codigo_webposto"])
                   for p in banco.listar_postos(con, so_ativos=False)}
+    novos: set[int] = set()
+    for p in dados.get("postos", []):  # valida tudo antes de gravar qualquer posto
+        codigo = p.get("empresa_codigo_webposto")
+        if (p["nome"], codigo) not in existentes:
+            validar_codigo(con, codigo, reservados=novos)
+            if codigo is not None:
+                novos.add(codigo)
     criados = 0
     for p in dados.get("postos", []):
         chave = (p["nome"], p.get("empresa_codigo_webposto"))

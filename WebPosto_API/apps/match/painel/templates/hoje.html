@@ -10,7 +10,7 @@
     {% for f in item.fontes %}<li><span class="icone">{{ f.icone }}</span> <strong>{{ f.nome }}</strong>: {{ f.texto }}</li>
     {% else %}<li>Nenhuma fonte cadastrada.</li>{% endfor %}
   </ul>
-  <p>Total coletado: <strong>{{ item.total|dinheiro }}</strong></p>
+  <p>Total coletado: <strong>{{ item.total|dinheiro }}</strong> · <a href="/planilha?posto_id={{ item.posto.id }}&amp;dia={{ item.dia.strftime('%d-%m-%Y') }}">Baixar planilha</a></p>
   {% if item.divergencias %}
   <table>
     <thead><tr><th>Fonte</th><th>O que houve</th><th>Como corrigir</th><th>Responsável</th></tr></thead>

@@ -4,11 +4,13 @@ from __future__ import annotations
 from decimal import ROUND_HALF_UP, Decimal
 
 from src.modules.cash_reconciliation.adapters.pagbank_edi import PagBankCredencialInvalida, PagBankErro
-from src.modules.cash_reconciliation.adapters.premmia_portal import PremmiaVerificacaoHumana
+from src.modules.cash_reconciliation.adapters.premmia_portal import (
+    PremmiaDiaNaoColetado, PremmiaErro, PremmiaVerificacaoHumana)
 from src.modules.cash_reconciliation.adapters.webposto_http import WebPostoErro
 from src.modules.cash_reconciliation.domain.cartoes import ResultadoCartoes
 from src.modules.cash_reconciliation.domain.tempo import formatar_hora
 
+ETAPA_SEM_CREDENCIAIS = "validar credenciais"  # premmia_portal: usuário/senha ausentes
 _NOME_FONTE = {"PREMMIA": "Premmia", "PAGBANK": "PagBank"}
 # já cobertos pelo item "valor_diferente" gerado a partir do casamento
 _ALERTAS_DE_VALOR = {"CARTAO_VALOR_A_MENOR", "CARTAO_VALOR_A_MAIOR"}
@@ -69,8 +71,15 @@ def erro_pt(exc: Exception) -> str:
     """Nunca usa str(exc): mensagens de adaptadores podem carregar segredo."""
     if isinstance(exc, PagBankCredencialInvalida):
         return "PagBank recusou o usuário/token. Confira em Fontes do posto."
+    etapa = getattr(exc, "etapa", None)
+    if isinstance(exc, PremmiaVerificacaoHumana) and etapa == ETAPA_SEM_CREDENCIAIS:
+        return "Falta usuário/senha do Premmia em Fontes do posto."
     if isinstance(exc, PremmiaVerificacaoHumana):
         return "O Premmia pediu verificação humana. Clique em Coletar agora (visível)."
+    if isinstance(exc, PremmiaDiaNaoColetado):
+        return "O Premmia não entregou as vendas do dia. Nova tentativa na repescagem."
+    if isinstance(exc, PremmiaErro) and etapa == "login já tentado":
+        return "O Premmia já foi tentado hoje. Clique em Coletar agora (visível) para tentar de novo."
     if isinstance(exc, WebPostoErro) and not isinstance(exc, PagBankErro):
         return "webPosto indisponível ou chave inválida."
     return f"Falha inesperada na coleta ({type(exc).__name__})."

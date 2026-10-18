@@ -4,13 +4,14 @@
 <h1>Histórico</h1>
 <h2>Últimas coletas</h2>
 <table>
-  <thead><tr><th>Quando</th><th>Posto</th><th>Fonte</th><th>Dia</th><th>Situação</th><th>Vendas</th><th>Total</th><th>Erro</th></tr></thead>
+  <thead><tr><th>Quando</th><th>Posto</th><th>Fonte</th><th>Dia</th><th>Situação</th><th>Vendas</th><th>Total</th><th>Erro</th><th>Planilha</th></tr></thead>
   <tbody>
   {% for c in coletas %}
     <tr><td>{{ c.iniciada_em|data_hora }}</td><td>{{ c.posto_apelido or c.posto_nome }}</td><td>{{ c.tipo|fonte }}</td>
       <td>{{ c.dia|data }}</td><td>{{ {"ok": "✅ ok", "sem_movimento": "⚠ sem vendas", "erro": "❌ erro", "verificacao_humana": "❌ verificação humana"}.get(c.situacao, c.situacao) }}</td>
-      <td>{{ c.qtd }}</td><td>{{ c.total|dinheiro }}</td><td>{{ c.erro_texto or "" }}</td></tr>
-  {% else %}<tr><td colspan="8">Nenhuma coleta ainda.</td></tr>{% endfor %}
+      <td>{{ c.qtd }}</td><td>{{ c.total|dinheiro }}</td><td>{{ c.erro_texto or "" }}</td>
+      <td><a href="/planilha?posto_id={{ c.posto_id }}&amp;dia={{ c.dia }}">Baixar</a></td></tr>
+  {% else %}<tr><td colspan="9">Nenhuma coleta ainda.</td></tr>{% endfor %}
   </tbody>
 </table>
 {% if envios is not none %}

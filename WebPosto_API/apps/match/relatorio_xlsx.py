@@ -10,7 +10,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
 
-from apps.match import caminhos
+from apps.match import caminhos, coletas
 from src.modules.cash_reconciliation.domain.tempo import FUSO
 
 FORMATO_REAIS = "R$ #,##0.00"
@@ -18,6 +18,7 @@ _ROTULO_FONTE = {"premmia": "Premmia", "pagbank_edi": "PagBank"}
 _ROTULO_SITUACAO = {"ok": "OK", "sem_movimento": "Sem movimento", "erro": "Erro",
                     "verificacao_humana": "Precisa de verificação humana"}
 _MSG_SITUACAO = {"ok": "Coleta concluída", "sem_movimento": "Sem vendas registradas no dia"}
+_SEM_COMPARACAO = ". Sem comparação com webPosto (cadastre a chave do webPosto em Fontes do posto)."
 
 
 def _valor(v) -> float | None:
@@ -62,8 +63,12 @@ def _resumo(con, wb, posto_id: int, dia: date) -> None:
         "SELECT f.tipo, c.situacao, c.qtd, c.total, c.erro_texto FROM coleta c"
         " JOIN fonte f ON f.id=c.fonte_id WHERE f.posto_id=? AND c.dia=? ORDER BY f.id",
         (posto_id, str(dia))).fetchall()
+    posto = con.execute("SELECT * FROM posto WHERE id=?", (posto_id,)).fetchone()
+    compara = posto is not None and coletas.tem_chave_webposto(con, posto)
     for r in rows:
         msg = r["erro_texto"] or _MSG_SITUACAO.get(r["situacao"], "")
+        if r["situacao"] == "ok" and not compara:
+            msg += _SEM_COMPARACAO
         total = None if r["situacao"] in ("erro", "verificacao_humana") else _valor(r["total"])
         ws.append([_ROTULO_FONTE.get(r["tipo"], r["tipo"]),
                    _ROTULO_SITUACAO.get(r["situacao"], r["situacao"]), r["qtd"], total, msg])

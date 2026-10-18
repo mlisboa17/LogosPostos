@@ -14,3 +14,11 @@ def test_salvar_vazio_nao_apaga(keyring_falso):
     credenciais.salvar("1/pagbank/token", "tok")
     credenciais.salvar("1/pagbank/token", "")
     assert credenciais.ler("1/pagbank/token") == "tok"
+
+
+def test_salvar_so_espacos_nao_grava(keyring_falso):
+    credenciais.salvar("1/premmia/usuario", "u")
+    credenciais.salvar("1/premmia/usuario", "   ")
+    credenciais.salvar("2/premmia/senha", " \t ")
+    assert credenciais.ler("1/premmia/usuario") == "u"
+    assert credenciais.ler("2/premmia/senha") is None

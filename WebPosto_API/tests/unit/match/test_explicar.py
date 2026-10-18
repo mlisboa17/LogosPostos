@@ -93,3 +93,17 @@ def test_erro_pt_nao_vaza_mensagem():
     texto = explicar.erro_pt(RuntimeError("falhou token=abc"))
     assert "abc" not in texto
     assert texto == "Falha inesperada na coleta (RuntimeError)."
+
+
+def test_erro_pt_premmia_por_etapa():
+    from src.modules.cash_reconciliation.adapters.premmia_portal import (
+        PremmiaDiaNaoColetado, PremmiaErro)
+    sem_cred = PremmiaVerificacaoHumana()
+    sem_cred.etapa = "validar credenciais"
+    assert explicar.erro_pt(sem_cred) == "Falta usuário/senha do Premmia em Fontes do posto."
+    assert explicar.erro_pt(PremmiaErro("x", etapa="login já tentado")) == (
+        "O Premmia já foi tentado hoje. Clique em Coletar agora (visível) para tentar de novo.")
+    assert explicar.erro_pt(PremmiaDiaNaoColetado("x")) == (
+        "O Premmia não entregou as vendas do dia. Nova tentativa na repescagem.")
+    assert explicar.erro_pt(PremmiaVerificacaoHumana()) == (
+        "O Premmia pediu verificação humana. Clique em Coletar agora (visível).")

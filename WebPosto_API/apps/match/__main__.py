@@ -5,6 +5,7 @@ import argparse
 import asyncio
 import ctypes
 import getpass
+import importlib
 import logging
 import logging.handlers
 import os
@@ -21,6 +22,7 @@ from apps.match import NOME, acesso, agendador, banco, bandeja, caminhos, creden
 from apps.match.canais import toast
 from apps.match.painel import criar_app
 from src.modules.cash_reconciliation.domain.tempo import FUSO
+from src.shared.logger import silenciar_urls_http
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +39,7 @@ def configurar_log() -> None:
     raiz = logging.getLogger()
     raiz.setLevel(logging.INFO)
     raiz.addHandler(h)
+    silenciar_urls_http()  # httpx registraria a URL com a CHAVE do webPosto em INFO
 
 
 def instancia_unica() -> bool:
@@ -204,6 +207,10 @@ def redefinir_admin() -> int:
     return 0
 
 
+# o PyInstaller pode deixar de fora: sem python_multipart todo POST do painel dá 500
+_IMPORTS = ("python_multipart", "windows_toasts", "pystray", "apscheduler")
+
+
 def _recursos() -> list[tuple[str, bool, str]]:
     """Recursos que o exe empacotado precisa achar. (nome, ok, detalhe)"""
     from pathlib import Path
@@ -224,6 +231,18 @@ def _recursos() -> list[tuple[str, bool, str]]:
     except Exception as exc:  # noqa: BLE001
         res.append(("playwright", False, type(exc).__name__))
     res.append(("keyring", True, type(keyring.get_keyring()).__name__))
+    for modulo in _IMPORTS:
+        try:
+            importlib.import_module(modulo)
+            res.append((modulo, True, "importado"))
+        except Exception as exc:  # noqa: BLE001
+            res.append((modulo, False, type(exc).__name__))
+    try:
+        from zoneinfo import ZoneInfo
+        ZoneInfo("America/Recife")
+        res.append(("fuso America/Recife", True, "tzdata"))
+    except Exception as exc:  # noqa: BLE001
+        res.append(("fuso America/Recife", False, type(exc).__name__))
     return res
 
 

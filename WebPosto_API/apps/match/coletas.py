@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 _FONTES = ("premmia", "pagbank_edi")
 _NOME = {"premmia": "Premmia", "pagbank_edi": "PagBank"}
 _JA_COLETADO = ("ok", "sem_movimento")
+CODIGO_REPETIDO = "Outro posto usa o mesmo código do webPosto. Corrija em Postos."
 
 
 @dataclass
@@ -32,8 +33,9 @@ class ResultadoFonte:
     divergencias: list[dict] = field(default_factory=list)
 
 
-def _tem_chave_webposto(posto, fontes: dict) -> bool:
-    wp = fontes.get("webposto")
+def tem_chave_webposto(con, posto) -> bool:
+    """Regra única: só compara com o webPosto se a fonte estiver ativa, com código e chave."""
+    wp = _fontes_ativas(con, posto["id"]).get("webposto")
     return bool(wp and wp["ativo"] and posto["empresa_codigo_webposto"] is not None
                 and credenciais.tem(f"{posto['id']}/webposto/chave"))
 
@@ -126,7 +128,9 @@ async def _coletar_fonte(con, posto, fonte, unidade, dia, visivel, comparar) -> 
                               _mensagem(_NOME[tipo], len(do_dia), total, resultado is not None,
                                         len(itens)), itens)
     except premmia_portal.PremmiaVerificacaoHumana as exc:
-        situacao, mensagem = "verificacao_humana", explicar.erro_pt(exc)
+        sem_credenciais = exc.etapa == explicar.ETAPA_SEM_CREDENCIAIS
+        situacao = "erro" if sem_credenciais else "verificacao_humana"
+        mensagem = explicar.erro_pt(exc)
     except _AdquirenteSemVendasAinda as exc:
         situacao, mensagem = "erro", str(exc)
     except Exception as exc:  # cada fonte isolada: falha numa não para as outras
@@ -148,10 +152,12 @@ async def coletar_posto(con, posto_id: int, dia: date, *, visivel: bool = False,
     if posto is None or not posto["ativo"]:
         return []
     fontes = _fontes_ativas(con, posto_id)
-    comparar = _tem_chave_webposto(posto, fontes)
-    unidade = unidades.montar(con).get(unidades.codigo_empresa(posto))
-    if unidade is None:
-        return []
+    if unidades.codigo_em_conflito(con, posto):  # nunca usar credenciais/dados de outro posto
+        logger.warning("Coleta recusada posto=%s: código do webPosto repetido", posto_id)
+        return [ResultadoFonte(posto_id, t, dia, "erro", 0, Decimal(0), CODIGO_REPETIDO, [])
+                for t in _FONTES if t in fontes]
+    comparar = tem_chave_webposto(con, posto)
+    unidade = unidades.do_posto(con, posto)
     resultados = []
     for tipo in _FONTES:
         fonte = fontes.get(tipo)
@@ -161,11 +167,13 @@ async def coletar_posto(con, posto_id: int, dia: date, *, visivel: bool = False,
     return resultados
 
 
-async def coletar_todos(con, dia: date, *, so_falhas: bool = False) -> list[ResultadoFonte]:
+async def coletar_todos(con, dia: date, *, so_falhas: bool = False,
+                        visivel: bool = False) -> list[ResultadoFonte]:
     resultados = []
     for posto in banco.listar_postos(con):
         try:
-            resultados.extend(await coletar_posto(con, posto["id"], dia, so_falhas=so_falhas))
+            resultados.extend(await coletar_posto(con, posto["id"], dia, visivel=visivel,
+                                                  so_falhas=so_falhas))
         except Exception as exc:  # um posto ruim não impede os outros
             logger.warning("Coleta do posto falhou posto=%s tipo=%s", posto["id"], type(exc).__name__)
             mensagem = explicar.erro_pt(exc)
@@ -181,7 +189,7 @@ def resultados_salvos(con, posto_id: int, dia: date) -> list[ResultadoFonte]:
     if posto is None:
         return []
     fontes = _fontes_ativas(con, posto_id)
-    comparar = _tem_chave_webposto(posto, fontes)
+    comparar = tem_chave_webposto(con, posto)
     resultados = []
     for tipo in _FONTES:
         fonte = fontes.get(tipo)

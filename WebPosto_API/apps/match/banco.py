@@ -245,7 +245,7 @@ def ultimas_coletas(con, postos: list[int], limite: int = 30) -> list[sqlite3.Ro
         return []
     marcas = ",".join("?" * len(postos))
     return con.execute(
-        "SELECT c.*, f.tipo, p.nome AS posto_nome, p.apelido AS posto_apelido FROM coleta c"
+        "SELECT c.*, f.tipo, f.posto_id, p.nome AS posto_nome, p.apelido AS posto_apelido FROM coleta c"
         " JOIN fonte f ON f.id = c.fonte_id JOIN posto p ON p.id = f.posto_id"
         f" WHERE f.posto_id IN ({marcas}) ORDER BY c.iniciada_em DESC, c.id DESC LIMIT ?",  # noqa: S608
         (*postos, limite)).fetchall()

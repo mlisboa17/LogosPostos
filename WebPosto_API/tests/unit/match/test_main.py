@@ -347,3 +347,51 @@ def test_verificar_falha_quando_falta_recurso(monkeypatch, capsys):
     monkeypatch.setattr(m, "_recursos", lambda: [("templates", False, "ausente")])
     assert m.main(["--verificar"]) == 1
     assert "FALHA templates" in capsys.readouterr().out
+
+
+def test_requirements_match_fixado_e_com_multipart():
+    import re
+    from pathlib import Path
+    arq = Path(m.__file__).resolve().parents[2] / "requirements-match.txt"
+    linhas = [x.strip() for x in arq.read_text(encoding="utf-8").splitlines()
+              if x.strip() and not x.startswith("#")]
+    nomes = {x.split("==")[0].lower() for x in linhas}
+    assert {"python-multipart", "tzdata", "fastapi", "keyring", "windows-toasts"} <= nomes
+    assert all(re.fullmatch(r"[A-Za-z0-9_.\-]+==[0-9][\w.]*", x) for x in linhas), linhas
+
+
+def test_verificar_confere_imports_e_fuso(capsys):
+    assert m.main(["--verificar"]) == 0
+    saida = capsys.readouterr().out
+    for item in ("python_multipart", "windows_toasts", "pystray", "keyring", "apscheduler",
+                 "fuso America/Recife"):
+        assert f"ok {item}" in saida, item
+
+
+def test_verificar_falha_quando_import_falta(monkeypatch, capsys):
+    import importlib
+    original = importlib.import_module
+
+    def falso(nome, *a, **k):
+        if nome == "python_multipart":
+            raise ImportError("ausente")
+        return original(nome, *a, **k)
+
+    monkeypatch.setattr(importlib, "import_module", falso)
+    assert m.main(["--verificar"]) == 1
+    assert "FALHA python_multipart: ImportError" in capsys.readouterr().out
+
+
+def test_configurar_log_silencia_urls_do_httpx(pasta):
+    for nome in ("httpx", "httpcore"):
+        logging.getLogger(nome).setLevel(logging.NOTSET)
+    m.configurar_log()
+    assert logging.getLogger("httpx").level == logging.WARNING
+    assert logging.getLogger("httpcore").level == logging.WARNING
+
+
+def test_readme_cita_cli_para_redefinir_admin():
+    from pathlib import Path
+    texto = (Path(m.__file__).resolve().parent / "README.md").read_text(encoding="utf-8")
+    assert "LogosMatch.exe --redefinir-admin" not in texto
+    assert "LogosMatchCLI.exe --redefinir-admin" in texto

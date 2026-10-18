@@ -47,7 +47,8 @@ def test_abas_e_nome_do_arquivo(con, posto, tmp_path):
     wb = openpyxl.load_workbook(p)
     assert wb.sheetnames == ["Resumo", "Premmia", "PagBank", "Divergências"]
     resumo = [[c.value for c in r] for r in wb["Resumo"].iter_rows()]
-    assert ["Premmia", "OK", 1, 100.5, "Coleta concluída"] in resumo
+    assert ["Premmia", "OK", 1, 100.5] in [r[:4] for r in resumo]
+    assert resumo[1][4].startswith("Coleta concluída")  # sem chave: + aviso de sem comparação
     assert ["PagBank", "Erro", 0, None, "Falha ao entrar"] in resumo
 
 
@@ -106,3 +107,14 @@ def test_sem_movimento(con):
     banco.registrar_coleta(con, f, DIA, "sem_movimento", 0, Decimal("0"), None)
     ws = openpyxl.load_workbook(relatorio_xlsx.gerar(con, pid, DIA))["Resumo"]
     assert [c.value for c in ws[2]] == ["PagBank", "Sem movimento", 0, 0, "Sem vendas registradas no dia"]
+
+
+def test_resumo_avisa_sem_comparacao_quando_sem_chave(con, posto):
+    wb = openpyxl.load_workbook(relatorio_xlsx.gerar(con, posto, DIA))
+    msgs = [r[4].value for r in wb["Resumo"].iter_rows(min_row=2)]
+    assert "Sem comparação com webPosto" in msgs[0]
+    banco.salvar_fonte(con, posto, "webposto", True, {})
+    credenciais.salvar(f"{posto}/webposto/chave", "K")
+    wb = openpyxl.load_workbook(relatorio_xlsx.gerar(con, posto, DIA))
+    msgs = [r[4].value for r in wb["Resumo"].iter_rows(min_row=2)]
+    assert msgs[0] == "Coleta concluída"

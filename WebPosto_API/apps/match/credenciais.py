@@ -8,7 +8,7 @@ SERVICO = "LogosMatch"
 
 
 def salvar(chave: str, valor: str) -> None:
-    if not valor:
+    if not valor or not valor.strip():  # em branco/só espaços = manter o atual
         return
     keyring.set_password(SERVICO, chave, valor)
 

@@ -71,7 +71,8 @@ async def executar(con, *, dia: date | None = None, so_falhas: bool = False,
         dia = dia or ontem()
         unidades.ativar(con)
         if posto_id is None:
-            resultados = await coletas.coletar_todos(con, dia, so_falhas=so_falhas)
+            resultados = await coletas.coletar_todos(con, dia, so_falhas=so_falhas,
+                                                     visivel=visivel)
         else:
             resultados = await coletas.coletar_posto(con, posto_id, dia, visivel=visivel,
                                                      so_falhas=so_falhas)
