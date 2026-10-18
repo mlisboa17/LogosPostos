@@ -23,6 +23,7 @@ Repositório `C:\Projetos\LOGOS\LogosPostos`, branch `feature/cash-audit-fechame
 - Premmia: a coleta de uma noite cobre todos os dias pendentes daquela unidade (planilha mensal) — **um único login por noite** atende os dias atrasados; nunca tentar segundo login.
 - No resumo do dia, uma linha: "Recuperei 15 e 16/10 (estavam sem auditoria por trava de escrita)".
 - Limite: máximo de reprocessamentos por noite (configurável) para não estourar a API.
+- **Repescagem em outros horários (pedido do diretor):** execuções extras configuráveis (padrão 07:00 e 12:00) que **só fazem algo se a última execução não ficou completa** (BLOCKED/FAILED/fonte obrigatória faltando) — se a das 03:00 foi completa, a repescagem termina em segundos sem chamar a API. Regras: nunca repetir login do Premmia no mesmo dia (se já houve login, pula Premmia); **Telegram só envia se houver resultado novo** (dia recuperado ou fonte que passou a ficar completa), nunca o mesmo resumo duas vezes; trava de execução para não rodar duas ao mesmo tempo. A tarefa agendada extra segue a regra do item C (mostrar, aplicar só com "ok").
 
 ### C. Versão de produção (cutover isolado, sem infraestrutura nova)
 Comando do próprio Logos: `python -m src.jobs.publicar_versao --versao 1.0.0`:
