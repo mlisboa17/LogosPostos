@@ -171,12 +171,19 @@ def apagar_credenciais() -> int:
         chaves = chaves_conhecidas(con)
     finally:
         con.close()
-    removidas = 0
+    removidas = falhas = 0
     for chave in chaves:
-        if credenciais.tem(chave):
-            credenciais.apagar(chave)
-            removidas += 1
+        try:
+            if credenciais.tem(chave):
+                credenciais.apagar(chave)
+                removidas += 1
+        except Exception as exc:  # noqa: BLE001 - segue apagando as demais
+            logger.warning("Falha ao apagar credencial tipo=%s", type(exc).__name__)
+            falhas += 1
     print(f"{removidas} credencial(is) removida(s) do Windows.")
+    if falhas:
+        print(f"{falhas} credencial(is) não puderam ser removidas.")
+        return 1
     return 0
 
 
@@ -197,33 +204,52 @@ def redefinir_admin() -> int:
     return 0
 
 
-def _anexar_console() -> None:
-    """Exe sem console (console=False): liga as flags de manutenção ao terminal que o chamou."""
-    if sys.stdout is not None:
-        return
+def _recursos() -> list[tuple[str, bool, str]]:
+    """Recursos que o exe empacotado precisa achar. (nome, ok, detalhe)"""
+    from pathlib import Path
+
+    import keyring
+    from playwright._impl._driver import compute_driver_executable
+
+    from src.modules.cash_reconciliation import config as config_cr
+
+    base = Path(bandeja.__file__).resolve().parent  # pasta apps/match (o __file__ do script de entrada muda no exe)
+    itens = [("templates", base / "painel" / "templates"), ("static", base / "painel" / "static"),
+             ("assets", base / "assets" / "icone.ico"),
+             ("units.json", Path(config_cr.__file__).parent / "units.json")]
+    res = [(n, p.exists(), str(p)) for n, p in itens]
     try:
-        if ctypes.windll.kernel32.AttachConsole(-1):
-            sys.stdout = open("CONOUT$", "w", encoding="utf-8")  # noqa: SIM115
-            sys.stderr = sys.stdout
-            sys.stdin = open("CONIN$", "r", encoding="utf-8")  # noqa: SIM115
-    except OSError:
-        pass
+        driver = [Path(x) for x in compute_driver_executable()]
+        res.append(("playwright", all(d.exists() for d in driver), str(driver[0])))
+    except Exception as exc:  # noqa: BLE001
+        res.append(("playwright", False, type(exc).__name__))
+    res.append(("keyring", True, type(keyring.get_keyring()).__name__))
+    return res
+
+
+def verificar() -> int:
+    ok_geral = True
+    for nome, ok, detalhe in _recursos():
+        print(f"{'ok' if ok else 'FALHA'} {nome}: {detalhe}")
+        ok_geral = ok_geral and ok
+    return 0 if ok_geral else 1
 
 
 def _argumentos(argv: list[str]) -> argparse.Namespace:
     p = argparse.ArgumentParser(prog="LogosMatch", description=NOME)
     p.add_argument("--apagar-credenciais", action="store_true",
                    help="remove do Windows todas as credenciais guardadas e sai")
+    p.add_argument("--verificar", action="store_true",
+                   help="confere se os recursos empacotados estão presentes e sai")
     p.add_argument("--redefinir-admin", action="store_true",
                    help="define uma nova senha para o administrador e sai")
     return p.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
-    argv = argv or []
-    if argv:
-        _anexar_console()
-    args = _argumentos(argv)
+    args = _argumentos(argv or [])
+    if args.verificar:
+        return verificar()
     if args.apagar_credenciais:
         return apagar_credenciais()
     if args.redefinir_admin:

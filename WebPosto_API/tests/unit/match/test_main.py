@@ -1,10 +1,10 @@
 import ctypes
-from datetime import datetime, timezone
 import logging
 import logging.handlers
 import os
 import sys
 import time
+from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
 import pytest
@@ -313,4 +313,37 @@ def test_apagar_credenciais_remove_todas(keyring_falso, monkeypatch, capsys):
     assert m.main(["--apagar-credenciais"]) == 0
     assert all(credenciais.ler(c) is None for c in chaves)
     assert credenciais.ler("outra/coisa") == "y"
-    assert "6" in capsys.readouterr().out
+    assert "6 credencial" in capsys.readouterr().out
+
+
+def test_apagar_credenciais_falha_parcial(keyring_falso, monkeypatch, capsys):
+    from apps.match import credenciais
+    con = banco.conectar()
+    try:
+        p1 = banco.inserir_posto(con, "Posto A", "A", "1", 1)
+    finally:
+        con.close()
+    credenciais.salvar(f"{p1}/premmia/usuario", "x")
+    credenciais.salvar(f"{p1}/premmia/senha", "x")
+
+    def apagar(chave):
+        if chave.endswith("usuario"):
+            raise OSError("negado")
+        keyring_falso.delete_password("LogosMatch", chave)
+    monkeypatch.setattr(m.credenciais, "apagar", apagar)
+    assert m.main(["--apagar-credenciais"]) == 1
+    saida = capsys.readouterr().out
+    assert "1 credencial(is) não puderam ser removidas." in saida
+
+
+def test_verificar_ok_na_arvore_de_fontes(capsys):
+    assert m.main(["--verificar"]) == 0
+    saida = capsys.readouterr().out
+    for item in ("templates", "static", "assets", "units.json", "playwright", "keyring"):
+        assert f"ok {item}" in saida
+
+
+def test_verificar_falha_quando_falta_recurso(monkeypatch, capsys):
+    monkeypatch.setattr(m, "_recursos", lambda: [("templates", False, "ausente")])
+    assert m.main(["--verificar"]) == 1
+    assert "FALHA templates" in capsys.readouterr().out

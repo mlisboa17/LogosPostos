@@ -14,6 +14,10 @@ Write-Host "Logos Match $versao"
 
 if ($UsarVenvAtual) { $venv = Join-Path $raiz ".venv" } else { $venv = Join-Path $raiz $Venv }
 if (-not $UsarVenvAtual) {
+    $buildDir = [IO.Path]::GetFullPath((Join-Path $raiz "build")) + [IO.Path]::DirectorySeparatorChar
+    if (-not ([IO.Path]::GetFullPath($venv)).StartsWith($buildDir, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "-Venv deve ficar dentro de build\ (recebido: $Venv)"
+    }
     if (Test-Path $venv) { Remove-Item -Recurse -Force $venv }
     & python -m venv $venv
 }

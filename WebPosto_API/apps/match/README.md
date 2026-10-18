@@ -5,8 +5,8 @@ mostra o resultado num painel local (`http://127.0.0.1:<porta>/`).
 
 ## Instalar
 1. Execute `LogosMatch-Setup-<versão>.exe` (não precisa de administrador).
-2. Instala em `%LOCALAPPDATA%\Programs\LogosMatch`, cria atalho no Menu Iniciar e uma tarefa
-   do Agendador "Logos Match" que abre o app a cada logon do usuário.
+2. Instala em `%LOCALAPPDATA%\Programs\LogosMatch`, cria atalho no Menu Iniciar e um atalho na pasta
+   Inicializar do usuário, que abre o app a cada logon.
 3. Requer o Microsoft Edge instalado (usado pela coleta do Premmia).
 
 ## Primeiro acesso
@@ -28,16 +28,19 @@ de conciliação.
   Nunca vão para o banco nem para o log.
 
 ## Redefinir a senha do administrador
-Num terminal, na pasta de instalação:
+Num terminal, na pasta de instalação (o `LogosMatchCLI.exe` tem console; o `LogosMatch.exe` não):
 
-    LogosMatch.exe --redefinir-admin
+    LogosMatchCLI.exe --redefinir-admin
 
 Informe a nova senha duas vezes (mín. 8 caracteres). Login: `admin`.
 
 ## Apagar credenciais
-`LogosMatch.exe --apagar-credenciais` remove do Windows todas as credenciais conhecidas
+`LogosMatchCLI.exe --apagar-credenciais` remove do Windows todas as credenciais conhecidas
 (postos ativos e inativos, canais) e sai. O desinstalador chama isso quando você marca
 "Apagar também os dados".
+
+## Diagnóstico
+`LogosMatchCLI.exe --verificar` confere templates, static, ícone, units.json, driver do Playwright e backend do keyring (exit 0 se tudo ok).
 
 ## Gerar o instalador
 Pré-requisitos: Python 3.12+ no PATH e [Inno Setup 6](https://jrsoftware.org/isinfo.php) (`iscc`).
@@ -53,9 +56,9 @@ não é empacotado.
 ## Verificação em máquina limpa
 Pendente (rodar num Windows limpo ou em outro usuário Windows) e registrar o resultado aqui:
 - [ ] Instalar o `.exe` sem administrador; atalho no Menu Iniciar criado.
-- [ ] Reiniciar/fazer logon: o app sobe sozinho (ícone na bandeja; tarefa "Logos Match" no Agendador).
+- [ ] Reiniciar/fazer logon: o app sobe sozinho (ícone na bandeja; atalho em Inicializar).
 - [ ] Criar o administrador no primeiro acesso e cadastrar um posto.
 - [ ] Coleta do Premmia abre o Microsoft Edge.
 - [ ] `LogosMatch.exe --redefinir-admin` redefine a senha.
 - [ ] Desinstalar marcando "Apagar também os dados": some `%LOCALAPPDATA%\LogosMatch`, as entradas
-      `LogosMatch` do Credential Manager e a tarefa do Agendador.
+      `LogosMatch` do Credential Manager e o atalho de Inicializar. Com o app aberto, o desinstalador o fecha antes.

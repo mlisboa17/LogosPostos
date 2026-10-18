@@ -4,7 +4,7 @@
 # O Chromium do Playwright NAO e empacotado: o app usa o Microsoft Edge instalado.
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 RAIZ = Path(SPECPATH).resolve().parents[2]  # WebPosto_API
 MATCH = RAIZ / "apps" / "match"
@@ -14,6 +14,8 @@ hidden = []
 for pacote in ("apps.match", "src.modules.cash_reconciliation", "src.modules.webposto_integration",
                "src.shared", "uvicorn", "apscheduler", "keyring.backends"):
     hidden += collect_submodules(pacote)
+pw_datas, pw_bins, pw_hidden = collect_all("playwright")  # driver node.exe + cli.js; sem Chromium
+hidden += pw_hidden
 hidden += ["windows_toasts", "pystray._win32", "keyring.backends.Windows"]
 
 datas = [
@@ -26,8 +28,8 @@ datas = [
 a = Analysis(
     [str(MATCH / "__main__.py")],
     pathex=[str(RAIZ)],
-    binaries=[],
-    datas=datas,
+    binaries=pw_bins,
+    datas=datas + pw_datas,
     hiddenimports=hidden,
     hookspath=[],
     runtime_hooks=[],
@@ -45,4 +47,15 @@ exe = EXE(
     icon=str(MATCH / "assets" / "icone.ico"),
     upx=False,
 )
-coll = COLLECT(exe, a.binaries, a.datas, name="LogosMatch", upx=False)
+# Mesmo codigo, com console: --redefinir-admin, --apagar-credenciais, --verificar
+exe_cli = EXE(
+    pyz,
+    a.scripts,
+    [],
+    exclude_binaries=True,
+    name="LogosMatchCLI",
+    console=True,
+    icon=str(MATCH / "assets" / "icone.ico"),
+    upx=False,
+)
+coll = COLLECT(exe, exe_cli, a.binaries, a.datas, name="LogosMatch", upx=False)
