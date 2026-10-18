@@ -270,3 +270,8 @@ def salvar_horarios(con, hora_coleta: str, hora_repescagem: str) -> None:
     id_instalacao(con)
     con.execute("UPDATE instalacao SET hora_coleta=?, hora_repescagem=?", (hora_coleta, hora_repescagem))
     con.commit()
+
+
+def ultima_coleta_em(con) -> str | None:
+    """Maior `terminada_em` (ISO UTC) entre as coletas, ou None."""
+    return con.execute("SELECT MAX(terminada_em) FROM coleta").fetchone()[0]
