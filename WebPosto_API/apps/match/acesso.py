@@ -186,3 +186,48 @@ def registrar(con, usuario_id: int | None, acao: str, detalhe: str = "") -> None
     con.execute("INSERT INTO log_acesso(usuario_id, momento, acao, detalhe) VALUES (?,?,?,?)",
                 (usuario_id, _agora(), acao, (detalhe or "")[:500]))
     con.commit()
+
+
+def listar_usuarios(con) -> list:
+    return con.execute(_SELECT + " ORDER BY u.nome").fetchall()
+
+
+def _admins_ativos_alem(con, usuario_id: int) -> int:
+    return con.execute("SELECT COUNT(*) FROM usuario WHERE perfil='administrador' AND ativo=1"
+                       " AND id<>?", (usuario_id,)).fetchone()[0]
+
+
+def _exigir_outro_admin(con, usuario_id: int) -> None:
+    alvo = carregar_usuario(con, usuario_id)
+    if alvo and alvo["perfil"] == Perfil.ADMINISTRADOR.value and alvo["ativo"] \
+            and _admins_ativos_alem(con, usuario_id) == 0:
+        raise ValueError("Precisa existir pelo menos um administrador ativo.")
+
+
+def atualizar_usuario(con, usuario_id: int, nome: str, perfil: Perfil, postos: list[int]) -> None:
+    perfil = Perfil(perfil)
+    if perfil != Perfil.ADMINISTRADOR:
+        _exigir_outro_admin(con, usuario_id)
+    try:
+        con.execute("UPDATE usuario SET nome=?, perfil=? WHERE id=?", (nome, perfil.value, usuario_id))
+        con.execute("DELETE FROM usuario_posto WHERE usuario_id=?", (usuario_id,))
+        con.executemany("INSERT INTO usuario_posto(usuario_id, posto_id) VALUES (?,?)",
+                        [(usuario_id, int(p)) for p in dict.fromkeys(postos or [])])
+        con.commit()
+    except sqlite3.Error:
+        con.rollback()
+        raise
+
+
+def definir_ativo(con, usuario_id: int, ativo: bool) -> None:
+    if not ativo:
+        _exigir_outro_admin(con, usuario_id)
+    con.execute("UPDATE usuario SET ativo=? WHERE id=?", (int(ativo), usuario_id))
+    con.commit()
+
+
+def definir_senha(con, usuario_id: int, senha_nova: str) -> None:
+    _validar_senha(senha_nova)
+    con.execute("UPDATE usuario SET senha_hash=?, tentativas_falhas=0, bloqueado_ate=NULL WHERE id=?",
+                (_hash(senha_nova), usuario_id))
+    con.commit()

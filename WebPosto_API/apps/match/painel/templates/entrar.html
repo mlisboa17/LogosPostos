@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block titulo %}Entrar{% endblock %}
+{% block conteudo %}
+<section class="cartao estreito">
+  <h1>Entrar</h1>
+  <form method="post" action="/entrar">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>Usuário <input name="login" autocomplete="username" required autofocus></label>
+    <label>Senha <input name="senha" type="password" autocomplete="current-password" required></label>
+    <button type="submit">Entrar</button>
+  </form>
+  <p class="dica">Esqueceu a senha do administrador? Rode <code>LogosMatch.exe --redefinir-admin</code> nesta máquina.</p>
+</section>
+{% endblock %}

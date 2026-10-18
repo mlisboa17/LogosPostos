@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block titulo %}Usuários{% endblock %}
+{% macro escolher_postos(sel) %}
+  <fieldset><legend>Postos (gerente e conferente)</legend>
+    {% for p in todos_postos %}<label class="caixa"><input type="checkbox" name="postos" value="{{ p.id }}"{% if p.id in sel %} checked{% endif %}> {{ p.apelido or p.nome }}</label>{% endfor %}
+  </fieldset>
+{% endmacro %}
+{% macro escolher_perfil(atual) %}
+  <label>Perfil <select name="perfil">{% for p in perfis %}<option value="{{ p }}"{% if p == atual %} selected{% endif %}>{{ p }}</option>{% endfor %}</select></label>
+{% endmacro %}
+{% block conteudo %}
+<h1>Usuários</h1>
+<p><a href="/usuarios/log">Ver log de acesso</a></p>
+{% for item in usuarios %}{% set u = item.u %}
+<section class="cartao">
+  <h2>{{ u.nome }} <small>{{ u.login }} · {{ u.perfil }} · {{ "ativo" if u.ativo else "desativado" }} · último acesso {{ u.ultimo_acesso_em|data_hora }}</small></h2>
+  <form method="post" action="/usuarios" class="linha">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="acao" value="editar"><input type="hidden" name="id" value="{{ u.id }}">
+    <label>Nome <input name="nome" value="{{ u.nome }}" required></label>
+    {{ escolher_perfil(u.perfil) }}
+    {{ escolher_postos(item.postos) }}
+    <button type="submit">Salvar</button>
+  </form>
+  <form method="post" action="/usuarios" class="linha">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="acao" value="senha"><input type="hidden" name="id" value="{{ u.id }}">
+    <label>Nova senha <input name="senha" type="password" minlength="8" autocomplete="new-password" required></label>
+    <button type="submit" class="secundario">Redefinir senha</button>
+  </form>
+  <form method="post" action="/usuarios">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="id" value="{{ u.id }}">
+    <input type="hidden" name="acao" value="{{ 'desativar' if u.ativo else 'ativar' }}">
+    <button type="submit" class="secundario">{{ "Desativar" if u.ativo else "Ativar" }}</button>
+  </form>
+</section>
+{% endfor %}
+<section class="cartao">
+  <h2>Novo usuário</h2>
+  <form method="post" action="/usuarios" class="linha">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="acao" value="criar">
+    <label>Nome <input name="nome" required></label>
+    <label>Usuário (login) <input name="login" autocomplete="off" required></label>
+    <label>Senha (mínimo 8) <input name="senha" type="password" minlength="8" autocomplete="new-password" required></label>
+    {{ escolher_perfil("conferente") }}
+    {{ escolher_postos([]) }}
+    <button type="submit">Criar</button>
+  </form>
+</section>
+{% endblock %}

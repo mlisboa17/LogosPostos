@@ -207,3 +207,66 @@ def registrar_envio(con, canal_id: int, dia, situacao: str, erro_texto: str | No
         (canal_id, str(dia), _agora(), situacao, erro_texto))
     con.commit()
     return cur.lastrowid
+
+
+def obter_posto(con, posto_id: int) -> sqlite3.Row | None:
+    return con.execute("SELECT * FROM posto WHERE id=?", (posto_id,)).fetchone()
+
+
+def atualizar_posto(con, posto_id: int, nome, apelido, cnpj, empresa_codigo_webposto) -> None:
+    con.execute("UPDATE posto SET nome=?, apelido=?, cnpj=?, empresa_codigo_webposto=? WHERE id=?",
+                (nome, apelido, cnpj, empresa_codigo_webposto, posto_id))
+    con.commit()
+
+
+def definir_posto_ativo(con, posto_id: int, ativo: bool) -> None:
+    con.execute("UPDATE posto SET ativo=? WHERE id=?", (int(ativo), posto_id))
+    con.commit()
+
+
+def marcar_teste_fonte(con, fonte_id: int, ok: bool) -> None:
+    con.execute("UPDATE fonte SET ultimo_teste_em=?, ultimo_teste_ok=? WHERE id=?",
+                (_agora(), int(ok), fonte_id))
+    con.commit()
+
+
+def ultima_coleta(con, fonte_id: int) -> sqlite3.Row | None:
+    return con.execute("SELECT * FROM coleta WHERE fonte_id=? ORDER BY dia DESC LIMIT 1",
+                       (fonte_id,)).fetchone()
+
+
+def divergencias_do_dia(con, posto_id: int, dia) -> list[sqlite3.Row]:
+    return con.execute("SELECT * FROM divergencia WHERE posto_id=? AND dia=? AND situacao='aberta'"
+                       " ORDER BY fonte, id", (posto_id, str(dia))).fetchall()
+
+
+def ultimas_coletas(con, postos: list[int], limite: int = 30) -> list[sqlite3.Row]:
+    if not postos:
+        return []
+    marcas = ",".join("?" * len(postos))
+    return con.execute(
+        "SELECT c.*, f.tipo, p.nome AS posto_nome, p.apelido AS posto_apelido FROM coleta c"
+        " JOIN fonte f ON f.id = c.fonte_id JOIN posto p ON p.id = f.posto_id"
+        f" WHERE f.posto_id IN ({marcas}) ORDER BY c.iniciada_em DESC, c.id DESC LIMIT ?",  # noqa: S608
+        (*postos, limite)).fetchall()
+
+
+def ultimos_envios(con, limite: int = 30) -> list[sqlite3.Row]:
+    return con.execute("SELECT e.*, c.tipo FROM envio e JOIN canal c ON c.id = e.canal_id"
+                       " ORDER BY e.enviado_em DESC, e.id DESC LIMIT ?", (limite,)).fetchall()
+
+
+def listar_canais(con) -> list[sqlite3.Row]:
+    return con.execute("SELECT * FROM canal ORDER BY id").fetchall()
+
+
+def atualizar_canal(con, canal_id: int, config: dict, ativo: bool) -> None:
+    con.execute("UPDATE canal SET config_json=?, ativo=? WHERE id=?",
+                (json.dumps(config, ensure_ascii=False), int(ativo), canal_id))
+    con.commit()
+
+
+def salvar_horarios(con, hora_coleta: str, hora_repescagem: str) -> None:
+    id_instalacao(con)
+    con.execute("UPDATE instalacao SET hora_coleta=?, hora_repescagem=?", (hora_coleta, hora_repescagem))
+    con.commit()

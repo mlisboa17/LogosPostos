@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block titulo %}Primeiro uso{% endblock %}
+{% block conteudo %}
+<section class="cartao estreito">
+  <h1>Primeiro uso</h1>
+  <p>Crie o administrador do Logos Match nesta máquina.</p>
+  <form method="post" action="/primeiro-uso">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>Nome <input name="nome" value="{{ nome or '' }}" required></label>
+    <label>Usuário (login) <input name="login" value="{{ login or '' }}" autocomplete="username" required></label>
+    <label>Senha (mínimo 8 caracteres) <input name="senha" type="password" minlength="8" autocomplete="new-password" required></label>
+    <label>Repita a senha <input name="senha2" type="password" minlength="8" autocomplete="new-password" required></label>
+    <button type="submit">Criar administrador</button>
+  </form>
+</section>
+{% endblock %}

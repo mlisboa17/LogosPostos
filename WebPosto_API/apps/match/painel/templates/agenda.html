@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block titulo %}Agenda{% endblock %}
+{% block conteudo %}
+<h1>Agenda</h1>
+<section class="cartao estreito">
+  <form method="post" action="/agenda">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>Horário da coleta diária (HH:MM) <input name="hora_coleta" value="{{ hora_coleta }}" pattern="[0-2][0-9]:[0-5][0-9]" required></label>
+    <label>Horário da repescagem (HH:MM) <input name="hora_repescagem" value="{{ hora_repescagem }}" pattern="[0-2][0-9]:[0-5][0-9]" required></label>
+    <button type="submit">Salvar</button>
+  </form>
+  <p class="dica">A coleta busca o dia anterior. A repescagem tenta de novo só o que falhou.</p>
+</section>
+{% endblock %}

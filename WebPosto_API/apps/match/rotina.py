@@ -123,3 +123,7 @@ def limpar_antigos(con, hoje: date) -> None:
             continue
         if dia_arq < _menos_meses(hoje, _MESES_RETENCAO):
             arq.unlink(missing_ok=True)
+
+
+def em_andamento() -> bool:
+    return _TRAVA.locked()

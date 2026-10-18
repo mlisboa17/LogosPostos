@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block titulo %}Fontes do posto{% endblock %}
+{% block conteudo %}
+<h1>Fontes · {{ posto.apelido or posto.nome }}</h1>
+<p class="dica">Campos secretos em branco mantêm o valor atual. O valor salvo nunca é exibido.</p>
+{% for f in fontes %}
+<section class="cartao">
+  <h2>{{ f.nome }}</h2>
+  {% if f.resultado %}<p class="aviso {{ 'ok' if f.resultado.ok else 'erro' }}">{{ f.resultado.texto }}</p>{% endif %}
+  <form method="post" action="/postos/{{ posto.id }}/fontes/{{ f.tipo }}" class="linha">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label class="caixa"><input type="checkbox" name="ativo" value="1"{% if f.ativo %} checked{% endif %}> Ativa</label>
+    {% for c in f.campos %}
+    <label>{{ c.rotulo }}
+      <input name="{{ c.chave }}" type="password" autocomplete="off" placeholder="{{ '•••• salvo — deixe em branco para manter' if c.salvo else 'não cadastrado' }}">
+    </label>
+    {% endfor %}
+    <button type="submit">Salvar</button>
+  </form>
+  <form method="post" action="/postos/{{ posto.id }}/fontes/{{ f.tipo }}/testar">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button type="submit" class="secundario">Testar conexão</button>
+    {% if f.ultimo_teste_em %}<span class="dica">Último teste: {{ f.ultimo_teste_em|data_hora }} — {{ "ok" if f.ultimo_teste_ok else "falhou" }}</span>{% endif %}
+  </form>
+</section>
+{% endfor %}
+<p><a href="/postos">Voltar para Postos</a></p>
+{% endblock %}

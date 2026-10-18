@@ -173,3 +173,31 @@ async def coletar_todos(con, dia: date, *, so_falhas: bool = False) -> list[Resu
                 ResultadoFonte(posto["id"], t, dia, "erro", 0, Decimal(0), mensagem, [])
                 for t in _FONTES if t in _fontes_ativas(con, posto["id"]))
     return resultados
+
+
+def resultados_salvos(con, posto_id: int, dia: date) -> list[ResultadoFonte]:
+    """Remonta o resultado do dia a partir do banco (para "Reenviar", sem coletar de novo)."""
+    posto = con.execute("SELECT * FROM posto WHERE id=?", (posto_id,)).fetchone()
+    if posto is None:
+        return []
+    fontes = _fontes_ativas(con, posto_id)
+    comparar = _tem_chave_webposto(posto, fontes)
+    resultados = []
+    for tipo in _FONTES:
+        fonte = fontes.get(tipo)
+        coleta = fonte and con.execute("SELECT * FROM coleta WHERE fonte_id=? AND dia=?",
+                                       (fonte["id"], str(dia))).fetchone()
+        if not coleta:
+            continue
+        itens = [dict(r) for r in con.execute(
+            "SELECT * FROM divergencia WHERE posto_id=? AND dia=? AND fonte=? ORDER BY id",
+            (posto_id, str(dia), tipo))]
+        total = Decimal(coleta["total"])
+        if coleta["situacao"] in ("erro", "verificacao_humana"):
+            situacao, mensagem = coleta["situacao"], coleta["erro_texto"] or ""
+        else:
+            situacao = coleta["situacao"] if (comparar or not coleta["qtd"]) else "sem_comparacao"
+            mensagem = _mensagem(_NOME[tipo], coleta["qtd"], total, comparar, len(itens))
+        resultados.append(ResultadoFonte(posto_id, tipo, dia, situacao, coleta["qtd"], total,
+                                         mensagem, itens))
+    return resultados
