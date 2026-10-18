@@ -406,6 +406,7 @@ def abrir_login(playwright, unidade: Unidade, *, visivel: bool):
         browser = playwright.chromium.launch(
             headless=False, args=[] if modo_visivel else ["--headless=new"],
             slow_mo=300 if modo_visivel else 0,
+            channel=os.getenv("LOGOS_NAVEGADOR_CANAL") or None,
         )
         try:
             versao = browser.version
@@ -437,6 +438,12 @@ def abrir_login(playwright, unidade: Unidade, *, visivel: bool):
         except Exception:
             browser.close()
             raise
+
+
+def liberar_nova_tentativa(unidade: Unidade, diretorio: Path) -> None:
+    hoje = agora().date().isoformat()
+    (diretorio / "logins" / f"{unidade.empresa_codigo}_{hoje}.json").unlink(missing_ok=True)
+    (diretorio / "avisos" / f"{unidade.empresa_codigo}.json").unlink(missing_ok=True)
 
 
 def coletar_sync(

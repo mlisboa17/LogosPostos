@@ -372,3 +372,38 @@ async def test_verificacao_humana_bloqueia_novo_login_no_mesmo_dia_alvo(monkeypa
     with pytest.raises(portal.PremmiaVerificacaoHumana):
         await portal.coletar(unidade(), ate=date(2026, 10, 6), diretorio=tmp_path)
     assert chamadas == [1, 1]
+
+
+def test_liberar_nova_tentativa_so_do_posto(tmp_path):
+    from src.modules.cash_reconciliation.config import carregar_unidades
+    from src.modules.cash_reconciliation.domain.tempo import agora
+
+    unidades = carregar_unidades()
+    hoje = agora().date().isoformat()
+    (tmp_path / "logins").mkdir(exist_ok=True)
+    (tmp_path / "avisos").mkdir(exist_ok=True)
+    for emp in (74014, 5555):
+        (tmp_path / "logins" / f"{emp}_{hoje}.json").write_text("{}")
+        (tmp_path / "avisos" / f"{emp}.json").write_text('{"dia_alvo": "2026-10-17"}')
+    portal.liberar_nova_tentativa(unidades[74014], tmp_path)
+    assert not (tmp_path / "logins" / f"74014_{hoje}.json").exists()
+    assert not (tmp_path / "avisos" / "74014.json").exists()
+    assert (tmp_path / "logins" / f"5555_{hoje}.json").exists()
+    assert (tmp_path / "avisos" / "5555.json").exists()
+
+
+@pytest.mark.parametrize("valor_env, esperado", [("msedge", "msedge"), (None, None), ("", None)])
+def test_abrir_login_passa_canal_do_navegador(monkeypatch, valor_env, esperado):
+    from src.modules.cash_reconciliation.config import carregar_unidades
+
+    if valor_env is None:
+        monkeypatch.delenv("LOGOS_NAVEGADOR_CANAL", raising=False)
+    else:
+        monkeypatch.setenv("LOGOS_NAVEGADOR_CANAL", valor_env)
+    monkeypatch.setattr(portal, "verificar_pagina", lambda *a: None)
+    monkeypatch.setattr(portal, "aguardar", lambda *a, **k: None)
+    pw = MagicMock()
+    pagina = pw.chromium.launch.return_value.new_context.return_value.new_page.return_value
+    pagina.goto.return_value = SimpleNamespace(status=200)
+    portal.abrir_login(pw, carregar_unidades()[74014], visivel=True)
+    assert pw.chromium.launch.call_args.kwargs["channel"] == esperado
