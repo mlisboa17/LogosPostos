@@ -1,5 +1,9 @@
 # STATUS — LOGOS Auditoria (atualizado em 17/10/2026)
 
+## LOGOS MATCH v0.1.0 (18/10/2026) — app de bandeja entregue em código
+Branch feature/logos-match (worktree LogosPostos-match), `WebPosto_API/apps/match/`: coleta Premmia/PagBank/webPosto, conciliação por posto, painel local, canais (toast/Telegram/e-mail), flags `--redefinir-admin` e `--apagar-credenciais`, PyInstaller onedir (`apps/match/build/`, smoke OK) e script Inno Setup.
+**Pendente:** gerar o instalador .exe (falta o Inno Setup/`iscc` nesta máquina; rodar `apps\matchuilduild.ps1`), verificação em máquina limpa (checklist no README do app), smoke manual da bandeja.
+
 Repositório canônico: C:\Projetos\LOGOS\LogosPostos · branch feature/cash-audit-fechamento
 Última entrega de código: Sprint 19 (A–D) · branch feature/cash-audit-fechamento, sem merge
 PR a abrir: https://github.com/mlisboa17/LogosPostos/pull/new/feature/cash-audit-fechamento

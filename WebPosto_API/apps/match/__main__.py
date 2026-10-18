@@ -1,12 +1,15 @@
 """Entrada do Logos Match: `python -m apps.match`."""
 from __future__ import annotations
 
+import argparse
 import asyncio
 import ctypes
+import getpass
 import logging
 import logging.handlers
 import os
 import socket
+import sys
 import threading
 import time
 import webbrowser
@@ -14,7 +17,7 @@ from datetime import datetime, timezone
 
 import uvicorn
 
-from apps.match import NOME, acesso, agendador, banco, bandeja, caminhos, rotina
+from apps.match import NOME, acesso, agendador, banco, bandeja, caminhos, credenciais, rotina
 from apps.match.canais import toast
 from apps.match.painel import criar_app
 from src.modules.cash_reconciliation.domain.tempo import FUSO
@@ -149,7 +152,82 @@ def _abrir_instancia_viva() -> None:
         toast.avisar(NOME, "O Logos Match ainda está iniciando. Tente de novo em instantes.")
 
 
-def main() -> int:
+_CHAVES_POSTO = ("premmia/usuario", "premmia/senha", "pagbank/usuario", "pagbank/token",
+                 "webposto/chave")
+_CHAVES_CANAL = ("token", "senha")
+
+
+def chaves_conhecidas(con) -> list[str]:
+    chaves = [f"{p['id']}/{k}" for p in banco.listar_postos(con, so_ativos=False)
+              for k in _CHAVES_POSTO]
+    chaves += [f"canal/{c['id']}/{k}" for c in banco.listar_canais(con) for k in _CHAVES_CANAL]
+    return chaves
+
+
+def apagar_credenciais() -> int:
+    """Remove do Credential Manager toda chave conhecida do banco. Ignora as ausentes."""
+    con = banco.conectar()
+    try:
+        chaves = chaves_conhecidas(con)
+    finally:
+        con.close()
+    removidas = 0
+    for chave in chaves:
+        if credenciais.tem(chave):
+            credenciais.apagar(chave)
+            removidas += 1
+    print(f"{removidas} credencial(is) removida(s) do Windows.")
+    return 0
+
+
+def redefinir_admin() -> int:
+    nova = getpass.getpass("Nova senha do administrador: ")
+    if nova != getpass.getpass("Repita a senha: "):
+        print("As senhas não conferem. Nada foi alterado.")
+        return 1
+    con = banco.conectar()
+    try:
+        acesso.redefinir_admin(con, nova)
+    except ValueError as exc:
+        print(str(exc))
+        return 1
+    finally:
+        con.close()
+    print("Senha do administrador redefinida. Login: admin")
+    return 0
+
+
+def _anexar_console() -> None:
+    """Exe sem console (console=False): liga as flags de manutenção ao terminal que o chamou."""
+    if sys.stdout is not None:
+        return
+    try:
+        if ctypes.windll.kernel32.AttachConsole(-1):
+            sys.stdout = open("CONOUT$", "w", encoding="utf-8")  # noqa: SIM115
+            sys.stderr = sys.stdout
+            sys.stdin = open("CONIN$", "r", encoding="utf-8")  # noqa: SIM115
+    except OSError:
+        pass
+
+
+def _argumentos(argv: list[str]) -> argparse.Namespace:
+    p = argparse.ArgumentParser(prog="LogosMatch", description=NOME)
+    p.add_argument("--apagar-credenciais", action="store_true",
+                   help="remove do Windows todas as credenciais guardadas e sai")
+    p.add_argument("--redefinir-admin", action="store_true",
+                   help="define uma nova senha para o administrador e sai")
+    return p.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    argv = argv or []
+    if argv:
+        _anexar_console()
+    args = _argumentos(argv)
+    if args.apagar_credenciais:
+        return apagar_credenciais()
+    if args.redefinir_admin:
+        return redefinir_admin()
     os.environ.setdefault("LOGOS_NAVEGADOR_CANAL", "msedge")
     if not instancia_unica():
         _abrir_instancia_viva()
@@ -176,4 +254,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main(sys.argv[1:]))

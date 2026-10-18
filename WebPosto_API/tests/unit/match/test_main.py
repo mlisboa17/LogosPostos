@@ -1,4 +1,5 @@
 import ctypes
+from datetime import datetime, timezone
 import logging
 import logging.handlers
 import os
@@ -260,3 +261,56 @@ def test_icone_existe_e_abre():
     from PIL import Image
     img = Image.open(bandeja.ICONE)
     assert img.size[0] >= 32
+
+
+def test_redefinir_admin_pela_linha_de_comando(monkeypatch, capsys):
+    from apps.match import acesso
+    senhas = iter(["nova-senha-123", "nova-senha-123"])
+    monkeypatch.setattr(m.getpass, "getpass", lambda prompt="": next(senhas))
+    assert m.main(["--redefinir-admin"]) == 0
+    assert "Senha do administrador redefinida. Login: admin" in capsys.readouterr().out
+    con = banco.conectar()
+    try:
+        assert con.execute("SELECT 1 FROM usuario WHERE login='admin'").fetchone()
+        assert acesso.autenticar(con, "admin", "nova-senha-123", datetime.now(timezone.utc)) is not None
+    finally:
+        con.close()
+
+
+def test_redefinir_admin_senhas_diferentes(monkeypatch, capsys):
+    senhas = iter(["nova-senha-123", "outra-senha-456"])
+    monkeypatch.setattr(m.getpass, "getpass", lambda prompt="": next(senhas))
+    assert m.main(["--redefinir-admin"]) == 1
+    saida = capsys.readouterr().out
+    assert "não conferem" in saida
+    assert "nova-senha-123" not in saida
+
+
+def test_redefinir_admin_senha_curta(monkeypatch, capsys):
+    monkeypatch.setattr(m.getpass, "getpass", lambda prompt="": "curta")
+    assert m.main(["--redefinir-admin"]) == 1
+    assert "curta" not in capsys.readouterr().out
+
+
+def test_apagar_credenciais_remove_todas(keyring_falso, monkeypatch, capsys):
+    from apps.match import credenciais
+    con = banco.conectar()
+    try:
+        p1 = banco.inserir_posto(con, "Posto A", "A", "1", 1)
+        p2 = banco.inserir_posto(con, "Posto B", "B", "2", 2)
+        con.execute("UPDATE posto SET ativo=0 WHERE id=?", (p2,))
+        con.commit()
+        c1 = banco.inserir_canal(con, "telegram", {})
+    finally:
+        con.close()
+    chaves = [f"{p1}/premmia/usuario", f"{p1}/premmia/senha", f"{p1}/webposto/chave",
+              f"{p2}/pagbank/usuario", f"{p2}/pagbank/token", f"canal/{c1}/token"]
+    for c in chaves:
+        credenciais.salvar(c, "x")
+    credenciais.salvar("outra/coisa", "y")
+    # mutex/servidor não podem ser tocados
+    monkeypatch.setattr(m, "instancia_unica", lambda: pytest.fail("não deve tomar o mutex"))
+    assert m.main(["--apagar-credenciais"]) == 0
+    assert all(credenciais.ler(c) is None for c in chaves)
+    assert credenciais.ler("outra/coisa") == "y"
+    assert "6" in capsys.readouterr().out
