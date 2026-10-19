@@ -404,9 +404,10 @@ async def hoje(ctx: Ctx = Depends(_ctx)):
     return _pagina_hoje(ctx)
 
 
-def _coletar(con_factory, posto_id: int, visivel: bool) -> None:
+def _coletar(con_factory, posto_id: int, visivel: bool, usuario_id: int | None = None) -> None:
     _com_conexao(con_factory, lambda con: asyncio.run(
-        rotina.executar(con, posto_id=posto_id, visivel=visivel)))
+        rotina.executar(con, posto_id=posto_id, visivel=visivel, origem="painel",
+                        usuario_id=usuario_id)))
 
 
 @router.post("/coletar")
@@ -417,7 +418,8 @@ async def coletar(posto_id: int, visivel: int = 0, ctx: Ctx = Depends(_ctx_post)
         raise Recusado(400, "Este posto está desativado.")
     if rotina.em_andamento():
         return _pagina_hoje(ctx, erro=COLETA_EM_ANDAMENTO)
-    _em_segundo_plano("coleta", _coletar, ctx.request.app.state.con_factory, posto_id, bool(visivel))
+    _em_segundo_plano("coleta", _coletar, ctx.request.app.state.con_factory, posto_id, bool(visivel),
+                     ctx.uid)
     acesso.registrar(ctx.con, ctx.uid, "coletar", f"posto={posto_id} visivel={int(bool(visivel))}")
     return _pagina_hoje(ctx, mensagem="Coleta iniciada. Atualize a página em alguns minutos.")
 

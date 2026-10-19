@@ -52,7 +52,7 @@ def falsos(monkeypatch):
     f = {"toasts": [], "enviados": []}
     monkeypatch.setattr(rotina.unidades, "ativar", lambda c: None)
     monkeypatch.setattr(toast, "avisar", lambda t, x: f["toasts"].append((t, x)))
-    monkeypatch.setattr(envio, "enviar_dia", lambda c, r, d: f["enviados"].append((list(r), d)))
+    monkeypatch.setattr(envio, "enviar_dia", lambda c, r, d, e=None: f["enviados"].append((list(r), d)))
     return f
 
 
@@ -91,7 +91,7 @@ def test_erro_dispara_toast(con, falsos, monkeypatch):
 def test_executar_dia_padrao_e_posto_unico(con, falsos, monkeypatch):
     visto = {}
 
-    async def posto(c, pid, dia, *, visivel=False, so_falhas=False):
+    async def posto(c, pid, dia, *, visivel=False, so_falhas=False, **_):
         visto.update(pid=pid, dia=dia, visivel=visivel)
         return []
     monkeypatch.setattr(coletas, "coletar_posto", posto)
@@ -144,7 +144,7 @@ def test_migracao_2_atualiza_banco_v1(tmp_path, monkeypatch):
     c = banco.conectar(caminho)
     row = c.execute("SELECT * FROM instalacao").fetchone()
     assert (row["id_instalacao"], row["hora_coleta"], row["hora_repescagem"]) == ("abc", "06:00", "10:00")
-    assert c.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 2
+    assert c.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 3
     c.close()
     novo = banco.conectar(tmp_path / "novo.db")
     assert novo.execute("SELECT COUNT(*) FROM instalacao").fetchone()[0] == 1
@@ -233,7 +233,13 @@ def test_lock_impede_execucao_simultanea(con, falsos, monkeypatch):
         await asyncio.get_running_loop().run_in_executor(None, soltar.wait, 5)
         return []
     monkeypatch.setattr(coletas, "coletar_todos", todos)
-    t = threading.Thread(target=lambda: asyncio.run(rotina.executar(con, dia=DIA)))
+    def _em_thread():
+        c = banco.conectar(rotina.caminhos.raiz() / "thread.db")
+        try:
+            asyncio.run(rotina.executar(c, dia=DIA))
+        finally:
+            c.close()
+    t = threading.Thread(target=_em_thread)
     t.start()
     assert dentro.wait(5)
     con2 = banco.conectar(rotina.caminhos.raiz() / "outra.db")
@@ -305,7 +311,7 @@ def test_job_erro_na_limpeza_nao_propaga(jobs):
 def test_coletar_agora_visivel_sem_posto_repassa_visivel(con, falsos, monkeypatch):
     visto = {}
 
-    async def todos(c, dia, *, so_falhas=False, visivel=False):
+    async def todos(c, dia, *, so_falhas=False, visivel=False, **_):
         visto.update(so_falhas=so_falhas, visivel=visivel)
         return []
     monkeypatch.setattr(coletas, "coletar_todos", todos)
@@ -321,3 +327,92 @@ def test_limpar_antigos_apaga_versoes(con):
         a.write_bytes(b"x")
     rotina.limpar_antigos(con, date(2026, 10, 18))
     assert not velha.exists() and nova.exists()
+
+
+# ---- Task 2: registro de execuções ----
+def _posto_com_fontes(con):
+    pid = banco.inserir_posto(con, "Posto Doze", "Doze", None, 74014)
+    banco.salvar_fonte(con, pid, "premmia", True, {})
+    banco.salvar_fonte(con, pid, "pagbank_edi", True, {})
+    banco.salvar_fonte(con, pid, "webposto", True, {})
+    return pid
+
+
+def test_execucao_registra_itens_e_fecha(con, falsos, monkeypatch):
+    pid = _posto_com_fontes(con)
+    visto = {}
+
+    async def todos(c, dia, *, ao_progresso=None, **_):
+        visto["aguardando"] = {r["fonte"]: r["situacao"] for r in
+                               banco.itens_execucao(c, banco.execucao_atual(c)["id"])}
+        ao_progresso(pid, "premmia", "coletando", None)
+        ao_progresso(pid, "premmia", "ok", "Premmia ok")
+        ao_progresso(pid, "pagbank_edi", "erro", "falhou")
+        return [_res(pid, "ok")]
+    monkeypatch.setattr(coletas, "coletar_todos", todos)
+    asyncio.run(rotina.executar(con, dia=DIA, origem="painel", usuario_id=None))
+    assert visto["aguardando"] == {"premmia": "aguardando", "pagbank_edi": "aguardando"}
+    ex = banco.ultimas_execucoes(con)[0]
+    assert (ex["origem"], ex["dia"], ex["situacao"]) == ("painel", str(DIA), "concluida")
+    assert ex["terminada_em"] and banco.execucao_atual(con) is None
+    itens = {i["fonte"]: i for i in banco.itens_execucao(con, ex["id"])}
+    assert itens["premmia"]["situacao"] == "ok" and itens["premmia"]["mensagem"] == "Premmia ok"
+    assert itens["premmia"]["iniciada_em"] and itens["premmia"]["terminada_em"]
+    assert itens["pagbank_edi"]["situacao"] == "erro" and itens["pagbank_edi"]["iniciada_em"] is None
+
+
+def test_execucao_falha_fica_falhou(con, falsos, monkeypatch):
+    _posto_com_fontes(con)
+
+    async def todos(c, dia, **_):
+        raise RuntimeError("x")
+    monkeypatch.setattr(coletas, "coletar_todos", todos)
+    with pytest.raises(RuntimeError):
+        asyncio.run(rotina.executar(con, dia=DIA, origem="bandeja"))
+    ex = banco.ultimas_execucoes(con)[0]
+    assert ex["situacao"] == "falhou" and ex["terminada_em"] and ex["origem"] == "bandeja"
+    assert not rotina.em_andamento()
+
+
+def test_execucao_so_abre_com_trava_livre(con, falsos):
+    assert rotina._TRAVA.acquire(blocking=False)
+    try:
+        assert asyncio.run(rotina.executar(con, dia=DIA)) == []
+    finally:
+        rotina._TRAVA.release()
+    assert banco.ultimas_execucoes(con) == []
+
+
+def test_fechar_orfas(con):
+    ativa = banco.abrir_execucao(con, "agendada", None, DIA)
+    feita = banco.abrir_execucao(con, "painel", None, DIA)
+    banco.fechar_execucao(con, feita, "concluida")
+    assert rotina.fechar_orfas(con) == 1
+    ex = {e["id"]: e for e in banco.ultimas_execucoes(con)}
+    assert ex[ativa]["situacao"] == "falhou" and ex[ativa]["terminada_em"]
+    assert ex[feita]["situacao"] == "concluida"
+    assert rotina.fechar_orfas(con) == 0
+
+
+def test_origem_agendada_e_repescagem(jobs, monkeypatch):
+    origens = []
+
+    async def executar(con, *, so_falhas=False, origem=None, **kw):
+        origens.append((so_falhas, origem))
+    monkeypatch.setattr(agendador.rotina, "executar", executar)
+    agendador._job_coleta(lambda: jobs["con"])
+    agendador._job_repescagem(lambda: jobs["con"])
+    agendador._job_recuperacao(lambda: jobs["con"])
+    assert origens == [(False, "agendada"), (True, "repescagem"), (False, "recuperacao")]
+
+
+def test_envio_grava_execucao_id(con, monkeypatch):
+    pid = _posto_com_fontes(con)
+    banco.inserir_canal(con, "toast", {})
+    monkeypatch.setattr(toast, "avisar", lambda t, x: None)
+    monkeypatch.setattr(envio.relatorio_xlsx, "gerar", lambda *a: None)
+    ex = banco.abrir_execucao(con, "painel", None, DIA)
+    envio.enviar_dia(con, [_res(pid, "ok")], DIA, ex)
+    envio.enviar_dia(con, [_res(pid, "ok")], DIA)
+    assert [e["execucao_id"] for e in con.execute("SELECT execucao_id FROM envio ORDER BY id")] == [ex, None]
+    assert len(banco.envios_da_execucao(con, ex)) == 1

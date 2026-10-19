@@ -78,7 +78,24 @@ ALTER TABLE instalacao ADD COLUMN hora_coleta TEXT DEFAULT '06:00';
 ALTER TABLE instalacao ADD COLUMN hora_repescagem TEXT DEFAULT '10:00';
 """
 
-_MIGRACOES = [(1, _SCHEMA_V1), (2, _SCHEMA_V2)]
+_SCHEMA_V3 = """
+CREATE TABLE execucao (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, iniciada_em TEXT NOT NULL, terminada_em TEXT,
+    origem TEXT NOT NULL CHECK (origem IN ('agendada','repescagem','recuperacao','painel','bandeja')),
+    usuario_id INTEGER REFERENCES usuario(id), dia TEXT NOT NULL,
+    situacao TEXT NOT NULL CHECK (situacao IN ('em_andamento','concluida','falhou')));
+CREATE TABLE execucao_item (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    execucao_id INTEGER NOT NULL REFERENCES execucao(id),
+    posto_id INTEGER NOT NULL, fonte TEXT NOT NULL,
+    situacao TEXT NOT NULL CHECK (situacao IN
+        ('aguardando','coletando','ok','sem_movimento','sem_comparacao','erro','verificacao_humana')),
+    mensagem TEXT, iniciada_em TEXT, terminada_em TEXT,
+    UNIQUE (execucao_id, posto_id, fonte));
+ALTER TABLE envio ADD COLUMN execucao_id INTEGER;
+"""
+
+_MIGRACOES = [(1, _SCHEMA_V1), (2, _SCHEMA_V2), (3, _SCHEMA_V3)]
 
 
 def _agora() -> str:
@@ -201,10 +218,11 @@ def inserir_canal(con, tipo: str, config: dict, ativo: bool = True) -> int:
     return cur.lastrowid
 
 
-def registrar_envio(con, canal_id: int, dia, situacao: str, erro_texto: str | None) -> int:
+def registrar_envio(con, canal_id: int, dia, situacao: str, erro_texto: str | None,
+                    execucao_id: int | None = None) -> int:
     cur = con.execute(
-        "INSERT INTO envio(canal_id, dia, enviado_em, situacao, erro_texto) VALUES (?,?,?,?,?)",
-        (canal_id, str(dia), _agora(), situacao, erro_texto))
+        "INSERT INTO envio(canal_id, dia, enviado_em, situacao, erro_texto, execucao_id)"
+        " VALUES (?,?,?,?,?,?)", (canal_id, str(dia), _agora(), situacao, erro_texto, execucao_id))
     con.commit()
     return cur.lastrowid
 
@@ -275,3 +293,54 @@ def salvar_horarios(con, hora_coleta: str, hora_repescagem: str) -> None:
 def ultima_coleta_em(con) -> str | None:
     """Maior `terminada_em` (ISO UTC) entre as coletas, ou None."""
     return con.execute("SELECT MAX(terminada_em) FROM coleta").fetchone()[0]
+
+
+_FINAIS = ("ok", "sem_movimento", "sem_comparacao", "erro", "verificacao_humana")
+
+
+def abrir_execucao(con, origem: str, usuario_id: int | None, dia) -> int:
+    cur = con.execute(
+        "INSERT INTO execucao(iniciada_em, origem, usuario_id, dia, situacao)"
+        " VALUES (?,?,?,?,'em_andamento')", (_agora(), origem, usuario_id, str(dia)))
+    con.commit()
+    return cur.lastrowid
+
+
+def item_execucao(con, execucao_id: int, posto_id: int, fonte: str, situacao: str,
+                  mensagem: str | None = None) -> None:
+    agora = _agora()
+    inicio = agora if situacao == "coletando" else None
+    fim = agora if situacao in _FINAIS else None
+    con.execute(
+        "INSERT INTO execucao_item(execucao_id, posto_id, fonte, situacao, mensagem,"
+        " iniciada_em, terminada_em) VALUES (?,?,?,?,?,?,?)"
+        " ON CONFLICT(execucao_id, posto_id, fonte) DO UPDATE SET situacao=excluded.situacao,"
+        " mensagem=excluded.mensagem, iniciada_em=COALESCE(excluded.iniciada_em, iniciada_em),"
+        " terminada_em=excluded.terminada_em",
+        (execucao_id, posto_id, fonte, situacao, mensagem, inicio, fim))
+    con.commit()
+
+
+def fechar_execucao(con, execucao_id: int, situacao: str) -> None:
+    con.execute("UPDATE execucao SET situacao=?, terminada_em=? WHERE id=?",
+                (situacao, _agora(), execucao_id))
+    con.commit()
+
+
+def execucao_atual(con) -> sqlite3.Row | None:
+    return con.execute("SELECT * FROM execucao WHERE situacao='em_andamento'"
+                       " ORDER BY id DESC LIMIT 1").fetchone()
+
+
+def itens_execucao(con, execucao_id: int) -> list[sqlite3.Row]:
+    return con.execute("SELECT * FROM execucao_item WHERE execucao_id=? ORDER BY id",
+                       (execucao_id,)).fetchall()
+
+
+def ultimas_execucoes(con, limite: int = 30) -> list[sqlite3.Row]:
+    return con.execute("SELECT * FROM execucao ORDER BY id DESC LIMIT ?", (limite,)).fetchall()
+
+
+def envios_da_execucao(con, execucao_id: int) -> list[sqlite3.Row]:
+    return con.execute("SELECT e.*, c.tipo FROM envio e JOIN canal c ON c.id = e.canal_id"
+                       " WHERE e.execucao_id=? ORDER BY e.id", (execucao_id,)).fetchall()

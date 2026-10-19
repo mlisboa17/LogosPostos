@@ -49,7 +49,7 @@ def _despachar(canal, assunto: str, texto: str, anexo) -> None:
         raise CanalErro("Tipo de canal desconhecido.")
 
 
-def enviar_dia(con, resultados, dia: date) -> None:
+def enviar_dia(con, resultados, dia: date, execucao_id: int | None = None) -> None:
     por_posto = defaultdict(list)
     for r in resultados:
         por_posto[r.posto_id].append(r)
@@ -72,10 +72,11 @@ def enviar_dia(con, resultados, dia: date) -> None:
                 if not _atende(canal, posto_id):
                     continue
                 _despachar(canal, assunto, texto, anexo)
-                banco.registrar_envio(con, canal["id"], dia, "ok", None)
+                banco.registrar_envio(con, canal["id"], dia, "ok", None, execucao_id)
             except Exception as exc:  # noqa: BLE001 - um canal não derruba os outros
                 logger.warning("Envio pelo canal %s falhou (%s)", canal["id"], type(exc).__name__)
-                banco.registrar_envio(con, canal["id"], dia, "erro", erro_envio_pt(exc))
+                banco.registrar_envio(con, canal["id"], dia, "erro", erro_envio_pt(exc),
+                                      execucao_id)
 
 
 def testar_canal(con, canal_id: int) -> str:

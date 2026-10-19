@@ -289,7 +289,10 @@ def test_coletar_inicia_em_thread(cli, admin, con, executar_falso):
     assert r.status_code == 200 and "Coleta iniciada" in r.text
     chamadas, feito = executar_falso
     assert feito.wait(5)
-    assert chamadas == [{"posto_id": pid, "visivel": True}]
+    assert len(chamadas) == 1
+    assert {k: chamadas[0][k] for k in ("posto_id", "visivel", "origem")} == {
+        "posto_id": pid, "visivel": True, "origem": "painel"}
+    assert chamadas[0]["usuario_id"] == admin
     assert con.execute("SELECT COUNT(*) FROM log_acesso WHERE acao='coletar'").fetchone()[0] == 1
 
 

@@ -5,6 +5,7 @@ Quem chama deve ter rodado `unidades.ativar(con)` (resolvedor de segredos e prov
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from decimal import Decimal
@@ -18,6 +19,7 @@ logger = logging.getLogger(__name__)
 _FONTES = ("premmia", "pagbank_edi")
 _NOME = {"premmia": "Premmia", "pagbank_edi": "PagBank"}
 _JA_COLETADO = ("ok", "sem_movimento")
+Progresso = Callable[[int, str, str, str | None], None]
 CODIGO_REPETIDO = "Outro posto usa o mesmo código do webPosto. Corrija em Postos."
 
 
@@ -31,6 +33,16 @@ class ResultadoFonte:
     total: Decimal
     mensagem: str
     divergencias: list[dict] = field(default_factory=list)
+
+
+def _progresso(ao_progresso: Progresso | None, posto_id: int, fonte: str, situacao: str,
+               mensagem: str | None) -> None:
+    if ao_progresso is None:
+        return
+    try:
+        ao_progresso(posto_id, fonte, situacao, mensagem)
+    except Exception as exc:  # noqa: BLE001 - progresso nunca derruba a coleta
+        logger.warning("Progresso da coleta falhou tipo=%s", type(exc).__name__)
 
 
 def tem_chave_webposto(con, posto) -> bool:
@@ -147,13 +159,17 @@ def _fontes_ativas(con, posto_id: int) -> dict:
 
 
 async def coletar_posto(con, posto_id: int, dia: date, *, visivel: bool = False,
-                        so_falhas: bool = False) -> list[ResultadoFonte]:
+                        so_falhas: bool = False,
+                        ao_progresso: Progresso | None = None) -> list[ResultadoFonte]:
     posto = con.execute("SELECT * FROM posto WHERE id=?", (posto_id,)).fetchone()
     if posto is None or not posto["ativo"]:
         return []
     fontes = _fontes_ativas(con, posto_id)
     if unidades.codigo_em_conflito(con, posto):  # nunca usar credenciais/dados de outro posto
         logger.warning("Coleta recusada posto=%s: código do webPosto repetido", posto_id)
+        for t in _FONTES:
+            if t in fontes:
+                _progresso(ao_progresso, posto_id, t, "erro", CODIGO_REPETIDO)
         return [ResultadoFonte(posto_id, t, dia, "erro", 0, Decimal(0), CODIGO_REPETIDO, [])
                 for t in _FONTES if t in fontes]
     comparar = tem_chave_webposto(con, posto)
@@ -161,25 +177,35 @@ async def coletar_posto(con, posto_id: int, dia: date, *, visivel: bool = False,
     resultados = []
     for tipo in _FONTES:
         fonte = fontes.get(tipo)
-        if not fonte or (so_falhas and _ja_coletado(con, fonte["id"], dia)):
+        if not fonte:
             continue
-        resultados.append(await _coletar_fonte(con, posto, fonte, unidade, dia, visivel, comparar))
+        if so_falhas and _ja_coletado(con, fonte["id"], dia):
+            anterior = con.execute("SELECT situacao FROM coleta WHERE fonte_id=? AND dia=?",
+                                   (fonte["id"], str(dia))).fetchone()
+            _progresso(ao_progresso, posto_id, tipo, anterior["situacao"], "Já coletado")
+            continue
+        _progresso(ao_progresso, posto_id, tipo, "coletando", None)
+        resultado = await _coletar_fonte(con, posto, fonte, unidade, dia, visivel, comparar)
+        _progresso(ao_progresso, posto_id, tipo, resultado.situacao, resultado.mensagem)
+        resultados.append(resultado)
     return resultados
 
 
-async def coletar_todos(con, dia: date, *, so_falhas: bool = False,
-                        visivel: bool = False) -> list[ResultadoFonte]:
+async def coletar_todos(con, dia: date, *, so_falhas: bool = False, visivel: bool = False,
+                        ao_progresso: Progresso | None = None) -> list[ResultadoFonte]:
     resultados = []
     for posto in banco.listar_postos(con):
         try:
             resultados.extend(await coletar_posto(con, posto["id"], dia, visivel=visivel,
-                                                  so_falhas=so_falhas))
+                                                  so_falhas=so_falhas, ao_progresso=ao_progresso))
         except Exception as exc:  # um posto ruim não impede os outros
             logger.warning("Coleta do posto falhou posto=%s tipo=%s", posto["id"], type(exc).__name__)
             mensagem = explicar.erro_pt(exc)
-            resultados.extend(
-                ResultadoFonte(posto["id"], t, dia, "erro", 0, Decimal(0), mensagem, [])
-                for t in _FONTES if t in _fontes_ativas(con, posto["id"]))
+            for t in _FONTES:
+                if t in _fontes_ativas(con, posto["id"]):
+                    _progresso(ao_progresso, posto["id"], t, "erro", mensagem)
+                    resultados.append(
+                        ResultadoFonte(posto["id"], t, dia, "erro", 0, Decimal(0), mensagem, []))
     return resultados
 
 

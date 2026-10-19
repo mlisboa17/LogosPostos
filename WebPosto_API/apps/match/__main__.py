@@ -133,7 +133,7 @@ def _coletar(visivel: bool) -> None:
     con = banco.conectar()
     try:
         acesso.registrar(con, None, "coleta_bandeja", "visivel" if visivel else "")
-        asyncio.run(rotina.executar(con, visivel=visivel))
+        asyncio.run(rotina.executar(con, visivel=visivel, origem="bandeja"))
     except Exception as exc:  # noqa: BLE001 - nunca derruba a bandeja
         logger.warning("Coleta da bandeja falhou tipo=%s", type(exc).__name__)
     finally:

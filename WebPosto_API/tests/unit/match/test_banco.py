@@ -45,7 +45,7 @@ def test_migracao_idempotente(tmp_path):
     banco.conectar(arq).close()
     c = banco.conectar(arq)
     rows = c.execute("SELECT version FROM schema_version").fetchall()
-    assert [r[0] for r in rows] == [1, 2]
+    assert [r[0] for r in rows] == [1, 2, 3]
     nomes = {r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert {"instalacao", "posto", "fonte", "coleta", "transacao", "caixa_webposto",
             "divergencia", "canal", "envio", "usuario", "usuario_posto", "log_acesso"} <= nomes
@@ -108,3 +108,32 @@ def test_postos_e_fontes(con):
 def test_id_instalacao_estavel(con):
     a = banco.id_instalacao(con)
     assert a and banco.id_instalacao(con) == a
+
+
+def test_migracao_3_de_banco_v2(tmp_path):
+    import sqlite3
+    caminho = tmp_path / "v2.db"
+    raw = sqlite3.connect(str(caminho))
+    raw.execute("CREATE TABLE schema_version (version INTEGER PRIMARY KEY)")
+    raw.executescript(banco._SCHEMA_V1 + banco._SCHEMA_V2)
+    raw.executemany("INSERT INTO schema_version(version) VALUES (?)", [(1,), (2,)])
+    raw.execute("INSERT INTO posto(nome, criado_em) VALUES ('Doze', 'x')")
+    raw.execute("INSERT INTO canal(tipo) VALUES ('toast')")
+    raw.execute("INSERT INTO envio(canal_id, dia) VALUES (1, '2026-10-17')")
+    raw.commit()
+    raw.close()
+    con = banco.conectar(caminho)
+    try:
+        assert con.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 3
+        assert con.execute("SELECT nome FROM posto").fetchone()[0] == "Doze"
+        assert tuple(con.execute("SELECT dia, execucao_id FROM envio").fetchone()) == ("2026-10-17", None)
+        eid = banco.abrir_execucao(con, "painel", None, "2026-10-17")
+        banco.item_execucao(con, eid, 1, "premmia", "aguardando")
+        banco.item_execucao(con, eid, 1, "premmia", "coletando")
+        banco.item_execucao(con, eid, 1, "premmia", "ok", "feito")
+        (item,) = banco.itens_execucao(con, eid)
+        assert item["situacao"] == "ok" and item["iniciada_em"] and item["terminada_em"]
+        with pytest.raises(sqlite3.IntegrityError):
+            banco.abrir_execucao(con, "invalida", None, "2026-10-17")
+    finally:
+        con.close()

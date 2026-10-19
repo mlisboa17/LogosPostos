@@ -18,11 +18,11 @@ JOB_COLETA, JOB_REPESCAGEM, JOB_RECUPERACAO = "coleta", "repescagem", "recuperac
 _OPCOES = {"coalesce": True, "max_instances": 1, "misfire_grace_time": 3600}
 
 
-def _rodar(con_factory, *, so_falhas: bool, limpar: bool) -> None:
+def _rodar(con_factory, *, so_falhas: bool, limpar: bool, origem: str = "agendada") -> None:
     con = con_factory()
     try:
         try:
-            asyncio.run(rotina.executar(con, so_falhas=so_falhas))
+            asyncio.run(rotina.executar(con, so_falhas=so_falhas, origem=origem))
         except Exception as exc:  # noqa: BLE001 - job nunca derruba o agendador
             logger.warning("Rotina de coleta falhou tipo=%s", type(exc).__name__)  # nunca a mensagem
             try:
@@ -46,7 +46,11 @@ def _job_coleta(con_factory) -> None:
 
 
 def _job_repescagem(con_factory) -> None:
-    _rodar(con_factory, so_falhas=True, limpar=False)
+    _rodar(con_factory, so_falhas=True, limpar=False, origem="repescagem")
+
+
+def _job_recuperacao(con_factory) -> None:
+    _rodar(con_factory, so_falhas=False, limpar=True, origem="recuperacao")
 
 
 def _gatilho(hhmm: str) -> CronTrigger:
@@ -72,11 +76,12 @@ def iniciar(con_factory, *, pausado: bool = False) -> BackgroundScheduler:
     reagendar(sched, con_factory)
     con = con_factory()
     try:
+        rotina.fechar_orfas(con)
         recuperar = rotina.precisa_recuperar(con, agora())
     finally:
         con.close()
     if recuperar:
-        sched.add_job(_job_coleta, "date", run_date=datetime.now(FUSO), args=[con_factory],
+        sched.add_job(_job_recuperacao, "date", run_date=datetime.now(FUSO), args=[con_factory],
                       id=JOB_RECUPERACAO, replace_existing=True, **_OPCOES)
     sched.start(paused=pausado)
     return sched

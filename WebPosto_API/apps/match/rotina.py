@@ -62,23 +62,53 @@ def _avisar_falhas(con, resultados, dia: date, so_falhas: bool) -> None:
             toast.avisar(f"Logos Match — {nome_posto}", r.mensagem)
 
 
+def fechar_orfas(con) -> int:
+    """Execuções que ficaram `em_andamento` por queda do app viram `falhou`."""
+    cur = con.execute("UPDATE execucao SET situacao='falhou', terminada_em=?"
+                      " WHERE situacao='em_andamento'", (datetime.now(timezone.utc).isoformat(),))
+    con.commit()
+    return cur.rowcount
+
+
+def _listar_aguardando(con, execucao_id: int, posto_id: int | None) -> None:
+    for posto in banco.listar_postos(con):
+        if posto_id is not None and posto["id"] != posto_id:
+            continue
+        for fonte in banco.fontes_do_posto(con, posto["id"]):
+            if fonte["ativo"] and fonte["tipo"] in coletas._FONTES:
+                banco.item_execucao(con, execucao_id, posto["id"], fonte["tipo"], "aguardando")
+
+
 async def executar(con, *, dia: date | None = None, so_falhas: bool = False,
-                   visivel: bool = False, posto_id: int | None = None):
+                   visivel: bool = False, posto_id: int | None = None,
+                   origem: str = "painel", usuario_id: int | None = None):
     if not _TRAVA.acquire(blocking=False):
         logger.info("coleta já em andamento")
         return []
     try:
         dia = dia or ontem()
-        unidades.ativar(con)
-        if posto_id is None:
-            resultados = await coletas.coletar_todos(con, dia, so_falhas=so_falhas,
-                                                     visivel=visivel)
-        else:
-            resultados = await coletas.coletar_posto(con, posto_id, dia, visivel=visivel,
-                                                     so_falhas=so_falhas)
-        _avisar_falhas(con, resultados, dia, so_falhas)
-        if resultados:
-            envio.enviar_dia(con, resultados, dia)
+        execucao_id = banco.abrir_execucao(con, origem, usuario_id, dia)
+        try:
+            unidades.ativar(con)
+            _listar_aguardando(con, execucao_id, posto_id)
+
+            def ao_progresso(pid: int, fonte: str, situacao: str, mensagem: str | None) -> None:
+                banco.item_execucao(con, execucao_id, pid, fonte, situacao, mensagem)
+
+            if posto_id is None:
+                resultados = await coletas.coletar_todos(con, dia, so_falhas=so_falhas,
+                                                         visivel=visivel, ao_progresso=ao_progresso)
+            else:
+                resultados = await coletas.coletar_posto(con, posto_id, dia, visivel=visivel,
+                                                         so_falhas=so_falhas,
+                                                         ao_progresso=ao_progresso)
+            _avisar_falhas(con, resultados, dia, so_falhas)
+            if resultados:
+                envio.enviar_dia(con, resultados, dia, execucao_id)
+        except BaseException:
+            banco.fechar_execucao(con, execucao_id, "falhou")
+            raise
+        banco.fechar_execucao(con, execucao_id, "concluida")
         return resultados
     finally:
         _TRAVA.release()

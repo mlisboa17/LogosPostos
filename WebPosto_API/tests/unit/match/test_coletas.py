@@ -297,3 +297,35 @@ def test_codigo_webposto_repetido_nao_coleta_com_dados_do_outro(con, adaptadores
     assert [(r.fonte, r.situacao) for r in res] == [("premmia", "erro")]
     assert res[0].mensagem == "Outro posto usa o mesmo código do webPosto. Corrija em Postos."
     assert adaptadores[0]["coletar"] == []
+
+
+def test_ao_progresso_chamado_coletando_e_final(con, adaptadores):
+    pid = _posto(con)
+    chamadas, estado = adaptadores
+    estado["erro_pagbank"] = RuntimeError("segredo-xyz")
+    visto = []
+    asyncio.run(coletas.coletar_posto(con, pid, DIA,
+                                      ao_progresso=lambda *a: visto.append(a)))
+    assert [(v[1], v[2]) for v in visto] == [("premmia", "coletando"), ("premmia", "ok"),
+                                              ("pagbank_edi", "coletando"), ("pagbank_edi", "erro")]
+    assert all(v[0] == pid for v in visto)
+    assert visto[0][3] is None and visto[1][3] and "segredo-xyz" not in visto[3][3]
+
+
+def test_ao_progresso_so_falhas_reporta_ja_coletado(con, adaptadores):
+    pid = _posto(con)
+    _rodar(con, pid)
+    visto = []
+    asyncio.run(coletas.coletar_posto(con, pid, DIA, so_falhas=True,
+                                      ao_progresso=lambda *a: visto.append(a)))
+    assert [(v[1], v[3]) for v in visto] == [("premmia", "Já coletado"), ("pagbank_edi", "Já coletado")]
+    assert all(v[2] in ("ok", "sem_movimento") for v in visto)
+
+
+def test_ao_progresso_com_excecao_nao_quebra_coleta(con, adaptadores):
+    pid = _posto(con)
+
+    def explode(*a):
+        raise RuntimeError("segredo-xyz")
+    res = asyncio.run(coletas.coletar_posto(con, pid, DIA, ao_progresso=explode))
+    assert {r.fonte for r in res} == {"premmia", "pagbank_edi"}
