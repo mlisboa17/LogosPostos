@@ -154,7 +154,7 @@ Sem chave webPosto: envia só os totais coletados, marcando "sem comparação co
 1. **Telas novas**: reformular completamente o painel para um visual mais profissional e agradável.
 2. **Cadastro de posto a partir do webPosto**: ao informar o código da empresa, buscar no webPosto (`V1/EMPRESAS`) Razão Social, CNPJ e demais dados e preencher/vincular o cadastro automaticamente.
 3. O item 2 é para **uso interno** (exige chave webPosto da rede) e pode ser removido em versões futuras, se necessário — manter isolado, atrás de uma opção.
-4. **Integração com o Gas4You**: nova fonte a conferir contra o webPosto. A definir com o diretor: o que o Gas4You fornece (vendas, pagamentos, fidelidade), o meio de acesso (API, portal ou arquivo) e quais postos usam.
+4. **Integração com o Gas4You — v3**: é o programa de fidelidade dos postos (já acessado uma vez). Objetivo: auditar as transações de fidelidade contra o webPosto, no mesmo molde do Premmia. A levantar quando chegar a vez: meio de acesso (portal/API/arquivo), campos disponíveis e quais postos usam.
 
 ## 11. Decisões minhas (o construtor pode seguir; o diretor pode mudar)
 - Horários 06:00 e 10:00.
@@ -166,3 +166,29 @@ Sem chave webPosto: envia só os totais coletados, marcando "sem comparação co
 
 ## 12. Deixado para o construtor
 Layout das telas, estrutura interna dos templates, nomes de funções, detalhes do script Inno Setup, estratégia de logs rotativos.
+
+## 13. v0.2 — bloqueio entre máquinas, planilha versionada e acompanhamento da coleta (proposta 19/10/2026, aguardando aprovação)
+
+### 13.1 Um posto em uma só máquina (pasta compartilhada)
+- Nova configuração (só administrador): **Pasta da rede** — uma pasta sincronizada que todas as máquinas Logos Match enxergam (OneDrive, Google Drive ou pasta de rede). Sem ela, fica só o aviso atual.
+- Registro por posto em `<pasta>\LogosMatch\postos\<chave>.json`, chave = empresaCodigo do webPosto, ou CNPJ (só dígitos) se não houver código. Conteúdo: `id_instalacao`, nome da máquina, usuário Windows, nome do posto, data/hora do registro. **Nada de segredo** nessa pasta.
+- Ao cadastrar, importar ou reativar um posto: se o registro existe e é de outra instalação → **bloqueia** com "Este posto já está cadastrado na máquina {máquina} desde {dd/mm/aaaa HH:mm}. Desative lá ou use 'Assumir posto'."
+- **Assumir posto** (administrador, com confirmação e registro em `log_acesso`): para quando a outra máquina quebrou ou foi trocada; sobrescreve o registro.
+- Antes de cada coleta, a máquina confere de novo: se o posto passou a ser de outra instalação, **não coleta** aquele posto e explica: "O posto {nome} agora é coletado pela máquina {máquina}."
+- Desativar/excluir o posto ou desinstalar com "apagar dados" remove os registros desta instalação.
+- Conflito de sincronização (duas máquinas registrando ao mesmo tempo; o OneDrive cria cópia "-NOMEDAMAQUINA"): vale o registro mais antigo; o outro lado é bloqueado na próxima verificação.
+- Posto sem código webPosto e sem CNPJ não pode ser protegido: o painel exige um dos dois quando a Pasta da rede estiver ligada.
+
+### 13.2 Planilha com versões
+- Se já existe a planilha do posto/dia, **não sobrescreve**: grava `Logos_<apelido>_<dd-mm-aaaa>_v2.xlsx`, `_v3`…
+- Se os dados forem idênticos aos da última versão (mesmo conteúdo), reaproveita a última em vez de criar outra (evita versões repetidas no "Reenviar").
+- Envio e "Baixar planilha" usam sempre a versão mais nova; o Histórico lista todas as versões do dia. Retenção de 13 meses vale para todas.
+
+### 13.3 Acompanhamento da coleta no navegador
+- **Progresso ao vivo**: tela "Coleta em andamento" que se atualiza sozinha a cada 3 s (sem JavaScript, por causa da política de segurança atual): cada posto × fonte com aguardando / coletando / ok / sem movimento / erro, a mensagem em português e o tempo decorrido. "Coletar agora" leva direto para ela.
+- **Histórico detalhado**: cada execução com data/hora de início e fim, duração, origem (agendada, repescagem, recuperação, painel, bandeja), quem disparou, resultado por posto/fonte, versões de planilha geradas e envios por canal (ok/erro).
+- Modelo: nova tabela `execucao(id, iniciada_em, terminada_em, origem, usuario_id NULL, situacao)` e `coleta.execucao_id`; situação `coletando` gravada no início de cada fonte.
+- O dashboard visual (cartões por posto, totais × webPosto) fica para a reformulação das telas.
+
+### 13.4 Fora desta versão
+Telas reformuladas e dashboard; cadastro via webPosto (`V1/EMPRESAS`); Gas4You (v3).
