@@ -457,7 +457,7 @@ async def planilha(posto_id: int, dia: str = "", ctx: Ctx = Depends(_ctx)):
     d = _dia_param(dia)
     if d is None:
         raise Recusado(400, "Dia inválido. Use dd-mm-aaaa.")
-    arquivo = relatorio_xlsx.gerar(ctx.con, posto_id, d)
+    arquivo = relatorio_xlsx.mais_recente(ctx.con, posto_id, d) or relatorio_xlsx.gerar(ctx.con, posto_id, d)
     acesso.registrar(ctx.con, ctx.uid, "baixar_planilha", f"posto={posto_id} dia={d}")
     return FileResponse(arquivo, media_type=XLSX, filename=arquivo.name)
 

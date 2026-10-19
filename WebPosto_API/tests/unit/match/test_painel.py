@@ -542,3 +542,18 @@ def test_hoje_e_historico_tem_link_da_planilha(cli, admin, con):
     link = f"/planilha?posto_id={pid}&amp;dia={ontem():%d-%m-%Y}"
     assert link in cli.get("/").text
     assert f"/planilha?posto_id={pid}&amp;dia={ontem().isoformat()}" in cli.get("/historico").text
+
+
+def test_baixar_planilha_usa_mais_recente(cli, admin, con, tmp_path, monkeypatch):
+    from apps.match import relatorio_xlsx
+    monkeypatch.setenv("LOGOS_MATCH_DIR", str(tmp_path / "dados"))
+    a = _posto(con, "Alfa", 1)
+    _logado(cli)
+    dia = ontem()
+    v1 = relatorio_xlsx.gerar(con, a, dia)
+    banco.gravar_divergencias(con, a, dia, "premmia", [{"tipo": "x", "explicacao_pt": "novo"}])
+    v2 = relatorio_xlsx.gerar(con, a, dia)
+    assert v2 != v1
+    r = cli.get(f"/planilha?posto_id={a}&dia={dia:%d-%m-%Y}")
+    assert r.status_code == 200 and r.content == v2.read_bytes()
+    assert v2.name in r.headers["content-disposition"]

@@ -1,12 +1,14 @@
 """Planilha do dia: um .xlsx por posto/dia, montado a partir do banco local."""
 from __future__ import annotations
 
+import glob
+import hashlib
 import re
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
 
@@ -112,14 +114,76 @@ def _nome_seguro(apelido: str | None, posto_id: int) -> str:
     return limpo or f"P{posto_id}"
 
 
-def gerar(con, posto_id: int, dia: date, destino: Path | None = None) -> Path:
+PADRAO_ARQUIVO = re.compile(r"^(Logos_.+_\d{2}-\d{2}-\d{4})(?:_v(\d+))?\.xlsx$")
+
+
+def _base(apelido: str | None, posto_id: int, dia: date) -> str:
+    return f"Logos_{_nome_seguro(apelido, posto_id)}_{dia.strftime('%d-%m-%Y')}"
+
+
+def _numero_versao(base: str, arq: Path) -> int | None:
+    m = PADRAO_ARQUIVO.match(arq.name)
+    if not m or m.group(1) != base:
+        return None
+    return int(m.group(2)) if m.group(2) else 1
+
+
+def versoes(posto_id: int, dia: date, apelido: str | None) -> list[Path]:
+    """Versões do dia, da mais antiga para a mais nova (a base é a versão 1)."""
+    base = _base(apelido, posto_id, dia)
+    achadas = []
+    for arq in caminhos.planilhas().glob(f"{glob.escape(base)}*.xlsx"):
+        n = _numero_versao(base, arq)
+        if n is not None:
+            achadas.append((n, arq))
+    return [a for _, a in sorted(achadas)]
+
+
+def _apelido(con, posto_id: int) -> str | None:
     posto = con.execute("SELECT apelido FROM posto WHERE id=?", (posto_id,)).fetchone()
-    apelido = _nome_seguro(posto["apelido"] if posto else None, posto_id)
-    destino = destino or caminhos.planilhas() / f"Logos_{apelido}_{dia.strftime('%d-%m-%Y')}.xlsx"
+    return posto["apelido"] if posto else None
+
+
+def mais_recente(con, posto_id: int, dia: date) -> Path | None:
+    achadas = versoes(posto_id, dia, _apelido(con, posto_id))
+    return achadas[-1] if achadas else None
+
+
+def _impressao(wb) -> str:
+    h = hashlib.sha256()
+    for ws in wb.worksheets:
+        h.update(repr(ws.title).encode())
+        for linha in ws.iter_rows(values_only=True):
+            h.update(repr(linha).encode())
+    return h.hexdigest()
+
+
+def _mesmos_dados(wb, arq: Path) -> bool:
+    try:
+        antigo = load_workbook(arq, read_only=True)
+        try:
+            return _impressao(antigo) == _impressao(wb)
+        finally:
+            antigo.close()
+    except Exception:  # noqa: BLE001 - arquivo ilegível: gera nova versão
+        return False
+
+
+def gerar(con, posto_id: int, dia: date, destino: Path | None = None) -> Path:
+    apelido = _apelido(con, posto_id)
     wb = Workbook()
     _resumo(con, wb, posto_id, dia)
     _transacoes(con, wb, "Premmia", "premmia", posto_id, dia)
     _transacoes(con, wb, "PagBank", "pagbank_edi", posto_id, dia)
     _divergencias(con, wb, posto_id, dia)
+    if destino is not None:
+        wb.save(destino)
+        return destino
+    existentes = versoes(posto_id, dia, apelido)
+    if existentes and _mesmos_dados(wb, existentes[-1]):
+        return existentes[-1]
+    base = _base(apelido, posto_id, dia)
+    proxima = _numero_versao(base, existentes[-1]) + 1 if existentes else 1
+    destino = caminhos.planilhas() / (f"{base}.xlsx" if proxima == 1 else f"{base}_v{proxima}.xlsx")
     wb.save(destino)
     return destino

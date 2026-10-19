@@ -6,7 +6,7 @@ import threading
 from datetime import date, datetime, time as hora_t, timedelta, timezone
 
 from apps.match import banco, caminhos, unidades
-from apps.match import coletas
+from apps.match import coletas, relatorio_xlsx
 from apps.match.canais import envio, toast
 from src.modules.cash_reconciliation.domain.tempo import FUSO, ontem
 
@@ -118,9 +118,12 @@ def limpar_antigos(con, hoje: date) -> None:
         con.execute(f"DELETE FROM {tabela} WHERE dia < ?", (limite,))  # noqa: S608 - nomes fixos
     con.commit()
     for arq in caminhos.planilhas().glob("Logos_*_*.xlsx"):
+        m = relatorio_xlsx.PADRAO_ARQUIVO.match(arq.name)
+        if not m:
+            continue
         try:
-            dia_arq = datetime.strptime(arq.stem.rsplit("_", 1)[1], "%d-%m-%Y").date()
-        except (ValueError, IndexError):
+            dia_arq = datetime.strptime(m.group(1)[-10:], "%d-%m-%Y").date()
+        except ValueError:
             continue
         if dia_arq < _menos_meses(hoje, _MESES_RETENCAO):
             arq.unlink(missing_ok=True)

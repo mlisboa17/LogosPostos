@@ -118,3 +118,52 @@ def test_resumo_avisa_sem_comparacao_quando_sem_chave(con, posto):
     wb = openpyxl.load_workbook(relatorio_xlsx.gerar(con, posto, DIA))
     msgs = [r[4].value for r in wb["Resumo"].iter_rows(min_row=2)]
     assert msgs[0] == "Coleta concluída"
+
+
+def _muda(con, posto, valor):
+    banco.gravar_divergencias(con, posto, DIA, "premmia", [{
+        "tipo": "valor_diferente", "valor_esperado": Decimal(valor), "valor_encontrado": None,
+        "nsu": "222", "caixa_codigo": 7, "responsavel": "JOÃO (42)",
+        "explicacao_pt": "Outra", "correcao_pt": "Conferir"}])
+
+
+def test_primeira_versao_sem_sufixo(con, posto):
+    p = relatorio_xlsx.gerar(con, posto, DIA)
+    assert p.name == "Logos_Doze_17-10-2026.xlsx"
+    assert relatorio_xlsx.versoes(posto, DIA, "Doze") == [p]
+    assert relatorio_xlsx.mais_recente(con, posto, DIA) == p
+
+
+def test_dados_iguais_reaproveita_ultima(con, posto):
+    p1 = relatorio_xlsx.gerar(con, posto, DIA)
+    p2 = relatorio_xlsx.gerar(con, posto, DIA)
+    assert p1 == p2
+    assert len(list(p1.parent.glob("*.xlsx"))) == 1
+
+
+def test_dados_mudaram_cria_v2_e_v3(con, posto):
+    p1 = relatorio_xlsx.gerar(con, posto, DIA)
+    antes = p1.read_bytes()
+    _muda(con, posto, "10")
+    p2 = relatorio_xlsx.gerar(con, posto, DIA)
+    assert p2.name == "Logos_Doze_17-10-2026_v2.xlsx"
+    _muda(con, posto, "20")
+    p3 = relatorio_xlsx.gerar(con, posto, DIA)
+    assert p3.name == "Logos_Doze_17-10-2026_v3.xlsx"
+    assert p1.read_bytes() == antes
+    assert relatorio_xlsx.versoes(posto, DIA, "Doze") == [p1, p2, p3]
+    assert relatorio_xlsx.mais_recente(con, posto, DIA) == p3
+
+
+def test_versao_aberta_no_excel_nao_impede_nova(con, posto):
+    p1 = relatorio_xlsx.gerar(con, posto, DIA)
+    with open(p1, "rb"):
+        _muda(con, posto, "10")
+        p2 = relatorio_xlsx.gerar(con, posto, DIA)
+    assert p2.name.endswith("_v2.xlsx")
+
+
+def test_destino_explicito_nao_versiona(con, posto, tmp_path):
+    alvo = tmp_path / "x.xlsx"
+    assert relatorio_xlsx.gerar(con, posto, DIA, alvo) == alvo and alvo.exists()
+    assert relatorio_xlsx.mais_recente(con, posto, DIA) is None

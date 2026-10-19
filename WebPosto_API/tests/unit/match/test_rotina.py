@@ -311,3 +311,13 @@ def test_coletar_agora_visivel_sem_posto_repassa_visivel(con, falsos, monkeypatc
     monkeypatch.setattr(coletas, "coletar_todos", todos)
     asyncio.run(rotina.executar(con, dia=DIA, visivel=True))
     assert visto == {"so_falhas": False, "visivel": True}
+
+
+def test_limpar_antigos_apaga_versoes(con):
+    pasta = rotina.caminhos.planilhas()
+    velha = pasta / "Logos_X_17-09-2025_v2.xlsx"
+    nova = pasta / "Logos_X_18-09-2025_v3.xlsx"
+    for a in (velha, nova):
+        a.write_bytes(b"x")
+    rotina.limpar_antigos(con, date(2026, 10, 18))
+    assert not velha.exists() and nova.exists()
