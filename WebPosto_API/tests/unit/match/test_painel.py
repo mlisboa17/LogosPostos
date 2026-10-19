@@ -557,3 +557,38 @@ def test_baixar_planilha_usa_mais_recente(cli, admin, con, tmp_path, monkeypatch
     r = cli.get(f"/planilha?posto_id={a}&dia={dia:%d-%m-%Y}")
     assert r.status_code == 200 and r.content == v2.read_bytes()
     assert v2.name in r.headers["content-disposition"]
+
+
+def test_postos_recusa_apelido_equivalente(cli, admin, con):
+    _posto(con, "Doze Filial", 74014)
+    tok = _logado(cli)
+    msg = "Já existe um posto com esse apelido (ou um apelido equivalente)."
+    r = cli.post("/postos", data={"csrf": tok, "acao": "novo", "nome": "N", "apelido": "Doze_Filial"})
+    assert r.status_code == 400 and msg in r.text
+    sem = banco.inserir_posto(con, "Sem", None, None, 5)  # sem apelido: P<id>
+    r = cli.post("/postos", data={"csrf": tok, "acao": "editar", "id": str(sem), "nome": "Sem",
+                                  "apelido": "Doze Filial"})
+    assert r.status_code == 400 and msg in r.text
+    outro = banco.inserir_posto(con, "O", "O", None, 6)
+    r = cli.post("/postos", data={"csrf": tok, "acao": "editar", "id": str(outro), "nome": "O",
+                                  "apelido": f"P{sem}"})
+    assert r.status_code == 400 and msg in r.text
+    r = cli.post("/postos", data={"csrf": tok, "acao": "editar", "id": str(sem), "nome": "Sem",
+                                  "apelido": "Doze Filial 2"})
+    assert r.status_code == 303
+
+
+def test_planilha_com_conflito_existente_da_409(cli, admin, con, tmp_path, monkeypatch):
+    from apps.match import relatorio_xlsx
+    monkeypatch.setenv("LOGOS_MATCH_DIR", str(tmp_path / "dados"))
+    a = banco.inserir_posto(con, "A", "Doze Filial", None, 1)
+    b = banco.inserir_posto(con, "B", "Doze_Filial", None, 2)
+    outro = tmp_path / "dados" / "planilhas"
+    outro.mkdir(parents=True, exist_ok=True)
+    dia = ontem()
+    (outro / f"Logos_Doze_Filial_{dia:%d-%m-%Y}.xlsx").write_bytes(b"PKalheio")
+    _logado(cli)
+    for pid in (a, b):
+        r = cli.get(f"/planilha?posto_id={pid}&dia={dia:%d-%m-%Y}")
+        assert r.status_code == 409 and b"alheio" not in r.content
+        assert "Apelido em conflito com outro posto; ajuste o cadastro." in r.text

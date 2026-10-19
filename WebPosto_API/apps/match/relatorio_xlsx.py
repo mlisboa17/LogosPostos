@@ -108,7 +108,7 @@ def _divergencias(con, wb, posto_id: int, dia: date) -> None:
     _ajustar(ws)
 
 
-def _nome_seguro(apelido: str | None, posto_id: int) -> str:
+def nome_seguro(apelido: str | None, posto_id: int) -> str:
     limpo = re.sub(r"[^\w -]", "_", apelido or "")
     limpo = re.sub(r"\s+", "_", limpo.strip()).strip("_")
     return limpo or f"P{posto_id}"
@@ -118,7 +118,7 @@ PADRAO_ARQUIVO = re.compile(r"^(Logos_.+_\d{2}-\d{2}-\d{4})(?:_v(\d+))?\.xlsx$")
 
 
 def _base(apelido: str | None, posto_id: int, dia: date) -> str:
-    return f"Logos_{_nome_seguro(apelido, posto_id)}_{dia.strftime('%d-%m-%Y')}"
+    return f"Logos_{nome_seguro(apelido, posto_id)}_{dia.strftime('%d-%m-%Y')}"
 
 
 def _numero_versao(base: str, arq: Path) -> int | None:
@@ -144,9 +144,45 @@ def _apelido(con, posto_id: int) -> str | None:
     return posto["apelido"] if posto else None
 
 
+def _chave(nome: str) -> str:
+    return nome.casefold()  # o Windows não diferencia maiúsculas nos nomes de arquivo
+
+
+def proximo_id(con) -> int:
+    r = con.execute("SELECT seq FROM sqlite_sequence WHERE name='posto'").fetchone()
+    if r is not None:
+        return r[0] + 1
+    return (con.execute("SELECT COALESCE(MAX(id),0) FROM posto").fetchone()[0]) + 1
+
+
+def nome_em_uso(con, apelido: str | None, posto_id: int | None, ocupados=None) -> bool:
+    """True se o nome de arquivo derivado do apelido já pertence a outro posto.
+    posto_id None = posto novo (usa o próximo id para o nome P<id>)."""
+    alvo = _chave(nome_seguro(apelido, posto_id if posto_id is not None else proximo_id(con)))
+    if ocupados is not None and alvo in ocupados:
+        return True
+    return any(_chave(nome_seguro(p["apelido"], p["id"])) == alvo
+               for p in con.execute("SELECT id, apelido FROM posto WHERE ? IS NULL OR id != ?", (posto_id, posto_id)))
+
+
+def conflito(con, posto_id: int) -> bool:
+    """True se outro posto cadastrado gera o mesmo nome de arquivo que este."""
+    return nome_em_uso(con, _apelido(con, posto_id), posto_id)
+
+
 def mais_recente(con, posto_id: int, dia: date) -> Path | None:
+    if conflito(con, posto_id):
+        return None
     achadas = versoes(posto_id, dia, _apelido(con, posto_id))
     return achadas[-1] if achadas else None
+
+
+def _canonico(v):
+    if v is None or v == "":
+        return None
+    if isinstance(v, (int, float, Decimal)) and not isinstance(v, bool):
+        return float(v)  # 10, 10.0 e Decimal("10") dão o mesmo valor
+    return v
 
 
 def _impressao(wb) -> str:
@@ -154,7 +190,7 @@ def _impressao(wb) -> str:
     for ws in wb.worksheets:
         h.update(repr(ws.title).encode())
         for linha in ws.iter_rows(values_only=True):
-            h.update(repr(linha).encode())
+            h.update(repr(tuple(_canonico(v) for v in linha)).encode())
     return h.hexdigest()
 
 
@@ -171,6 +207,8 @@ def _mesmos_dados(wb, arq: Path) -> bool:
 
 def gerar(con, posto_id: int, dia: date, destino: Path | None = None) -> Path:
     apelido = _apelido(con, posto_id)
+    if destino is None and conflito(con, posto_id):
+        raise ValueError("apelido em conflito com outro posto")
     wb = Workbook()
     _resumo(con, wb, posto_id, dia)
     _transacoes(con, wb, "Premmia", "premmia", posto_id, dia)
@@ -187,3 +225,6 @@ def gerar(con, posto_id: int, dia: date, destino: Path | None = None) -> Path:
     destino = caminhos.planilhas() / (f"{base}.xlsx" if proxima == 1 else f"{base}_v{proxima}.xlsx")
     wb.save(destino)
     return destino
+
+
+_nome_seguro = nome_seguro  # nome antigo, mantido para quem já importa

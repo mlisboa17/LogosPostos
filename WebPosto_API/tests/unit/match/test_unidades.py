@@ -174,3 +174,26 @@ def test_importar_config_recusa_codigo_de_outro_posto(con):
     with pytest.raises(unidades.CodigoInvalido, match="inválido"):
         unidades.importar_config(con, {"postos": [{"nome": "Neg", "empresa_codigo_webposto": -3}]})
     assert len(banco.listar_postos(con, so_ativos=False)) == 1
+
+
+def test_importar_config_recusa_apelido_equivalente(con):
+    banco.inserir_posto(con, "A", "Doze Filial", None, 1)
+    dados = {"postos": [{"nome": "B", "apelido": "Doze_Filial", "empresa_codigo_webposto": 2}]}
+    with pytest.raises(unidades.CodigoInvalido, match="apelido equivalente"):
+        unidades.importar_config(con, dados)
+    assert len(banco.listar_postos(con, so_ativos=False)) == 1
+    dois = {"postos": [{"nome": "B", "apelido": "X Y", "empresa_codigo_webposto": 2},
+                       {"nome": "C", "apelido": "X_Y", "empresa_codigo_webposto": 3}]}
+    with pytest.raises(unidades.CodigoInvalido):
+        unidades.importar_config(con, dois)
+    assert len(banco.listar_postos(con, so_ativos=False)) == 1
+
+
+def test_importar_units_recusa_apelido_equivalente(con, tmp_path):
+    banco.inserir_posto(con, "A", "Doze Filial", None, 1)
+    arq = tmp_path / "u.json"
+    arq.write_text(json.dumps({"unidades": [
+        {"nome": "B", "apelido": "Doze_Filial", "empresa_codigo": 2}]}), encoding="utf-8")
+    with pytest.raises(unidades.CodigoInvalido, match="apelido equivalente"):
+        unidades.importar_units_json(con, arq)
+    assert len(banco.listar_postos(con, so_ativos=False)) == 1

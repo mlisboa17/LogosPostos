@@ -167,3 +167,33 @@ def test_destino_explicito_nao_versiona(con, posto, tmp_path):
     alvo = tmp_path / "x.xlsx"
     assert relatorio_xlsx.gerar(con, posto, DIA, alvo) == alvo and alvo.exists()
     assert relatorio_xlsx.mais_recente(con, posto, DIA) is None
+
+
+def test_valores_inteiros_e_zero_reaproveitam(con):
+    pid = banco.inserir_posto(con, "Posto Doze", "Doze", None, 74014)
+    fp = banco.salvar_fonte(con, pid, "premmia", True, {})
+    banco.registrar_coleta(con, fp, DIA, "ok", 1, Decimal("100"), None)
+    fb = banco.salvar_fonte(con, pid, "pagbank_edi", True, {})
+    banco.registrar_coleta(con, fb, DIA, "ok", 0, Decimal("0"), None)
+    banco.gravar_divergencias(con, pid, DIA, "premmia", [{
+        "tipo": "x", "valor_esperado": Decimal("100"), "valor_encontrado": Decimal("0")}])
+    p1 = relatorio_xlsx.gerar(con, pid, DIA)
+    assert relatorio_xlsx.gerar(con, pid, DIA) == p1
+    assert len(list(p1.parent.glob("*.xlsx"))) == 1
+
+
+def test_nome_em_uso_por_apelido_equivalente(con):
+    a = banco.inserir_posto(con, "A", "Doze Filial", None, 1)
+    assert relatorio_xlsx.nome_em_uso(con, "Doze_Filial", None)
+    assert relatorio_xlsx.nome_em_uso(con, "doze filial", None)
+    assert not relatorio_xlsx.nome_em_uso(con, "Doze Filial", a)  # o próprio posto
+    assert not relatorio_xlsx.nome_em_uso(con, "Outro", None)
+
+
+def test_nome_em_uso_fallback_pid(con):
+    banco.inserir_posto(con, "A", None, None, 1)  # id 1 -> P1
+    assert relatorio_xlsx.nome_em_uso(con, "P1", None)
+    assert relatorio_xlsx.nome_em_uso(con, None, 1) is False
+    b = banco.inserir_posto(con, "B", "P1", None, 2)  # já colide, banco aceita
+    assert relatorio_xlsx.conflito(con, b) and relatorio_xlsx.conflito(con, 1)
+    assert relatorio_xlsx.mais_recente(con, b, DIA) is None

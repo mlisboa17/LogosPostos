@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Callable
 
-from apps.match import banco, credenciais
+from apps.match import banco, credenciais, relatorio_xlsx
 from src.modules.cash_reconciliation.config import definir_provedor_unidades
 from src.modules.cash_reconciliation.domain.models import Unidade
 from src.shared.segredos import definir_resolvedor
@@ -127,6 +127,20 @@ def ativar(con) -> None:
     definir_provedor_unidades(provedor)
 
 
+MSG_APELIDO = "Já existe um posto com esse apelido (ou um apelido equivalente)."
+
+
+def _validar_apelidos(con, novos: list[str | None]) -> None:
+    """Cada novo posto precisa de nome de arquivo único (entre si e entre os existentes)."""
+    ocupados: set[str] = set()
+    prox = relatorio_xlsx.proximo_id(con)
+    for ap in novos:
+        if relatorio_xlsx.nome_em_uso(con, ap, None, ocupados):
+            raise CodigoInvalido(MSG_APELIDO)
+        ocupados.add(relatorio_xlsx.nome_seguro(ap, prox).casefold())
+        prox += 1
+
+
 def importar_units_json(con, caminho: Path) -> int:
     dados = json.loads(Path(caminho).read_text(encoding="utf-8"))
     existentes = {p["empresa_codigo_webposto"] for p in banco.listar_postos(con, so_ativos=False)}
@@ -136,6 +150,8 @@ def importar_units_json(con, caminho: Path) -> int:
         if codigo is None or codigo not in existentes:
             validar_codigo(con, codigo, reservados=novos)
             novos.add(codigo)
+    _validar_apelidos(con, [u.get("apelido") for u in dados.get("unidades", [])
+                            if u["empresa_codigo"] not in existentes])
     criados = 0
     for u in dados.get("unidades", []):
         codigo = u["empresa_codigo"]
@@ -178,6 +194,8 @@ def importar_config(con, dados: dict) -> int:
             validar_codigo(con, codigo, reservados=novos)
             if codigo is not None:
                 novos.add(codigo)
+    _validar_apelidos(con, [p.get("apelido") for p in dados.get("postos", [])
+                            if (p["nome"], p.get("empresa_codigo_webposto")) not in existentes])
     criados = 0
     for p in dados.get("postos", []):
         chave = (p["nome"], p.get("empresa_codigo_webposto"))

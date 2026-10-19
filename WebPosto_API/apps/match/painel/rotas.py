@@ -457,6 +457,8 @@ async def planilha(posto_id: int, dia: str = "", ctx: Ctx = Depends(_ctx)):
     d = _dia_param(dia)
     if d is None:
         raise Recusado(400, "Dia inválido. Use dd-mm-aaaa.")
+    if relatorio_xlsx.conflito(ctx.con, posto_id):
+        raise Recusado(409, "Apelido em conflito com outro posto; ajuste o cadastro.")
     arquivo = relatorio_xlsx.mais_recente(ctx.con, posto_id, d) or relatorio_xlsx.gerar(ctx.con, posto_id, d)
     acesso.registrar(ctx.con, ctx.uid, "baixar_planilha", f"posto={posto_id} dia={d}")
     return FileResponse(arquivo, media_type=XLSX, filename=arquivo.name)
@@ -505,7 +507,10 @@ async def postos_gravar(ctx: Ctx = Depends(_ctx_post)):
         unidades.validar_codigo(ctx.con, codigo, pid if acao == "editar" else None)
     except unidades.CodigoInvalido as exc:  # mensagem própria, em português
         return _pagina_postos(ctx, 400, erro=str(exc))
-    dados = (nome, _txt(f, "apelido") or None, _txt(f, "cnpj") or None, codigo)
+    apelido = _txt(f, "apelido") or None
+    if relatorio_xlsx.nome_em_uso(ctx.con, apelido, pid if acao == "editar" else None):
+        return _pagina_postos(ctx, 400, erro=unidades.MSG_APELIDO)
+    dados = (nome, apelido, _txt(f, "cnpj") or None, codigo)
     if acao == "novo":
         pid = banco.inserir_posto(ctx.con, *dados)
     else:
