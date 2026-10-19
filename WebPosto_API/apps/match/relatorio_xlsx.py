@@ -155,10 +155,12 @@ def proximo_id(con) -> int:
     return (con.execute("SELECT COALESCE(MAX(id),0) FROM posto").fetchone()[0]) + 1
 
 
-def nome_em_uso(con, apelido: str | None, posto_id: int | None, ocupados=None) -> bool:
+def nome_em_uso(con, apelido: str | None, posto_id: int | None, ocupados=None,
+                id_previsto: int | None = None) -> bool:
     """True se o nome de arquivo derivado do apelido já pertence a outro posto.
-    posto_id None = posto novo (usa o próximo id para o nome P<id>)."""
-    alvo = _chave(nome_seguro(apelido, posto_id if posto_id is not None else proximo_id(con)))
+    posto_id None = posto novo (usa id_previsto, ou o próximo id, para o nome P<id>)."""
+    alvo = _chave(nome_seguro(apelido, posto_id if posto_id is not None
+                                else (id_previsto or proximo_id(con))))
     if ocupados is not None and alvo in ocupados:
         return True
     return any(_chave(nome_seguro(p["apelido"], p["id"])) == alvo

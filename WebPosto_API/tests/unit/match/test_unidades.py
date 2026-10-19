@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from apps.match import banco, credenciais, unidades
+from apps.match import banco, credenciais, relatorio_xlsx, unidades
 from src.modules.cash_reconciliation import config as cfg
 from src.shared import segredos
 
@@ -197,3 +197,19 @@ def test_importar_units_recusa_apelido_equivalente(con, tmp_path):
     with pytest.raises(unidades.CodigoInvalido, match="apelido equivalente"):
         unidades.importar_units_json(con, arq)
     assert len(banco.listar_postos(con, so_ativos=False)) == 1
+
+
+def test_importar_config_tres_sem_apelido_ok(con):
+    dados = {"postos": [{"nome": f"N{i}", "empresa_codigo_webposto": 10 + i} for i in range(3)]}
+    assert unidades.importar_config(con, dados) == 3
+    n = [p["id"] for p in banco.listar_postos(con, so_ativos=False)]
+    assert len(n) == 3
+
+
+def test_importar_config_apelido_colide_com_id_previsto(con):
+    prox = relatorio_xlsx.proximo_id(con)
+    dados = {"postos": [{"nome": "A", "apelido": f"P{prox + 1}", "empresa_codigo_webposto": 11},
+                        {"nome": "B", "empresa_codigo_webposto": 12}]}
+    with pytest.raises(unidades.CodigoInvalido, match="apelido equivalente"):
+        unidades.importar_config(con, dados)
+    assert banco.listar_postos(con, so_ativos=False) == []

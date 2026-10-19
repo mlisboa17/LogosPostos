@@ -135,7 +135,7 @@ def _validar_apelidos(con, novos: list[str | None]) -> None:
     ocupados: set[str] = set()
     prox = relatorio_xlsx.proximo_id(con)
     for ap in novos:
-        if relatorio_xlsx.nome_em_uso(con, ap, None, ocupados):
+        if relatorio_xlsx.nome_em_uso(con, ap, None, ocupados, prox):
             raise CodigoInvalido(MSG_APELIDO)
         ocupados.add(relatorio_xlsx.nome_seguro(ap, prox).casefold())
         prox += 1
