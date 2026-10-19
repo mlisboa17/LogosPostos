@@ -150,6 +150,12 @@ Sem chave webPosto: envia só os totais coletados, marcando "sem comparação co
   - Auto-update; sincronizar com o LOGOS central; import de relatório do webPosto para posto sem chave; detecção de posto cadastrado em duas máquinas.
 - **v3 — produto**: licença por `id_instalacao`, marca configurável, acesso remoto com os mesmos perfis; lançar cartão faltante com NSU (Sprint 18b, com travas e aprovação Telegram).
 
+### Melhorias futuras registradas pelo diretor (19/10/2026 — não prioritárias)
+1. **Telas novas**: reformular completamente o painel para um visual mais profissional e agradável.
+2. **Cadastro de posto a partir do webPosto**: ao informar o código da empresa, buscar no webPosto (`V1/EMPRESAS`) Razão Social, CNPJ e demais dados e preencher/vincular o cadastro automaticamente.
+3. O item 2 é para **uso interno** (exige chave webPosto da rede) e pode ser removido em versões futuras, se necessário — manter isolado, atrás de uma opção.
+4. **Integração com o Gas4You**: nova fonte a conferir contra o webPosto. A definir com o diretor: o que o Gas4You fornece (vendas, pagamentos, fidelidade), o meio de acesso (API, portal ou arquivo) e quais postos usam.
+
 ## 11. Decisões minhas (o construtor pode seguir; o diretor pode mudar)
 - Horários 06:00 e 10:00.
 - Jinja2 server-side em vez de React (sem build, instalador menor).
