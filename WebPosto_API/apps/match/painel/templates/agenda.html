@@ -11,4 +11,25 @@
   </form>
   <p class="dica">A coleta busca o dia anterior. A repescagem tenta de novo só o que falhou.</p>
 </section>
+<section class="cartao estreito">
+  <h2>Pasta da rede</h2>
+  <p class="dica">Uma pasta que todas as máquinas com o Logos Match enxergam (OneDrive, Google Drive ou pasta de rede), por exemplo <code>C:\Users\voce\OneDrive\LogosMatch-Rede</code>. Com ela ligada, um posto só pode ser cadastrado em uma máquina. Nenhuma senha vai para essa pasta.</p>
+  <form method="post" action="/pasta-rede">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="acao" value="salvar">
+    <label>Caminho da pasta <input name="caminho" value="{{ pasta_rede }}" required></label>
+    <button type="submit">Salvar</button>
+  </form>
+  {% if pasta_ligada %}
+  <form method="post" action="/pasta-rede">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="acao" value="desligar">
+    <button type="submit" class="secundario">Desligar</button>
+  </form>
+  {% else %}
+  <p class="dica">Desligada: vale só o aviso de cadastrar cada posto em uma só máquina.</p>
+  {% endif %}
+  {% if conflitos %}
+  <p class="aviso erro">Postos desativados por já estarem em outra máquina:</p>
+  <ul>{% for linha in conflitos %}<li>{{ linha }}</li>{% endfor %}</ul>
+  {% endif %}
+</section>
 {% endblock %}

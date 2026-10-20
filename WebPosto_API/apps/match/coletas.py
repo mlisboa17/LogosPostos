@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from decimal import Decimal
 
-from apps.match import banco, caminhos, credenciais, explicar, unidades
+from apps.match import banco, caminhos, credenciais, explicar, registro_rede, unidades
 from src.modules.cash_reconciliation.adapters import pagbank_edi, premmia_portal
 from src.modules.cash_reconciliation.application import conciliar_cartoes
 
@@ -21,6 +21,7 @@ _NOME = {"premmia": "Premmia", "pagbank_edi": "PagBank"}
 _JA_COLETADO = ("ok", "sem_movimento")
 Progresso = Callable[[int, str, str, str | None], None]
 CODIGO_REPETIDO = "Outro posto usa o mesmo código do webPosto. Corrija em Postos."
+AVISO_PASTA = "\nNão foi possível conferir a pasta da rede."
 
 
 @dataclass
@@ -154,6 +155,33 @@ async def _coletar_fonte(con, posto, fonte, unidade, dia, visivel, comparar) -> 
     return ResultadoFonte(posto_id, tipo, dia, situacao, 0, Decimal(0), mensagem, [])
 
 
+def _dono_na_rede(con, posto) -> tuple[str | None, str]:
+    """(máquina dona, aviso) conferidos na pasta da rede antes de coletar.
+
+    Máquina só vem preenchida quando o posto é de outra instalação. Pasta inacessível nunca
+    bloqueia a coleta: volta o aviso para acrescentar à mensagem de cada fonte.
+    """
+    pasta, chave = banco.pasta_rede(con), registro_rede.chave_posto(posto)
+    if pasta is None or chave is None:
+        return None, ""
+    try:
+        d = registro_rede.dono(pasta, chave)
+    except registro_rede.PastaIndisponivel:
+        return None, AVISO_PASTA
+    if d and d.id_instalacao != banco.id_instalacao(con):
+        return d.maquina, ""
+    return None, ""
+
+
+def _recusar(posto_id: int, dia: date, fontes: dict, mensagem: str,
+             ao_progresso: Progresso | None) -> list[ResultadoFonte]:
+    for t in _FONTES:
+        if t in fontes:
+            _progresso(ao_progresso, posto_id, t, "erro", mensagem)
+    return [ResultadoFonte(posto_id, t, dia, "erro", 0, Decimal(0), mensagem, [])
+            for t in _FONTES if t in fontes]
+
+
 def _fontes_ativas(con, posto_id: int) -> dict:
     return {f["tipo"]: f for f in banco.fontes_do_posto(con, posto_id) if f["ativo"]}
 
@@ -167,11 +195,12 @@ async def coletar_posto(con, posto_id: int, dia: date, *, visivel: bool = False,
     fontes = _fontes_ativas(con, posto_id)
     if unidades.codigo_em_conflito(con, posto):  # nunca usar credenciais/dados de outro posto
         logger.warning("Coleta recusada posto=%s: código do webPosto repetido", posto_id)
-        for t in _FONTES:
-            if t in fontes:
-                _progresso(ao_progresso, posto_id, t, "erro", CODIGO_REPETIDO)
-        return [ResultadoFonte(posto_id, t, dia, "erro", 0, Decimal(0), CODIGO_REPETIDO, [])
-                for t in _FONTES if t in fontes]
+        return _recusar(posto_id, dia, fontes, CODIGO_REPETIDO, ao_progresso)
+    maquina, aviso = _dono_na_rede(con, posto)
+    if maquina is not None:
+        logger.warning("Coleta recusada posto=%s: posto de outra máquina", posto_id)
+        mensagem = f"O posto {posto['nome']} agora é coletado pela máquina {maquina}."
+        return _recusar(posto_id, dia, fontes, mensagem, ao_progresso)
     comparar = tem_chave_webposto(con, posto)
     unidade = unidades.do_posto(con, posto)
     resultados = []
@@ -186,6 +215,7 @@ async def coletar_posto(con, posto_id: int, dia: date, *, visivel: bool = False,
             continue
         _progresso(ao_progresso, posto_id, tipo, "coletando", None)
         resultado = await _coletar_fonte(con, posto, fonte, unidade, dia, visivel, comparar)
+        resultado.mensagem += aviso
         _progresso(ao_progresso, posto_id, tipo, resultado.situacao, resultado.mensagem)
         resultados.append(resultado)
     return resultados

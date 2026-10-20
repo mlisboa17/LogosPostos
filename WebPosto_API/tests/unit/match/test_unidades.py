@@ -213,3 +213,34 @@ def test_importar_config_apelido_colide_com_id_previsto(con):
     with pytest.raises(unidades.CodigoInvalido, match="apelido equivalente"):
         unidades.importar_config(con, dados)
     assert banco.listar_postos(con, so_ativos=False) == []
+
+
+def test_importar_pula_posto_de_outra_maquina(con, tmp_path):
+    from apps.match import registro_rede as rr
+    rede = tmp_path / "rede"
+    rede.mkdir()
+    banco.salvar_pasta_rede(con, str(rede))
+    rr.registrar(rede, "9", "OUTRA", "Nove")
+    dados = {"postos": [{"nome": "Nove", "empresa_codigo_webposto": 9},
+                        {"nome": "Dez", "empresa_codigo_webposto": 10}]}
+    pulados: list[str] = []
+    assert unidades.importar_config(con, dados, pulados=pulados) == 1
+    assert [p["nome"] for p in banco.listar_postos(con)] == ["Dez"]
+    assert rr.dono(rede, "10").id_instalacao == banco.id_instalacao(con)
+    assert pulados == ["Nove: " + rr.mensagem_bloqueio(rr.dono(rede, "9"))]
+    codigos = [u["empresa_codigo"] for u in json.loads(UNITS.read_text(encoding="utf-8"))["unidades"]]
+    rr.registrar(rede, str(codigos[0]), "OUTRA", "X")
+    pulados = []
+    n = unidades.importar_units_json(con, UNITS, pulados=pulados)
+    assert n == len(codigos) - 1 and len(pulados) == 1
+    assert codigos[0] not in {p["empresa_codigo_webposto"] for p in banco.listar_postos(con)}
+
+
+def test_importar_pasta_indisponivel_nao_grava(con, tmp_path):
+    from apps.match import registro_rede as rr
+    banco.salvar_pasta_rede(con, str(tmp_path / "offline"))
+    with pytest.raises(rr.PastaIndisponivel):
+        unidades.importar_config(con, {"postos": [{"nome": "Dez", "empresa_codigo_webposto": 10}]})
+    with pytest.raises(rr.PastaIndisponivel):
+        unidades.importar_units_json(con, UNITS)
+    assert banco.listar_postos(con, so_ativos=False) == []

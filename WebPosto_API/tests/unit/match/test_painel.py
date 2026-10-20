@@ -786,3 +786,165 @@ def test_historico_gerente_so_seus_postos(cli, admin, con, tmp_path, monkeypatch
     assert "Beta caiu." not in html and "Só Beta." not in html and "Bandeja" not in html
     assert "Posto Beta" not in html and "Envio secreto." not in html
     assert f"posto_id={a}&amp;" in html and f"posto_id={b}" not in html
+
+
+# ---------------------------------------------------------------- pasta da rede (v0.2)
+
+import html as _html  # noqa: E402
+import socket  # noqa: E402
+
+from apps.match import registro_rede as rr  # noqa: E402
+
+MSG_CHAVE = ("Informe o código do webPosto ou o CNPJ para proteger este posto contra cadastro"
+             " em duas máquinas.")
+
+
+def _rede(con, tmp_path):
+    p = tmp_path / "rede"
+    p.mkdir(exist_ok=True)
+    banco.salvar_pasta_rede(con, str(p))
+    return p
+
+
+def _texto(r) -> str:
+    return _html.unescape(r.text)
+
+
+def test_pasta_rede_salvar_registra_ativos(cli, admin, con, tmp_path):
+    a = _posto(con, "Doze", 74014)
+    b = _posto(con, "Vip", 5)
+    banco.inserir_posto(con, "Sem", "Sem", None, None)
+    rede = tmp_path / "rede"
+    rede.mkdir()
+    rr.registrar(rede, "5", "OUTRA", "Vip")
+    tok = _logado(cli)
+    r = cli.post("/pasta-rede", data={"csrf": tok, "acao": "salvar", "caminho": str(rede)})
+    assert r.status_code == 200, r.text
+    assert banco.pasta_rede(con) == rede
+    assert rr.pasta_postos(rede).is_dir()
+    assert rr.dono(rede, "74014").id_instalacao == banco.id_instalacao(con)
+    assert rr.dono(rede, "5").id_instalacao == "OUTRA"
+    assert banco.obter_posto(con, a)["ativo"] and not banco.obter_posto(con, b)["ativo"]
+    assert rr.mensagem_bloqueio(rr.dono(rede, "5")) in _texto(r)
+    log = con.execute("SELECT acao FROM log_acesso WHERE acao='pasta_rede'").fetchall()
+    assert len(log) == 1
+    r = cli.post("/pasta-rede", data={"csrf": tok, "acao": "salvar", "caminho": str(tmp_path / "nao")})
+    assert r.status_code == 400 and banco.pasta_rede(con) == rede
+    r = cli.post("/pasta-rede", data={"csrf": tok, "acao": "desligar"})
+    assert r.status_code == 303 and banco.pasta_rede(con) is None
+    assert cli.get("/agenda").status_code == 200
+
+
+def test_pasta_rede_so_admin(cli, admin, con, tmp_path):
+    pid = _posto(con)
+    acesso.criar_usuario(con, "G", "ger", SENHA, Perfil.GERENTE, [pid])
+    tok = _logado(cli, "ger")
+    r = cli.post("/pasta-rede", data={"csrf": tok, "acao": "salvar", "caminho": str(tmp_path)})
+    assert r.status_code == 403 and banco.pasta_rede(con) is None
+
+
+def test_cadastro_bloqueado_outra_maquina_409(cli, admin, con, tmp_path):
+    rede = _rede(con, tmp_path)
+    rr.registrar(rede, "74014", "OUTRA", "Doze")
+    rr.registrar(rede, "12345678000190", "OUTRA", "Cnpj")
+    bloqueio = rr.mensagem_bloqueio(rr.dono(rede, "74014"))
+    tok = _logado(cli)
+    r = cli.post("/postos", data={"csrf": tok, "acao": "novo", "nome": "Doze",
+                                  "empresa_codigo_webposto": "74014"})
+    assert r.status_code == 409 and bloqueio in _texto(r)
+    assert banco.listar_postos(con, so_ativos=False) == []
+    pid = _posto(con)
+    banco.definir_posto_ativo(con, pid, False)
+    r = cli.post("/postos", data={"csrf": tok, "acao": "ativar", "id": str(pid)})
+    assert r.status_code == 409 and bloqueio in _texto(r)
+    assert not banco.obter_posto(con, pid)["ativo"]
+    outro = _posto(con, "Outro", 7)
+    r = cli.post("/postos", data={"csrf": tok, "acao": "editar", "id": str(outro), "nome": "Outro",
+                                  "cnpj": "12.345.678/0001-90", "empresa_codigo_webposto": ""})
+    assert r.status_code == 409
+    assert banco.obter_posto(con, outro)["empresa_codigo_webposto"] == 7
+
+
+def test_cadastro_pasta_indisponivel_503(cli, admin, con, tmp_path):
+    banco.salvar_pasta_rede(con, str(tmp_path / "pasta-offline"))
+    pid = _posto(con, "Doze", 74014)
+    banco.definir_posto_ativo(con, pid, False)
+    ativo = _posto(con, "Vip", 5)
+    tok = _logado(cli)
+    r = cli.post("/postos", data={"csrf": tok, "acao": "novo", "nome": "Novo",
+                                  "empresa_codigo_webposto": "9"})
+    assert r.status_code == 503 and rr.MSG_INDISPONIVEL in _texto(r)
+    r = cli.post("/postos", data={"csrf": tok, "acao": "ativar", "id": str(pid)})
+    assert r.status_code == 503 and not banco.obter_posto(con, pid)["ativo"]
+    r = cli.post("/postos", data={"csrf": tok, "acao": "editar", "id": str(ativo), "nome": "Vip 2",
+                                  "empresa_codigo_webposto": "6"})
+    assert r.status_code == 503 and rr.MSG_INDISPONIVEL in _texto(r)
+    assert banco.obter_posto(con, ativo)["nome"] == "Vip"
+    dados = json.dumps({"postos": [{"nome": "Imp", "empresa_codigo_webposto": 11}]})
+    r = cli.post("/config/importar", data={"csrf": tok},
+                 files={"arquivo": ("c.json", dados, "application/json")})
+    assert r.status_code == 503 and rr.MSG_INDISPONIVEL in _texto(r)
+    assert len(banco.listar_postos(con, so_ativos=False)) == 2
+    assert not (tmp_path / "pasta-offline").exists()
+
+
+def test_cadastro_exige_codigo_ou_cnpj_com_pasta(cli, admin, con, tmp_path):
+    rede = _rede(con, tmp_path)
+    tok = _logado(cli)
+    r = cli.post("/postos", data={"csrf": tok, "acao": "novo", "nome": "Sem chave"})
+    assert r.status_code == 400 and MSG_CHAVE in _texto(r)
+    assert banco.listar_postos(con, so_ativos=False) == []
+    r = cli.post("/postos", data={"csrf": tok, "acao": "novo", "nome": "Com CNPJ",
+                                  "cnpj": "12.345.678/0001-90"})
+    assert r.status_code == 303
+    assert rr.dono(rede, "12345678000190").posto_nome == "Com CNPJ"
+
+
+def test_assumir_posto_admin_e_log(cli, admin, con, tmp_path):
+    rede = _rede(con, tmp_path)
+    pid = _posto(con)
+    rr.registrar(rede, "74014", "OUTRA", "Doze")
+    acesso.criar_usuario(con, "G", "ger", SENHA, Perfil.GERENTE, [pid])
+    tok = _logado(cli, "ger")
+    r = cli.post(f"/postos/{pid}/assumir", data={"csrf": tok, "confirmar": "1"})
+    assert r.status_code == 403 and rr.dono(rede, "74014").id_instalacao == "OUTRA"
+    tok = _logado(cli)
+    r = cli.post(f"/postos/{pid}/assumir", data={"csrf": tok})
+    assert r.status_code == 400 and rr.dono(rede, "74014").id_instalacao == "OUTRA"
+    r = cli.post(f"/postos/{pid}/assumir", data={"csrf": tok, "confirmar": "1"})
+    assert r.status_code == 303
+    assert rr.dono(rede, "74014").id_instalacao == banco.id_instalacao(con)
+    log = con.execute("SELECT usuario_id, detalhe FROM log_acesso WHERE acao='assumir_posto'").fetchall()
+    assert [(x["usuario_id"], x["detalhe"]) for x in log] == [(admin, f"posto={pid}")]
+
+
+def test_reinstalado_mostra_mesma_maquina_e_assume(cli, admin, con, tmp_path):
+    rede = _rede(con, tmp_path)
+    pid = _posto(con)
+    rr.registrar(rede, "74014", "ID-DA-INSTALACAO-ANTIGA", "Doze")  # mesmo PC, antes de reinstalar
+    tok = _logado(cli)
+    r = cli.get("/postos")
+    assert f"Pertence à máquina {socket.gethostname()}" in _texto(r)
+    assert f'action="/postos/{pid}/assumir"' in r.text
+    assert "Confirmo que a outra máquina não coleta mais este posto" in _texto(r)
+    r = cli.post(f"/postos/{pid}/assumir", data={"csrf": tok, "confirmar": "1"})
+    assert r.status_code == 303
+    r = cli.get("/postos")
+    assert "Protegido (esta máquina)" in _texto(r) and "Pertence à máquina" not in _texto(r)
+
+
+def test_desativar_libera(cli, admin, con, tmp_path):
+    rede = _rede(con, tmp_path)
+    tok = _logado(cli)
+    r = cli.post("/postos", data={"csrf": tok, "acao": "novo", "nome": "Doze",
+                                  "empresa_codigo_webposto": "74014"})
+    assert r.status_code == 303
+    pid = banco.listar_postos(con)[0]["id"]
+    assert rr.dono(rede, "74014").id_instalacao == banco.id_instalacao(con)
+    r = cli.post("/postos", data={"csrf": tok, "acao": "desativar", "id": str(pid)})
+    assert r.status_code == 303 and rr.dono(rede, "74014") is None
+    assert not banco.obter_posto(con, pid)["ativo"]
+    outro = _posto(con, "Vip", 5)
+    banco.salvar_pasta_rede(con, str(tmp_path / "pasta-offline"))
+    r = cli.post("/postos", data={"csrf": tok, "acao": "desativar", "id": str(outro)})
+    assert r.status_code == 303 and not banco.obter_posto(con, outro)["ativo"]

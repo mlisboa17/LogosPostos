@@ -18,7 +18,8 @@ from datetime import datetime, timezone
 
 import uvicorn
 
-from apps.match import NOME, acesso, agendador, banco, bandeja, caminhos, credenciais, rotina
+from apps.match import (NOME, acesso, agendador, banco, bandeja, caminhos, credenciais, registro_rede,
+                        rotina)
 from apps.match.canais import toast
 from apps.match.painel import criar_app
 from src.modules.cash_reconciliation.domain.tempo import FUSO
@@ -190,6 +191,30 @@ def apagar_credenciais() -> int:
     return 0
 
 
+def liberar_postos() -> int:
+    """Remove da pasta da rede os registros desta instalação (desinstalar com "apagar dados")."""
+    con = banco.conectar()
+    try:
+        pasta = banco.pasta_rede(con)
+        if pasta is None:
+            print("Pasta da rede não configurada.")
+            return 0
+        meu = banco.id_instalacao(con)
+        liberados = 0
+        try:
+            for posto in banco.listar_postos(con, so_ativos=False):
+                chave = registro_rede.chave_posto(posto)
+                if chave is not None and registro_rede.liberar(pasta, chave, meu):
+                    liberados += 1
+        except registro_rede.PastaIndisponivel:
+            print(registro_rede.MSG_INDISPONIVEL)
+            return 1
+    finally:
+        con.close()
+    print(f"{liberados} posto(s) liberado(s) na pasta da rede.")
+    return 0
+
+
 def redefinir_admin() -> int:
     nova = getpass.getpass("Nova senha do administrador: ")
     if nova != getpass.getpass("Repita a senha: "):
@@ -260,6 +285,8 @@ def _argumentos(argv: list[str]) -> argparse.Namespace:
                    help="remove do Windows todas as credenciais guardadas e sai")
     p.add_argument("--verificar", action="store_true",
                    help="confere se os recursos empacotados estão presentes e sai")
+    p.add_argument("--liberar-postos", action="store_true",
+                   help="remove da pasta da rede os postos desta instalação e sai")
     p.add_argument("--redefinir-admin", action="store_true",
                    help="define uma nova senha para o administrador e sai")
     return p.parse_args(argv)
@@ -269,6 +296,8 @@ def main(argv: list[str] | None = None) -> int:
     args = _argumentos(argv or [])
     if args.verificar:
         return verificar()
+    if args.liberar_postos:
+        return liberar_postos()
     if args.apagar_credenciais:
         return apagar_credenciais()
     if args.redefinir_admin:

@@ -127,3 +127,35 @@ def test_migracao_4(con, tmp_path):
     banco.salvar_pasta_rede(con, None)
     assert banco.pasta_rede(con) is None
     assert con.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 4
+
+
+@pytest.mark.parametrize("chave", ["", "..", "74014/../x", "7401a", "-1", "74014.json"])
+def test_chave_so_digitos(rede, chave):
+    for chamada in (lambda: rr.dono(rede, chave),
+                    lambda: rr.registrar(rede, chave, "A", "Doze"),
+                    lambda: rr.assumir(rede, chave, "A", "Doze"),
+                    lambda: rr.liberar(rede, chave, "A")):
+        with pytest.raises(ValueError):
+            chamada()
+    assert not rr.pasta_postos(rede).exists()
+
+
+def test_empate_de_data_desempata_por_id(rede):
+    _grava(rede, "74014.json", id_instalacao="A", registrado_em="2026-10-02T12:00:00+00:00")
+    _grava(rede, "74014-PC-B.json", id_instalacao="B", registrado_em="2026-10-02T09:00:00-03:00")
+    assert rr.dono(rede, "74014").id_instalacao == "A"
+
+
+def test_liberar_arquivo_sumido_nao_e_indisponivel(rede, monkeypatch):
+    rr.registrar(rede, "74014", "A", "Doze")
+    original = rr._ler
+    chamadas = []
+
+    def some(arq):
+        d = original(arq)
+        chamadas.append(1)
+        if len(chamadas) > 1:  # o OneDrive remove o arquivo entre a leitura e a remoção
+            arq.unlink()
+        return d
+    monkeypatch.setattr(rr, "_ler", some)
+    assert rr.liberar(rede, "74014", "A") is True

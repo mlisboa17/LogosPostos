@@ -13,6 +13,7 @@ import logging
 import re
 import secrets
 import sqlite3
+import tempfile
 import threading
 import time
 from dataclasses import dataclass
@@ -26,8 +27,8 @@ from fastapi.responses import FileResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
-from apps.match import (acesso, agendador, banco, coletas, credenciais, explicar, relatorio_xlsx,
-                        rotina, unidades)
+from apps.match import (acesso, agendador, banco, coletas, credenciais, explicar, registro_rede,
+                        relatorio_xlsx, rotina, unidades)
 from apps.match.acesso import Acao, Perfil
 from apps.match.canais import envio
 from src.modules.cash_reconciliation import config as config_cr
@@ -43,6 +44,10 @@ SEM_ACESSO = "Você não tem acesso a isto."
 FORM_EXPIRADO = "Formulário expirado ou inválido. Recarregue a página e tente de novo."
 AVISO_POSTO = "Cadastre cada posto em uma só máquina para evitar coleta duplicada."
 COLETA_EM_ANDAMENTO = "Já existe uma coleta em andamento. Aguarde terminar."
+MSG_CHAVE = ("Informe o código do webPosto ou o CNPJ para proteger este posto contra cadastro"
+             " em duas máquinas.")
+MSG_PASTA_INVALIDA = ("Pasta não encontrada ou sem permissão de escrita. Informe o caminho completo"
+                      " de uma pasta que todas as máquinas enxergam.")
 _RE_HORA = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 _MAX_IMPORTAR = 1_000_000
 
@@ -489,15 +494,73 @@ async def planilha(posto_id: int, dia: str = "", versao: int | None = None,
 
 # ---------------------------------------------------------------- Postos
 
+def _protecao(con, postos) -> dict[int, dict]:
+    """Situação de cada posto na pasta da rede: {posto_id: {"texto", "outra"}}."""
+    pasta = banco.pasta_rede(con)
+    if pasta is None:
+        return {}
+    meu = banco.id_instalacao(con)
+    res = {}
+    for p in postos:
+        chave = registro_rede.chave_posto(p)
+        d = None
+        if chave is not None:
+            try:
+                d = registro_rede.dono(pasta, chave)
+            except registro_rede.PastaIndisponivel:
+                return {q["id"]: {"texto": "Pasta da rede inacessível", "outra": False} for q in postos}
+        if d is None:
+            res[p["id"]] = {"texto": "Sem proteção", "outra": False}
+        elif d.id_instalacao == meu:
+            res[p["id"]] = {"texto": "Protegido (esta máquina)", "outra": False}
+        else:
+            res[p["id"]] = {"texto": f"Pertence à máquina {d.maquina}", "outra": True}
+    return res
+
+
 def _pagina_postos(ctx: Ctx, status: int = 200, **dados):
     if ctx.pode(Acao.CADASTRAR_POSTO):
         postos = banco.listar_postos(ctx.con, so_ativos=False)
     else:
         postos = [p for p in (banco.obter_posto(ctx.con, i) for i in ctx.postos()) if p]
-    itens = [{"posto": p, "pode_fontes": ctx.pode(Acao.TROCAR_CREDENCIAL, p["id"])} for p in postos]
+    protecao = _protecao(ctx.con, postos)
+    sem = {"texto": "Sem proteção", "outra": False}
+    itens = [{"posto": p, "pode_fontes": ctx.pode(Acao.TROCAR_CREDENCIAL, p["id"]),
+              "protecao": protecao.get(p["id"], sem)} for p in postos]
     units = Path(config_cr.__file__).parent / "units.json"
     return _pagina(ctx, "postos.html", status, postos=itens, aviso=AVISO_POSTO,
-                   pode_cadastrar=ctx.pode(Acao.CADASTRAR_POSTO), tem_units=units.exists(), **dados)
+                   pode_cadastrar=ctx.pode(Acao.CADASTRAR_POSTO), pode_assumir=ctx.pode(Acao.CONFIGURAR),
+                   pasta_ligada=banco.pasta_rede(ctx.con) is not None, tem_units=units.exists(), **dados)
+
+
+def _proteger(ctx: Ctx, chave: str | None, nome: str):
+    """Com a pasta da rede ligada, registra o posto nela ANTES de gravar no banco.
+
+    Devolve a página de recusa (nada foi gravado) ou None para seguir.
+    """
+    pasta = banco.pasta_rede(ctx.con)
+    if pasta is None:
+        return None
+    if chave is None:
+        return _pagina_postos(ctx, 400, erro=MSG_CHAVE)
+    try:
+        registro_rede.registrar(pasta, chave, banco.id_instalacao(ctx.con), nome)
+    except registro_rede.PostoDeOutraMaquina as exc:
+        return _pagina_postos(ctx, 409, erro=registro_rede.mensagem_bloqueio(exc.dono))
+    except registro_rede.PastaIndisponivel:
+        return _pagina_postos(ctx, 503, erro=registro_rede.MSG_INDISPONIVEL)
+    return None
+
+
+def _liberar_na_rede(con, chave: str | None) -> None:
+    """Remove o registro desta instalação; falha não impede desativar (só o tipo vai ao log)."""
+    pasta = banco.pasta_rede(con)
+    if pasta is None or chave is None:
+        return
+    try:
+        registro_rede.liberar(pasta, chave, banco.id_instalacao(con))
+    except Exception as exc:  # noqa: BLE001 - desativar nunca depende da pasta da rede
+        logger.warning("Liberar posto na pasta da rede falhou tipo=%s", type(exc).__name__)
 
 
 @router.get("/postos")
@@ -511,11 +574,18 @@ async def postos(ctx: Ctx = Depends(_ctx)):
 async def postos_gravar(ctx: Ctx = Depends(_ctx_post)):
     ctx.exigir(Acao.CADASTRAR_POSTO)
     f, acao = ctx.form, _txt(ctx.form, "acao")
+    posto = None
     if acao in ("desativar", "ativar", "editar"):
         pid = _int(f, "id")
-        _posto_ou_404(ctx, pid or 0)
+        posto = _posto_ou_404(ctx, pid or 0)
     if acao in ("desativar", "ativar"):
+        if acao == "ativar":
+            recusa = _proteger(ctx, registro_rede.chave_posto(posto), posto["nome"])
+            if recusa is not None:
+                return recusa
         banco.definir_posto_ativo(ctx.con, pid, acao == "ativar")
+        if acao == "desativar":
+            _liberar_na_rede(ctx.con, registro_rede.chave_posto(posto))
         acesso.registrar(ctx.con, ctx.uid, f"{acao}_posto", f"posto={pid}")
         return _ir("/postos")
     if acao not in ("novo", "editar"):
@@ -533,13 +603,52 @@ async def postos_gravar(ctx: Ctx = Depends(_ctx_post)):
     apelido = _txt(f, "apelido") or None
     if relatorio_xlsx.nome_em_uso(ctx.con, apelido, pid if acao == "editar" else None):
         return _pagina_postos(ctx, 400, erro=unidades.MSG_APELIDO)
-    dados = (nome, apelido, _txt(f, "cnpj") or None, codigo)
+    cnpj = _txt(f, "cnpj") or None
+    chave = registro_rede.chave_posto({"empresa_codigo_webposto": codigo, "cnpj": cnpj})
+    protege = acao == "novo" or bool(posto["ativo"])  # posto desativado não ocupa a pasta da rede
+    if protege:
+        recusa = _proteger(ctx, chave, nome)
+        if recusa is not None:
+            return recusa
+    dados = (nome, apelido, cnpj, codigo)
     if acao == "novo":
         pid = banco.inserir_posto(ctx.con, *dados)
     else:
         banco.atualizar_posto(ctx.con, pid, *dados)
+        antiga = registro_rede.chave_posto(posto)
+        if protege and antiga != chave:
+            _liberar_na_rede(ctx.con, antiga)
     acesso.registrar(ctx.con, ctx.uid, f"{acao}_posto", f"posto={pid}")
     return _ir("/postos")
+
+
+@router.post("/postos/{posto_id}/assumir")
+async def assumir_posto(posto_id: int, ctx: Ctx = Depends(_ctx_post)):
+    """A outra máquina quebrou ou foi trocada (ou este PC foi reinstalado): esta passa a coletar."""
+    ctx.exigir(Acao.CONFIGURAR)
+    posto = _posto_ou_404(ctx, posto_id)
+    pasta = banco.pasta_rede(ctx.con)
+    if pasta is None:
+        return _pagina_postos(ctx, 400,
+                              erro="Configure a Pasta da rede (em Agenda) antes de assumir um posto.")
+    chave = registro_rede.chave_posto(posto)
+    if chave is None:
+        return _pagina_postos(ctx, 400, erro=MSG_CHAVE)
+    if _txt(ctx.form, "confirmar") != "1":
+        return _pagina_postos(ctx, 400, erro="Marque a confirmação de que a outra máquina não coleta"
+                                             " mais este posto.")
+    try:
+        registro_rede.assumir(pasta, chave, banco.id_instalacao(ctx.con), posto["nome"])
+    except registro_rede.PastaIndisponivel:
+        return _pagina_postos(ctx, 503, erro=registro_rede.MSG_INDISPONIVEL)
+    acesso.registrar(ctx.con, ctx.uid, "assumir_posto", f"posto={posto_id}")
+    return _ir("/postos")
+
+
+def _texto_pulados(pulados: list[str]) -> str:
+    if not pulados:
+        return ""
+    return f" {len(pulados)} posto(s) não importado(s): já cadastrado(s) em outra máquina."
 
 
 @router.post("/postos/importar-logos")
@@ -548,16 +657,24 @@ async def importar_logos(ctx: Ctx = Depends(_ctx_post)):
     caminho = Path(config_cr.__file__).parent / "units.json"
     if not caminho.exists():
         return _pagina_postos(ctx, 404, erro="Arquivo units.json não encontrado nesta instalação.")
+    pulados: list[str] = []
     try:
-        n = unidades.importar_units_json(ctx.con, caminho)
+        n = unidades.importar_units_json(ctx.con, caminho, pulados=pulados)
     except unidades.CodigoInvalido as exc:  # mensagem própria, em português
         ctx.con.rollback()
         return _pagina_postos(ctx, 400, erro=f"units.json não importado: {exc}")
+    except registro_rede.PastaIndisponivel:
+        ctx.con.rollback()
+        return _pagina_postos(ctx, 503, erro=registro_rede.MSG_INDISPONIVEL)
+    except registro_rede.PostoDeOutraMaquina as exc:
+        ctx.con.rollback()
+        return _pagina_postos(ctx, 409, erro=registro_rede.mensagem_bloqueio(exc.dono))
     except (ValueError, KeyError, TypeError, sqlite3.Error):
         ctx.con.rollback()
         return _pagina_postos(ctx, 400, erro="Não foi possível ler o units.json.")
-    acesso.registrar(ctx.con, ctx.uid, "importar_units_json", f"criados={n}")
-    return _pagina_postos(ctx, mensagem=f"{n} posto(s) importado(s) do units.json.")
+    acesso.registrar(ctx.con, ctx.uid, "importar_units_json", f"criados={n} pulados={len(pulados)}")
+    mensagem = f"{n} posto(s) importado(s) do units.json.{_texto_pulados(pulados)}"
+    return _pagina_postos(ctx, mensagem=mensagem, pulados=pulados)
 
 
 @router.get("/config/exportar")
@@ -573,6 +690,7 @@ async def exportar(ctx: Ctx = Depends(_ctx)):
 async def importar(ctx: Ctx = Depends(_ctx_post)):
     ctx.exigir(Acao.CADASTRAR_POSTO)
     arquivo = ctx.form.get("arquivo")
+    pulados: list[str] = []
     try:
         if arquivo is None or isinstance(arquivo, str):
             raise ValueError
@@ -582,15 +700,22 @@ async def importar(ctx: Ctx = Depends(_ctx_post)):
         dados = json.loads(bruto.decode("utf-8"))
         if not isinstance(dados, dict):
             raise ValueError
-        n = unidades.importar_config(ctx.con, dados)
+        n = unidades.importar_config(ctx.con, dados, pulados=pulados)
     except unidades.CodigoInvalido as exc:  # mensagem própria, em português
         ctx.con.rollback()
         return _pagina_postos(ctx, 400, erro=f"Configuração não importada: {exc}")
+    except registro_rede.PastaIndisponivel:
+        ctx.con.rollback()
+        return _pagina_postos(ctx, 503, erro=registro_rede.MSG_INDISPONIVEL)
+    except registro_rede.PostoDeOutraMaquina as exc:
+        ctx.con.rollback()
+        return _pagina_postos(ctx, 409, erro=registro_rede.mensagem_bloqueio(exc.dono))
     except (ValueError, KeyError, TypeError, AttributeError, sqlite3.Error):
         ctx.con.rollback()
         return _pagina_postos(ctx, 400, erro="Arquivo de configuração inválido.")
-    acesso.registrar(ctx.con, ctx.uid, "importar_config", f"criados={n}")
-    return _pagina_postos(ctx, mensagem=f"{n} posto(s) importado(s). Cadastre as senhas em Fontes.")
+    acesso.registrar(ctx.con, ctx.uid, "importar_config", f"criados={n} pulados={len(pulados)}")
+    return _pagina_postos(ctx, mensagem=f"{n} posto(s) importado(s). Cadastre as senhas em Fontes."
+                                        f"{_texto_pulados(pulados)}", pulados=pulados)
 
 
 # ---------------------------------------------------------------- Fontes do posto
@@ -780,12 +905,20 @@ async def canal_testar(canal_id: int, ctx: Ctx = Depends(_ctx_post)):
 
 # ---------------------------------------------------------------- Agenda
 
-@router.get("/agenda")
-async def agenda(salvo: int = 0, ctx: Ctx = Depends(_ctx)):
-    ctx.exigir(Acao.CONFIGURAR)
+def _pagina_agenda(ctx: Ctx, status: int = 200, **dados):
     coleta, repescagem = rotina.horarios(ctx.con)
-    return _pagina(ctx, "agenda.html", hora_coleta=coleta, hora_repescagem=repescagem,
-                   mensagem="Horários salvos." if salvo else None)
+    pasta = banco.pasta_rede(ctx.con)
+    base = {"hora_coleta": coleta, "hora_repescagem": repescagem,
+            "pasta_rede": str(pasta) if pasta else "", "pasta_ligada": pasta is not None,
+            "conflitos": []}
+    return _pagina(ctx, "agenda.html", status, **{**base, **dados})
+
+
+@router.get("/agenda")
+async def agenda(salvo: int = 0, rede: int = 0, ctx: Ctx = Depends(_ctx)):
+    ctx.exigir(Acao.CONFIGURAR)
+    mensagem = "Horários salvos." if salvo else ("Pasta da rede desligada." if rede else None)
+    return _pagina_agenda(ctx, mensagem=mensagem)
 
 
 @router.post("/agenda")
@@ -793,14 +926,71 @@ async def agenda_gravar(ctx: Ctx = Depends(_ctx_post)):
     ctx.exigir(Acao.CONFIGURAR)
     coleta, repescagem = _txt(ctx.form, "hora_coleta"), _txt(ctx.form, "hora_repescagem")
     if not (_RE_HORA.match(coleta) and _RE_HORA.match(repescagem)):
-        return _pagina(ctx, "agenda.html", 400, hora_coleta=coleta, hora_repescagem=repescagem,
-                       erro="Horário inválido. Use HH:MM, por exemplo 06:00.")
+        return _pagina_agenda(ctx, 400, hora_coleta=coleta, hora_repescagem=repescagem,
+                              erro="Horário inválido. Use HH:MM, por exemplo 06:00.")
     banco.salvar_horarios(ctx.con, coleta, repescagem)
     sched = ctx.request.app.state.sched
     if sched is not None:
         agendador.reagendar(sched, ctx.request.app.state.con_factory)
     acesso.registrar(ctx.con, ctx.uid, "agenda", f"coleta={coleta} repescagem={repescagem}")
     return _ir("/agenda?salvo=1")
+
+
+def _pasta_gravavel(pasta: Path) -> bool:
+    """A pasta existe e aceita gravação: cria LogosMatch/postos e um arquivo temporário."""
+    try:
+        if not pasta.is_absolute() or not pasta.is_dir():
+            return False
+        alvo = registro_rede.pasta_postos(pasta)
+        alvo.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryFile(dir=alvo):
+            pass
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+@router.post("/pasta-rede")
+async def pasta_rede_gravar(ctx: Ctx = Depends(_ctx_post)):
+    ctx.exigir(Acao.CONFIGURAR)
+    acao, con = _txt(ctx.form, "acao"), ctx.con
+    if acao == "desligar":
+        banco.salvar_pasta_rede(con, None)
+        acesso.registrar(con, ctx.uid, "pasta_rede", "desligada")
+        return _ir("/agenda?rede=1")
+    if acao != "salvar":
+        raise Recusado(400, "Ação desconhecida.")
+    caminho = _txt(ctx.form, "caminho")
+    pasta = Path(caminho) if caminho else None
+    if pasta is None or not _pasta_gravavel(pasta):
+        return _pagina_agenda(ctx, 400, pasta_rede=caminho, erro=MSG_PASTA_INVALIDA)
+    banco.salvar_pasta_rede(con, str(pasta))
+    meu = banco.id_instalacao(con)
+    protegidos, sem_chave, conflitos = 0, 0, []
+    try:
+        for p in banco.listar_postos(con):  # só os ativos ocupam a pasta da rede
+            chave = registro_rede.chave_posto(p)
+            if chave is None:
+                sem_chave += 1
+                continue
+            try:
+                registro_rede.registrar(pasta, chave, meu, p["nome"])
+                protegidos += 1
+            except registro_rede.PostoDeOutraMaquina as exc:
+                banco.definir_posto_ativo(con, p["id"], False)
+                acesso.registrar(con, ctx.uid, "desativar_posto",
+                                 f"posto={p['id']} motivo=outra_maquina")
+                motivo = registro_rede.mensagem_bloqueio(exc.dono)
+                conflitos.append(f"{p['nome']} foi desativado: {motivo}")
+    except registro_rede.PastaIndisponivel:
+        acesso.registrar(con, ctx.uid, "pasta_rede", "ligada falha=indisponivel")
+        return _pagina_agenda(ctx, 503, conflitos=conflitos, erro=registro_rede.MSG_INDISPONIVEL)
+    acesso.registrar(con, ctx.uid, "pasta_rede",
+                     f"ligada protegidos={protegidos} conflitos={len(conflitos)} sem_chave={sem_chave}")
+    mensagem = f"Pasta da rede salva. {protegidos} posto(s) protegido(s)."
+    if sem_chave:
+        mensagem += f" {sem_chave} posto(s) sem código do webPosto nem CNPJ ficaram sem proteção."
+    return _pagina_agenda(ctx, conflitos=conflitos, mensagem=mensagem)
 
 
 # ---------------------------------------------------------------- Coleta em andamento / Histórico

@@ -1,2 +1,2 @@
 NOME = "Logos Match"
-VERSAO = "0.1.0"
+VERSAO = "0.2.0"

@@ -36,14 +36,22 @@ class PostoDeOutraMaquina(Exception):
 
 
 def chave_posto(posto) -> str | None:
-    if posto["empresa_codigo_webposto"] is not None:
-        return str(posto["empresa_codigo_webposto"])
-    digitos = re.sub(r"\D", "", posto["cnpj"] or "")
+    """empresaCodigo do webPosto ou, sem ele, o CNPJ só com dígitos. None: não dá para proteger."""
+    codigo = posto["empresa_codigo_webposto"]
+    if codigo is not None and re.fullmatch(r"[0-9]+", str(codigo)):
+        return str(codigo)
+    digitos = re.sub(r"[^0-9]", "", posto["cnpj"] or "")
     return digitos or None
 
 
 def pasta_postos(pasta: Path) -> Path:
     return Path(pasta) / "LogosMatch" / "postos"
+
+
+def _validar_chave(chave: str) -> str:
+    if not isinstance(chave, str) or not re.fullmatch(r"[0-9]+", chave):
+        raise ValueError("chave do posto deve ter só dígitos")
+    return chave
 
 
 def _agora() -> str:
@@ -59,6 +67,7 @@ def _checar(pasta: Path) -> None:
 
 
 def _arquivos(pasta: Path, chave: str) -> list[Path]:
+    _validar_chave(chave)
     alvo = pasta_postos(pasta)
     try:
         if not alvo.is_dir():
@@ -83,14 +92,16 @@ def _ler(arq: Path) -> Dono | None:
 
 
 def dono(pasta: Path, chave: str) -> Dono | None:
+    _validar_chave(chave)
     _checar(pasta)
     donos = [d for d in (_ler(a) for a in _arquivos(pasta, chave)) if d]
     if not donos:
         return None
-    return min(donos, key=lambda d: ler_data_hora(d.registrado_em))
+    return min(donos, key=lambda d: (ler_data_hora(d.registrado_em), d.id_instalacao))
 
 
 def _gravar(pasta: Path, chave: str, d: Dono) -> None:
+    _validar_chave(chave)
     alvo = pasta_postos(pasta)
     tmp = None
     try:
@@ -124,6 +135,7 @@ def registrar(pasta: Path, chave: str, id_instalacao: str, posto_nome: str) -> D
 
 
 def assumir(pasta: Path, chave: str, id_instalacao: str, posto_nome: str) -> Dono:
+    _validar_chave(chave)
     _checar(pasta)
     copias = _arquivos(pasta, chave)
     novo = _novo(id_instalacao, posto_nome, _agora())
@@ -146,7 +158,7 @@ def liberar(pasta: Path, chave: str, id_instalacao: str) -> bool:
         for a in _arquivos(pasta, chave):
             d = _ler(a)
             if d and d.id_instalacao == id_instalacao:
-                a.unlink()
+                a.unlink(missing_ok=True)
     except OSError:
         raise PastaIndisponivel(MSG_INDISPONIVEL) from None
     return True

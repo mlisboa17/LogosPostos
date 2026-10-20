@@ -395,3 +395,30 @@ def test_readme_cita_cli_para_redefinir_admin():
     texto = (Path(m.__file__).resolve().parent / "README.md").read_text(encoding="utf-8")
     assert "LogosMatch.exe --redefinir-admin" not in texto
     assert "LogosMatchCLI.exe --redefinir-admin" in texto
+
+
+def test_cli_liberar_postos(monkeypatch, capsys, tmp_path):
+    from apps.match import registro_rede as rr
+    monkeypatch.setattr(m, "instancia_unica", lambda: pytest.fail("não deve tomar o mutex"))
+    con = banco.conectar()
+    try:
+        assert m.main(["--liberar-postos"]) == 0
+        assert capsys.readouterr().out.strip() == "Pasta da rede não configurada."
+        rede = tmp_path / "rede"
+        rede.mkdir()
+        banco.salvar_pasta_rede(con, str(rede))
+        meu = banco.id_instalacao(con)
+        for nome, codigo in (("A", 1), ("B", 2), ("C", 3)):
+            banco.inserir_posto(con, nome, nome, None, codigo)
+        rr.registrar(rede, "1", meu, "A")
+        rr.registrar(rede, "2", meu, "B")
+        rr.registrar(rede, "3", "OUTRA", "C")
+        assert m.main(["--liberar-postos"]) == 0
+        assert capsys.readouterr().out.strip() == "2 posto(s) liberado(s) na pasta da rede."
+        assert rr.dono(rede, "1") is None and rr.dono(rede, "2") is None
+        assert rr.dono(rede, "3").id_instalacao == "OUTRA"
+        banco.salvar_pasta_rede(con, str(tmp_path / "offline"))
+        assert m.main(["--liberar-postos"]) == 1
+        assert capsys.readouterr().out.strip() == rr.MSG_INDISPONIVEL
+    finally:
+        con.close()

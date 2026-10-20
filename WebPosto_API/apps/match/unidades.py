@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Callable
 
-from apps.match import banco, credenciais, relatorio_xlsx
+from apps.match import banco, credenciais, registro_rede, relatorio_xlsx
 from src.modules.cash_reconciliation.config import definir_provedor_unidades
 from src.modules.cash_reconciliation.domain.models import Unidade
 from src.shared.segredos import definir_resolvedor
@@ -141,21 +141,74 @@ def _validar_apelidos(con, novos: list[str | None]) -> None:
         prox += 1
 
 
-def importar_units_json(con, caminho: Path) -> int:
+def _de_outra_maquina(con, candidatos: list[tuple[int, str | None, str]],
+                      pulados: list[str] | None) -> set[int]:
+    """Índices dos postos novos já registrados por outra máquina na pasta da rede (só leitura).
+
+    Pasta inacessível levanta `PastaIndisponivel` antes de qualquer gravação.
+    """
+    pasta = banco.pasta_rede(con)
+    if pasta is None:
+        return set()
+    meu = banco.id_instalacao(con)
+    fora = set()
+    for i, chave, nome in candidatos:
+        if chave is None:
+            continue
+        d = registro_rede.dono(pasta, chave)
+        if d and d.id_instalacao != meu:
+            fora.add(i)
+            if pulados is not None:
+                pulados.append(f"{nome}: {registro_rede.mensagem_bloqueio(d)}")
+    return fora
+
+
+def _registrar_na_rede(con, candidatos: list[tuple[int, str | None, str]]) -> None:
+    """Registra os postos novos na pasta da rede antes de inseri-los; se falhar, desfaz o que fez."""
+    pasta = banco.pasta_rede(con)
+    if pasta is None:
+        return
+    meu = banco.id_instalacao(con)
+    feitos = []
+    try:
+        for _i, chave, nome in candidatos:
+            if chave is not None:
+                registro_rede.registrar(pasta, chave, meu, nome)
+                feitos.append(chave)
+    except (registro_rede.PastaIndisponivel, registro_rede.PostoDeOutraMaquina):
+        for chave in feitos:
+            try:
+                registro_rede.liberar(pasta, chave, meu)
+            except registro_rede.PastaIndisponivel:
+                pass
+        raise
+
+
+def _chave(codigo, cnpj) -> str | None:
+    return registro_rede.chave_posto({"empresa_codigo_webposto": codigo, "cnpj": cnpj})
+
+
+def importar_units_json(con, caminho: Path, *, pulados: list[str] | None = None) -> int:
+    """Importa os postos do units.json. `pulados` recebe os que pertencem a outra máquina."""
     dados = json.loads(Path(caminho).read_text(encoding="utf-8"))
     existentes = {p["empresa_codigo_webposto"] for p in banco.listar_postos(con, so_ativos=False)}
     novos: set[int] = set()
-    for u in dados.get("unidades", []):  # valida tudo antes de gravar qualquer posto
+    unidades_ = dados.get("unidades", [])
+    for u in unidades_:  # valida tudo antes de gravar qualquer posto
         codigo = u["empresa_codigo"]
         if codigo is None or codigo not in existentes:
             validar_codigo(con, codigo, reservados=novos)
             novos.add(codigo)
-    _validar_apelidos(con, [u.get("apelido") for u in dados.get("unidades", [])
-                            if u["empresa_codigo"] not in existentes])
+    candidatos = [(i, _chave(u["empresa_codigo"], None), u["nome"]) for i, u in enumerate(unidades_)
+                  if u["empresa_codigo"] not in existentes]
+    fora = _de_outra_maquina(con, candidatos, pulados)
+    candidatos = [c for c in candidatos if c[0] not in fora]
+    _validar_apelidos(con, [unidades_[i].get("apelido") for i, _c, _n in candidatos])
+    _registrar_na_rede(con, candidatos)
     criados = 0
-    for u in dados.get("unidades", []):
+    for i, u in enumerate(unidades_):
         codigo = u["empresa_codigo"]
-        if codigo in existentes:
+        if codigo in existentes or i in fora:
             continue
         pid = banco.inserir_posto(con, u["nome"], u.get("apelido"), None, codigo)
         adm = u.get("administradoras", {})
@@ -184,22 +237,31 @@ def exportar_config(con) -> dict:
     return {"postos": postos, "canais": canais}
 
 
-def importar_config(con, dados: dict) -> int:
+def importar_config(con, dados: dict, *, pulados: list[str] | None = None) -> int:
+    """Importa postos e canais. `pulados` recebe os postos que pertencem a outra máquina."""
     existentes = {(p["nome"], p["empresa_codigo_webposto"])
                   for p in banco.listar_postos(con, so_ativos=False)}
     novos: set[int] = set()
-    for p in dados.get("postos", []):  # valida tudo antes de gravar qualquer posto
+    postos = dados.get("postos", [])
+    for p in postos:  # valida tudo antes de gravar qualquer posto
         codigo = p.get("empresa_codigo_webposto")
         if (p["nome"], codigo) not in existentes:
             validar_codigo(con, codigo, reservados=novos)
             if codigo is not None:
                 novos.add(codigo)
-    _validar_apelidos(con, [p.get("apelido") for p in dados.get("postos", [])
-                            if (p["nome"], p.get("empresa_codigo_webposto")) not in existentes])
+    # posto importado desativado não ocupa a pasta da rede: a reativação confere
+    ativos = [(i, _chave(p.get("empresa_codigo_webposto"), p.get("cnpj")), p["nome"])
+              for i, p in enumerate(postos)
+              if (p["nome"], p.get("empresa_codigo_webposto")) not in existentes and p.get("ativo", True)]
+    fora = _de_outra_maquina(con, ativos, pulados)
+    _validar_apelidos(con, [p.get("apelido") for i, p in enumerate(postos)
+                            if (p["nome"], p.get("empresa_codigo_webposto")) not in existentes
+                            and i not in fora])
+    _registrar_na_rede(con, [c for c in ativos if c[0] not in fora])
     criados = 0
-    for p in dados.get("postos", []):
+    for i, p in enumerate(postos):
         chave = (p["nome"], p.get("empresa_codigo_webposto"))
-        if chave in existentes:
+        if chave in existentes or i in fora:
             continue
         pid = banco.inserir_posto(con, p["nome"], p.get("apelido"), p.get("cnpj"),
                                   p.get("empresa_codigo_webposto"))

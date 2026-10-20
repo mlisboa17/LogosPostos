@@ -329,3 +329,32 @@ def test_ao_progresso_com_excecao_nao_quebra_coleta(con, adaptadores):
         raise RuntimeError("segredo-xyz")
     res = asyncio.run(coletas.coletar_posto(con, pid, DIA, ao_progresso=explode))
     assert {r.fonte for r in res} == {"premmia", "pagbank_edi"}
+
+
+def test_coleta_nao_roda_posto_de_outra_maquina(con, adaptadores, tmp_path):
+    import socket
+
+    from apps.match import registro_rede as rr
+    pid = _posto(con)
+    rede = tmp_path / "rede"
+    rede.mkdir()
+    banco.salvar_pasta_rede(con, str(rede))
+    rr.registrar(rede, "74014", "OUTRA", "Doze")
+    res = _rodar(con, pid)
+    msg = f"O posto Doze agora é coletado pela máquina {socket.gethostname()}."
+    assert {f: (r.situacao, r.mensagem) for f, r in res.items()} == {
+        "premmia": ("erro", msg), "pagbank_edi": ("erro", msg)}
+    chamadas = adaptadores[0]
+    assert chamadas["coletar"] == [] and chamadas["pagbank"] == [] and chamadas["contexto"] == 0
+    rr.assumir(rede, "74014", banco.id_instalacao(con), "Doze")
+    assert _rodar(con, pid)["pagbank_edi"].situacao == "ok"
+
+
+def test_coleta_segue_com_pasta_indisponivel(con, adaptadores, tmp_path):
+    pid = _posto(con)
+    banco.salvar_pasta_rede(con, str(tmp_path / "offline"))
+    res = _rodar(con, pid)
+    assert res["pagbank_edi"].situacao == "ok" and res["premmia"].situacao == "ok"
+    for r in res.values():
+        assert r.mensagem.endswith("\nNão foi possível conferir a pasta da rede.")
+    assert adaptadores[0]["coletar"] and adaptadores[0]["pagbank"]
