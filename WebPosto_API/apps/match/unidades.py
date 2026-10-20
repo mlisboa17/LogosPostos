@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from contextlib import contextmanager
 from pathlib import Path
@@ -11,6 +12,8 @@ from apps.match import banco, credenciais, registro_rede, relatorio_xlsx
 from src.modules.cash_reconciliation.config import definir_provedor_unidades
 from src.modules.cash_reconciliation.domain.models import Unidade
 from src.shared.segredos import definir_resolvedor
+
+logger = logging.getLogger(__name__)
 
 _RE_LC = re.compile(r"^LC_(\d+)_(WEBPOSTO|PREMMIA)_(CHAVE|USUARIO|SENHA)$")
 _RE_PAGBANK = re.compile(r"^PAGBANK_(USER|TOKEN)_(-?\d+)$")
@@ -141,46 +144,112 @@ def _validar_apelidos(con, novos: list[str | None]) -> None:
         prox += 1
 
 
+_TIPOS_FONTE = ("premmia", "pagbank_edi", "webposto")
+
+
+def _texto_ou_nada(v) -> bool:
+    return v is None or isinstance(v, str)
+
+
+def _validar_formato_posto(p) -> None:
+    """Formato de um posto de importar_config (antes de tocar a pasta da rede ou o banco)."""
+    if not isinstance(p, dict) or not isinstance(p.get("nome"), str) or not p["nome"].strip():
+        raise ValueError("posto inválido")
+    if not (_texto_ou_nada(p.get("apelido")) and _texto_ou_nada(p.get("cnpj"))
+            and isinstance(p.get("ativo", True), bool) and isinstance(p.get("fontes", []), list)):
+        raise ValueError("posto inválido")
+    for f in p.get("fontes", []):
+        if (not isinstance(f, dict) or f.get("tipo") not in _TIPOS_FONTE
+                or not isinstance(f.get("ativo", False), bool)
+                or not isinstance(f.get("config", {}), dict)):
+            raise ValueError("fonte inválida")
+
+
+def _validar_formato_unidade(u) -> None:
+    """Formato de uma unidade do units.json (antes de tocar a pasta da rede ou o banco)."""
+    if not isinstance(u, dict) or not isinstance(u.get("nome"), str) or not u["nome"].strip():
+        raise ValueError("unidade inválida")
+    adq = u.get("adquirentes", [])
+    if (not _texto_ou_nada(u.get("apelido")) or not isinstance(u.get("administradoras", {}), dict)
+            or not isinstance(adq, list) or not all(isinstance(a, dict) for a in adq)):
+        raise ValueError("unidade inválida")
+
+
+def _validar_formato_canais(canais) -> None:
+    if not isinstance(canais, list) or any(
+            not isinstance(c, dict) or not isinstance(c.get("tipo"), str)
+            or not isinstance(c.get("config", {}), dict) for c in canais):
+        raise ValueError("canal inválido")
+
+
 def _de_outra_maquina(con, candidatos: list[tuple[int, str | None, str]],
-                      pulados: list[str] | None) -> set[int]:
-    """Índices dos postos novos já registrados por outra máquina na pasta da rede (só leitura).
+                      pulados: list[str] | None) -> tuple[set[int], set[int]]:
+    """(postos de outra máquina, postos sem dono) entre os novos, lendo a pasta da rede.
 
     Pasta inacessível levanta `PastaIndisponivel` antes de qualquer gravação.
     """
     pasta = banco.pasta_rede(con)
     if pasta is None:
-        return set()
+        return set(), set()
     meu = banco.id_instalacao(con)
-    fora = set()
+    fora, livres = set(), set()
     for i, chave, nome in candidatos:
         if chave is None:
             continue
         d = registro_rede.dono(pasta, chave)
-        if d and d.id_instalacao != meu:
+        if d is None:
+            livres.add(i)
+        elif d.id_instalacao != meu:
             fora.add(i)
             if pulados is not None:
                 pulados.append(f"{nome}: {registro_rede.mensagem_bloqueio(d)}")
-    return fora
+    return fora, livres
 
 
-def _registrar_na_rede(con, candidatos: list[tuple[int, str | None, str]]) -> None:
-    """Registra os postos novos na pasta da rede antes de inseri-los; se falhar, desfaz o que fez."""
+def _desfazer_na_rede(con, chaves: list[str]) -> None:
+    """Libera chaves registradas por esta importação (nunca as que já eram desta máquina)."""
     pasta = banco.pasta_rede(con)
     if pasta is None:
         return
     meu = banco.id_instalacao(con)
-    feitos = []
+    for chave in chaves:
+        try:
+            registro_rede.liberar(pasta, chave, meu)
+        except Exception as exc:  # noqa: BLE001 - o erro original é o que importa
+            logger.warning("Desfazer registro na pasta da rede falhou tipo=%s", type(exc).__name__)
+
+
+def _registrar_na_rede(con, candidatos: list[tuple[int, str | None, str]],
+                       livres: set[int]) -> dict[int, str]:
+    """Registra os postos novos na pasta da rede antes de inseri-los.
+
+    Devolve {índice: chave} dos que estavam sem dono (os únicos que um desfazer pode liberar).
+    Se falhar no meio, libera esses e relança.
+    """
+    pasta = banco.pasta_rede(con)
+    if pasta is None:
+        return {}
+    meu = banco.id_instalacao(con)
+    novos: dict[int, str] = {}
     try:
-        for _i, chave, nome in candidatos:
+        for i, chave, nome in candidatos:
             if chave is not None:
                 registro_rede.registrar(pasta, chave, meu, nome)
-                feitos.append(chave)
-    except (registro_rede.PastaIndisponivel, registro_rede.PostoDeOutraMaquina):
-        for chave in feitos:
-            try:
-                registro_rede.liberar(pasta, chave, meu)
-            except registro_rede.PastaIndisponivel:
-                pass
+                if i in livres:
+                    novos[i] = chave
+    except Exception:
+        _desfazer_na_rede(con, list(novos.values()))
+        raise
+    return novos
+
+
+@contextmanager
+def _desfazer_se_falhar(con, registrados: dict[int, str], inseridos: set[int]):
+    """Falha no meio dos inserts: libera na rede as chaves dos postos que não chegaram ao banco."""
+    try:
+        yield
+    except Exception:
+        _desfazer_na_rede(con, [c for i, c in registrados.items() if i not in inseridos])
         raise
 
 
@@ -194,6 +263,10 @@ def importar_units_json(con, caminho: Path, *, pulados: list[str] | None = None)
     existentes = {p["empresa_codigo_webposto"] for p in banco.listar_postos(con, so_ativos=False)}
     novos: set[int] = set()
     unidades_ = dados.get("unidades", [])
+    if not isinstance(unidades_, list):
+        raise ValueError("unidades inválidas")
+    for u in unidades_:
+        _validar_formato_unidade(u)
     for u in unidades_:  # valida tudo antes de gravar qualquer posto
         codigo = u["empresa_codigo"]
         if codigo is None or codigo not in existentes:
@@ -201,25 +274,27 @@ def importar_units_json(con, caminho: Path, *, pulados: list[str] | None = None)
             novos.add(codigo)
     candidatos = [(i, _chave(u["empresa_codigo"], None), u["nome"]) for i, u in enumerate(unidades_)
                   if u["empresa_codigo"] not in existentes]
-    fora = _de_outra_maquina(con, candidatos, pulados)
+    fora, livres = _de_outra_maquina(con, candidatos, pulados)
     candidatos = [c for c in candidatos if c[0] not in fora]
     _validar_apelidos(con, [unidades_[i].get("apelido") for i, _c, _n in candidatos])
-    _registrar_na_rede(con, candidatos)
-    criados = 0
-    for i, u in enumerate(unidades_):
-        codigo = u["empresa_codigo"]
-        if codigo in existentes or i in fora:
-            continue
-        pid = banco.inserir_posto(con, u["nome"], u.get("apelido"), None, codigo)
-        adm = u.get("administradoras", {})
-        tem_pagbank = any(a.get("nome") == "PAGBANK" for a in u.get("adquirentes", []))
-        if u.get("premmia_ativo") or u.get("premmia_usuario_env") or u.get("premmia_senha_env"):
-            banco.salvar_fonte(con, pid, "premmia", False, {"administradoras": adm})
-        if tem_pagbank:
-            banco.salvar_fonte(con, pid, "pagbank_edi", False, {"administradoras": adm})
-        banco.salvar_fonte(con, pid, "webposto", False, {})
-        existentes.add(codigo)
-        criados += 1
+    registrados = _registrar_na_rede(con, candidatos, livres)
+    criados, inseridos = 0, set()
+    with _desfazer_se_falhar(con, registrados, inseridos):
+        for i, u in enumerate(unidades_):
+            codigo = u["empresa_codigo"]
+            if codigo in existentes or i in fora:
+                continue
+            pid = banco.inserir_posto(con, u["nome"], u.get("apelido"), None, codigo)
+            inseridos.add(i)
+            adm = u.get("administradoras", {})
+            tem_pagbank = any(a.get("nome") == "PAGBANK" for a in u.get("adquirentes", []))
+            if u.get("premmia_ativo") or u.get("premmia_usuario_env") or u.get("premmia_senha_env"):
+                banco.salvar_fonte(con, pid, "premmia", False, {"administradoras": adm})
+            if tem_pagbank:
+                banco.salvar_fonte(con, pid, "pagbank_edi", False, {"administradoras": adm})
+            banco.salvar_fonte(con, pid, "webposto", False, {})
+            existentes.add(codigo)
+            criados += 1
     return criados
 
 
@@ -243,6 +318,11 @@ def importar_config(con, dados: dict, *, pulados: list[str] | None = None) -> in
                   for p in banco.listar_postos(con, so_ativos=False)}
     novos: set[int] = set()
     postos = dados.get("postos", [])
+    if not isinstance(postos, list):
+        raise ValueError("postos inválidos")
+    for p in postos:
+        _validar_formato_posto(p)
+    _validar_formato_canais(dados.get("canais", []))
     for p in postos:  # valida tudo antes de gravar qualquer posto
         codigo = p.get("empresa_codigo_webposto")
         if (p["nome"], codigo) not in existentes:
@@ -253,24 +333,26 @@ def importar_config(con, dados: dict, *, pulados: list[str] | None = None) -> in
     ativos = [(i, _chave(p.get("empresa_codigo_webposto"), p.get("cnpj")), p["nome"])
               for i, p in enumerate(postos)
               if (p["nome"], p.get("empresa_codigo_webposto")) not in existentes and p.get("ativo", True)]
-    fora = _de_outra_maquina(con, ativos, pulados)
+    fora, livres = _de_outra_maquina(con, ativos, pulados)
     _validar_apelidos(con, [p.get("apelido") for i, p in enumerate(postos)
                             if (p["nome"], p.get("empresa_codigo_webposto")) not in existentes
                             and i not in fora])
-    _registrar_na_rede(con, [c for c in ativos if c[0] not in fora])
-    criados = 0
-    for i, p in enumerate(postos):
-        chave = (p["nome"], p.get("empresa_codigo_webposto"))
-        if chave in existentes or i in fora:
-            continue
-        pid = banco.inserir_posto(con, p["nome"], p.get("apelido"), p.get("cnpj"),
-                                  p.get("empresa_codigo_webposto"))
-        if not p.get("ativo", True):
-            con.execute("UPDATE posto SET ativo=0 WHERE id=?", (pid,))
-        for f in p.get("fontes", []):
-            banco.salvar_fonte(con, pid, f["tipo"], f.get("ativo", False), f.get("config", {}))
-        existentes.add(chave)
-        criados += 1
+    registrados = _registrar_na_rede(con, [c for c in ativos if c[0] not in fora], livres)
+    criados, inseridos = 0, set()
+    with _desfazer_se_falhar(con, registrados, inseridos):
+        for i, p in enumerate(postos):
+            chave = (p["nome"], p.get("empresa_codigo_webposto"))
+            if chave in existentes or i in fora:
+                continue
+            pid = banco.inserir_posto(con, p["nome"], p.get("apelido"), p.get("cnpj"),
+                                      p.get("empresa_codigo_webposto"))
+            inseridos.add(i)
+            if not p.get("ativo", True):
+                con.execute("UPDATE posto SET ativo=0 WHERE id=?", (pid,))
+            for f in p.get("fontes", []):
+                banco.salvar_fonte(con, pid, f["tipo"], f.get("ativo", False), f.get("config", {}))
+            existentes.add(chave)
+            criados += 1
     canais_existentes = {(c["tipo"], c["config_json"])
                          for c in con.execute("SELECT tipo, config_json FROM canal")}
     for c in dados.get("canais", []):

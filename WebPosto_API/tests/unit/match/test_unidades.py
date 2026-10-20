@@ -244,3 +244,85 @@ def test_importar_pasta_indisponivel_nao_grava(con, tmp_path):
     with pytest.raises(rr.PastaIndisponivel):
         unidades.importar_units_json(con, UNITS)
     assert banco.listar_postos(con, so_ativos=False) == []
+
+
+def _rede_on(con, tmp_path):
+    rede = tmp_path / "rede"
+    rede.mkdir(exist_ok=True)
+    banco.salvar_pasta_rede(con, str(rede))
+    return rede
+
+
+@pytest.mark.parametrize("fontes", [[{}], [{"tipo": "inexistente"}], [{"tipo": "premmia", "config": []}],
+                                    ["premmia"]])
+def test_importar_fonte_invalida_nao_registra_na_rede(con, tmp_path, fontes):
+    from apps.match import registro_rede as rr
+    rede = _rede_on(con, tmp_path)
+    dados = {"postos": [{"nome": "A", "empresa_codigo_webposto": 20},
+                        {"nome": "B", "empresa_codigo_webposto": 21, "fontes": fontes}]}
+    with pytest.raises((ValueError, KeyError, TypeError)):
+        unidades.importar_config(con, dados)
+    assert banco.listar_postos(con, so_ativos=False) == []
+    assert rr.dono(rede, "20") is None and rr.dono(rede, "21") is None
+
+
+def test_importar_units_adquirente_invalida_nao_registra(con, tmp_path):
+    from apps.match import registro_rede as rr
+    rede = _rede_on(con, tmp_path)
+    arq = tmp_path / "u.json"
+    arq.write_text(json.dumps({"unidades": [
+        {"empresa_codigo": 20, "nome": "A"},
+        {"empresa_codigo": 21, "nome": "B", "adquirentes": ["PAGBANK"]}]}), encoding="utf-8")
+    with pytest.raises((ValueError, KeyError, TypeError)):
+        unidades.importar_units_json(con, arq)
+    assert banco.listar_postos(con, so_ativos=False) == []
+    assert rr.dono(rede, "20") is None and rr.dono(rede, "21") is None
+
+
+def test_importar_falha_no_insert_libera_so_os_nao_gravados(con, tmp_path, monkeypatch):
+    import sqlite3
+
+    from apps.match import registro_rede as rr
+    rede = _rede_on(con, tmp_path)
+    original = banco.salvar_fonte
+
+    def salvar(c, pid, tipo, ativo, config):
+        if pid > 1:
+            raise sqlite3.OperationalError("disco cheio")
+        return original(c, pid, tipo, ativo, config)
+    monkeypatch.setattr(banco, "salvar_fonte", salvar)
+    dados = {"postos": [{"nome": "A", "empresa_codigo_webposto": 20, "fontes": [{"tipo": "webposto"}]},
+                        {"nome": "B", "empresa_codigo_webposto": 21, "fontes": [{"tipo": "webposto"}]},
+                        {"nome": "C", "empresa_codigo_webposto": 22}]}
+    with pytest.raises(sqlite3.Error):
+        unidades.importar_config(con, dados)
+    gravados = {p["empresa_codigo_webposto"] for p in banco.listar_postos(con, so_ativos=False)}
+    meu = banco.id_instalacao(con)
+    for codigo in (20, 21, 22):
+        d = rr.dono(rede, str(codigo))
+        if codigo in gravados:
+            assert d is not None and d.id_instalacao == meu
+        else:
+            assert d is None, codigo
+    assert 22 not in gravados
+
+
+def test_importar_rollback_nao_libera_chave_que_ja_era_desta_maquina(con, tmp_path, monkeypatch):
+    from apps.match import registro_rede as rr
+    rede = _rede_on(con, tmp_path)
+    meu = banco.id_instalacao(con)
+    banco.inserir_posto(con, "X", "X", "12.345.678/0001-90", None)
+    rr.registrar(rede, "12345678000190", meu, "X")
+    original = rr.registrar
+
+    def registrar(pasta, chave, id_instalacao, nome):
+        if chave == "40":
+            raise rr.PastaIndisponivel(rr.MSG_INDISPONIVEL)
+        return original(pasta, chave, id_instalacao, nome)
+    monkeypatch.setattr(rr, "registrar", registrar)
+    dados = {"postos": [{"nome": "Y", "cnpj": "12.345.678/0001-90"},
+                        {"nome": "Z", "empresa_codigo_webposto": 40}]}
+    with pytest.raises(rr.PastaIndisponivel):
+        unidades.importar_config(con, dados)
+    assert rr.dono(rede, "12345678000190").id_instalacao == meu
+    assert [p["nome"] for p in banco.listar_postos(con, so_ativos=False)] == ["X"]

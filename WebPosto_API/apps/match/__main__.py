@@ -202,11 +202,13 @@ def liberar_postos() -> int:
         meu = banco.id_instalacao(con)
         liberados = 0
         try:
+            if not pasta.is_dir():  # inacessível mesmo sem posto com chave
+                raise registro_rede.PastaIndisponivel(registro_rede.MSG_INDISPONIVEL)
             for posto in banco.listar_postos(con, so_ativos=False):
                 chave = registro_rede.chave_posto(posto)
                 if chave is not None and registro_rede.liberar(pasta, chave, meu):
                     liberados += 1
-        except registro_rede.PastaIndisponivel:
+        except (registro_rede.PastaIndisponivel, OSError):
             print(registro_rede.MSG_INDISPONIVEL)
             return 1
     finally:

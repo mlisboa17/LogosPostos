@@ -564,10 +564,11 @@ def _liberar_na_rede(con, chave: str | None) -> None:
 
 
 @router.get("/postos")
-async def postos(ctx: Ctx = Depends(_ctx)):
+async def postos(assumido: int = 0, ctx: Ctx = Depends(_ctx)):
     if not (ctx.pode(Acao.CADASTRAR_POSTO) or ctx.pode(Acao.TROCAR_CREDENCIAL)):
         raise Recusado(403, SEM_ACESSO)
-    return _pagina_postos(ctx)
+    mensagem = "Posto assumido. Clique em Ativar para voltar a coletar." if assumido else None
+    return _pagina_postos(ctx, mensagem=mensagem)
 
 
 @router.post("/postos")
@@ -638,11 +639,13 @@ async def assumir_posto(posto_id: int, ctx: Ctx = Depends(_ctx_post)):
         return _pagina_postos(ctx, 400, erro="Marque a confirmação de que a outra máquina não coleta"
                                              " mais este posto.")
     try:
+        anterior = registro_rede.dono(pasta, chave)
         registro_rede.assumir(pasta, chave, banco.id_instalacao(ctx.con), posto["nome"])
     except registro_rede.PastaIndisponivel:
         return _pagina_postos(ctx, 503, erro=registro_rede.MSG_INDISPONIVEL)
-    acesso.registrar(ctx.con, ctx.uid, "assumir_posto", f"posto={posto_id}")
-    return _ir("/postos")
+    antes = anterior.maquina if anterior else "-"
+    acesso.registrar(ctx.con, ctx.uid, "assumir_posto", f"posto={posto_id};antes={antes}")
+    return _ir("/postos?assumido=1")
 
 
 def _texto_pulados(pulados: list[str]) -> str:

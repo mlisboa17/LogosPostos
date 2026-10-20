@@ -915,7 +915,7 @@ def test_assumir_posto_admin_e_log(cli, admin, con, tmp_path):
     assert r.status_code == 303
     assert rr.dono(rede, "74014").id_instalacao == banco.id_instalacao(con)
     log = con.execute("SELECT usuario_id, detalhe FROM log_acesso WHERE acao='assumir_posto'").fetchall()
-    assert [(x["usuario_id"], x["detalhe"]) for x in log] == [(admin, f"posto={pid}")]
+    assert [(x["usuario_id"], x["detalhe"]) for x in log] == [(admin, f"posto={pid};antes={socket.gethostname()}")]
 
 
 def test_reinstalado_mostra_mesma_maquina_e_assume(cli, admin, con, tmp_path):
@@ -948,3 +948,17 @@ def test_desativar_libera(cli, admin, con, tmp_path):
     banco.salvar_pasta_rede(con, str(tmp_path / "pasta-offline"))
     r = cli.post("/postos", data={"csrf": tok, "acao": "desativar", "id": str(outro)})
     assert r.status_code == 303 and not banco.obter_posto(con, outro)["ativo"]
+
+
+def test_assumir_mostra_aviso_e_loga_maquina_anterior(cli, admin, con, tmp_path):
+    rede = _rede(con, tmp_path)
+    pid = _posto(con)
+    banco.definir_posto_ativo(con, pid, False)
+    rr.registrar(rede, "74014", "OUTRA", "Doze")
+    tok = _logado(cli)
+    r = cli.post(f"/postos/{pid}/assumir", data={"csrf": tok, "confirmar": "1"})
+    assert r.status_code == 303
+    r = cli.get(r.headers["location"])
+    assert "Posto assumido. Clique em Ativar para voltar a coletar." in _texto(r)
+    log = con.execute("SELECT detalhe FROM log_acesso WHERE acao='assumir_posto'").fetchone()
+    assert log["detalhe"] == f"posto={pid};antes={socket.gethostname()}"

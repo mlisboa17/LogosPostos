@@ -422,3 +422,14 @@ def test_cli_liberar_postos(monkeypatch, capsys, tmp_path):
         assert capsys.readouterr().out.strip() == rr.MSG_INDISPONIVEL
     finally:
         con.close()
+
+
+def test_cli_liberar_postos_pasta_inacessivel_sem_postos(monkeypatch, capsys, tmp_path):
+    from apps.match import registro_rede as rr
+    con = banco.conectar()
+    try:
+        banco.salvar_pasta_rede(con, str(tmp_path / "offline"))
+    finally:
+        con.close()
+    assert m.main(["--liberar-postos"]) == 1
+    assert capsys.readouterr().out.strip() == rr.MSG_INDISPONIVEL

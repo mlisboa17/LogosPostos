@@ -47,6 +47,7 @@ máquina são desativados e listados com o motivo. "Desligar" volta a valer só 
   como "Pertence à máquina <o mesmo nome>").
 - Desativar um posto ou desinstalar com "Apagar também os dados" remove da pasta os registros
   desta instalação (`LogosMatchCLI.exe --liberar-postos` faz o mesmo à mão).
+- Desligar ou trocar a Pasta da rede não remove os registros desta máquina; use 'Assumir posto' na outra máquina se precisar.
 
 ## Onde ficam dados e segredos
 - Dados e logs: `%LOCALAPPDATA%\LogosMatch` (banco SQLite, `logs\match.log`; mude com `LOGOS_MATCH_DIR`).
