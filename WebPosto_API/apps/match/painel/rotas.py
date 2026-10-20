@@ -16,7 +16,7 @@ import sqlite3
 import threading
 import time
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 
@@ -219,7 +219,7 @@ def _ints(form, nome: str) -> list[int]:
 
 
 def _menu(ctx: Ctx) -> list[tuple[str, str]]:
-    itens = [("/", "Hoje")]
+    itens = [("/", "Hoje"), ("/coleta", "Coleta")]
     if ctx.pode(Acao.CADASTRAR_POSTO) or ctx.pode(Acao.TROCAR_CREDENCIAL):
         itens.append(("/postos", "Postos"))
     if ctx.pode(Acao.CONFIGURAR):
@@ -417,11 +417,15 @@ async def coletar(posto_id: int, visivel: int = 0, ctx: Ctx = Depends(_ctx_post)
     if not posto["ativo"]:
         raise Recusado(400, "Este posto está desativado.")
     if rotina.em_andamento():
-        return _pagina_hoje(ctx, erro=COLETA_EM_ANDAMENTO)
-    _em_segundo_plano("coleta", _coletar, ctx.request.app.state.con_factory, posto_id, bool(visivel),
-                     ctx.uid)
+        return _ir("/coleta?ja=1")
+    t = _em_segundo_plano("coleta", _coletar, ctx.request.app.state.con_factory, posto_id,
+                          bool(visivel), ctx.uid)
     acesso.registrar(ctx.con, ctx.uid, "coletar", f"posto={posto_id} visivel={int(bool(visivel))}")
-    return _pagina_hoje(ctx, mensagem="Coleta iniciada. Atualize a página em alguns minutos.")
+    # Espera a rotina pegar a trava (ou terminar) para /coleta já mostrar esta coleta.
+    limite = _relogio() + 2
+    while t.is_alive() and not rotina.em_andamento() and _relogio() < limite:
+        await asyncio.sleep(0.02)
+    return _ir("/coleta?iniciada=1")
 
 
 @router.post("/reenviar")
@@ -452,8 +456,22 @@ def _dia_param(texto: str) -> date | None:
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
+def _num_versao(arq: Path) -> int:
+    m = relatorio_xlsx.PADRAO_ARQUIVO.match(arq.name)
+    return int(m.group(2)) if m and m.group(2) else 1
+
+
+def _versoes(con, posto_id: int, dia: date) -> dict[int, Path]:
+    """Versões da planilha do dia ({número: arquivo}); vazio se o apelido está em conflito."""
+    posto = banco.obter_posto(con, posto_id)
+    if posto is None or relatorio_xlsx.conflito(con, posto_id):
+        return {}
+    return {_num_versao(a): a for a in relatorio_xlsx.versoes(posto_id, dia, posto["apelido"])}
+
+
 @router.get("/planilha")
-async def planilha(posto_id: int, dia: str = "", ctx: Ctx = Depends(_ctx)):
+async def planilha(posto_id: int, dia: str = "", versao: int | None = None,
+                   ctx: Ctx = Depends(_ctx)):
     ctx.exigir(Acao.VER, posto_id)
     _posto_ou_404(ctx, posto_id)
     d = _dia_param(dia)
@@ -461,8 +479,15 @@ async def planilha(posto_id: int, dia: str = "", ctx: Ctx = Depends(_ctx)):
         raise Recusado(400, "Dia inválido. Use dd-mm-aaaa.")
     if relatorio_xlsx.conflito(ctx.con, posto_id):
         raise Recusado(409, "Apelido em conflito com outro posto; ajuste o cadastro.")
-    arquivo = relatorio_xlsx.mais_recente(ctx.con, posto_id, d) or relatorio_xlsx.gerar(ctx.con, posto_id, d)
-    acesso.registrar(ctx.con, ctx.uid, "baixar_planilha", f"posto={posto_id} dia={d}")
+    if versao is not None:
+        arquivo = _versoes(ctx.con, posto_id, d).get(versao)
+        if arquivo is None:
+            raise Recusado(404, "Versão não encontrada.")
+    else:
+        arquivo = (relatorio_xlsx.mais_recente(ctx.con, posto_id, d)
+                   or relatorio_xlsx.gerar(ctx.con, posto_id, d))
+    detalhe = f"posto={posto_id} dia={d}" + (f" versao={versao}" if versao is not None else "")
+    acesso.registrar(ctx.con, ctx.uid, "baixar_planilha", detalhe)
     return FileResponse(arquivo, media_type=XLSX, filename=arquivo.name)
 
 
@@ -782,13 +807,105 @@ async def agenda_gravar(ctx: Ctx = Depends(_ctx_post)):
     return _ir("/agenda?salvo=1")
 
 
-# ---------------------------------------------------------------- Histórico
+# ---------------------------------------------------------------- Coleta em andamento / Histórico
+
+_ORIGEM = {"agendada": "Agendada", "repescagem": "Repescagem", "recuperacao": "Recuperação",
+           "painel": "Painel", "bandeja": "Bandeja"}
+_ESTADO = {"aguardando": "Aguardando", "coletando": "Coletando…", "ok": "OK",
+           "sem_movimento": "Sem movimento", "sem_comparacao": "Sem comparação com webPosto",
+           "erro": "Erro", "verificacao_humana": "Precisa de verificação humana"}
+_SITUACAO_EXEC = {"em_andamento": "Em andamento", "concluida": "Concluída", "falhou": "Falhou"}
+_CLASSE = {"ok": "ok", "sem_movimento": "alerta", "sem_comparacao": "alerta", "erro": "erro",
+           "verificacao_humana": "erro", "nao_concluido": "erro"}
+
+
+def _momento(valor) -> datetime | None:
+    try:
+        m = datetime.fromisoformat(str(valor))
+    except (TypeError, ValueError):
+        return None
+    return m if m.tzinfo else m.replace(tzinfo=timezone.utc)
+
+
+def _duracao(inicio, fim=None) -> str:
+    a, b = _momento(inicio), (_momento(fim) if fim else datetime.now(timezone.utc))
+    if a is None or b is None:
+        return "—"
+    seg = max(0, int((b - a).total_seconds()))
+    return f"{seg // 60}m {seg % 60}s"
+
+
+def _execucao_tela(con, ex, visiveis: set[int]) -> dict:
+    """Execução pronta para a tela, só com as linhas dos postos visíveis."""
+    aberta = ex["situacao"] == "em_andamento"
+    nomes: dict[int, str] = {}
+    itens = []
+    for i in banco.itens_execucao(con, ex["id"]):
+        pid = i["posto_id"]
+        if pid not in visiveis:
+            continue
+        if pid not in nomes:
+            p = banco.obter_posto(con, pid)
+            nomes[pid] = (p["apelido"] or p["nome"]) if p else f"Posto {pid}"
+        situacao = i["situacao"]
+        if not aberta and situacao in ("aguardando", "coletando"):
+            situacao, estado = "nao_concluido", "Não concluído"  # vale a situação da execução
+        else:
+            estado = _ESTADO.get(situacao, situacao)
+        itens.append({"posto": nomes[pid], "fonte": _NOME_FONTE.get(i["fonte"], i["fonte"]),
+                      "estado": estado, "classe": _CLASSE.get(situacao, ""),
+                      "mensagem": i["mensagem"] or "",
+                      "tempo": _duracao(i["iniciada_em"], i["terminada_em"]) if i["iniciada_em"] else "—"})
+    origem = _ORIGEM.get(ex["origem"], ex["origem"])
+    quem = origem
+    if ex["usuario_id"] is not None:
+        u = con.execute("SELECT nome FROM usuario WHERE id=?", (ex["usuario_id"],)).fetchone()
+        quem = u["nome"] if u else origem
+    return {"ex": ex, "aberta": aberta, "itens": itens, "postos": nomes, "quem": quem,
+            "origem": origem, "situacao": _SITUACAO_EXEC.get(ex["situacao"], ex["situacao"]),
+            "duracao": None if aberta else _duracao(ex["iniciada_em"], ex["terminada_em"])}
+
+
+@router.get("/coleta")
+async def coleta(ja: int = 0, iniciada: int = 0, ctx: Ctx = Depends(_ctx)):
+    ctx.exigir(Acao.VER)
+    visiveis = ctx.postos()
+    ex = banco.execucao_atual(ctx.con) or next(iter(banco.ultimas_execucoes(ctx.con, 1)), None)
+    rodando = rotina.em_andamento()
+    # trava pega, mas a execução ainda não foi aberta no banco: não mostrar a anterior como atual
+    preparando = rodando and (ex is None or ex["situacao"] != "em_andamento")
+    dados = None if ex is None or preparando else _execucao_tela(ctx.con, ex, set(visiveis))
+    coletar = []
+    if not rodando:
+        for pid in visiveis:
+            posto = banco.obter_posto(ctx.con, pid)
+            if posto is not None and posto["ativo"] and ctx.pode(Acao.COLETAR, pid):
+                coletar.append(posto)
+    return _pagina(ctx, "andamento.html", execucao=dados, preparando=preparando, coletar=coletar,
+                   atualizar=preparando or bool(dados and dados["aberta"]),
+                   erro=COLETA_EM_ANDAMENTO if ja else None,
+                   mensagem="Coleta iniciada." if iniciada and not ja else None)
+
 
 @router.get("/historico")
 async def historico(ctx: Ctx = Depends(_ctx)):
-    envios = banco.ultimos_envios(ctx.con) if ctx.pode(Acao.CONFIGURAR) else None
-    return _pagina(ctx, "historico.html", coletas=banco.ultimas_coletas(ctx.con, ctx.postos()),
-                   envios=envios)
+    visiveis = set(ctx.postos())
+    configurar = ctx.pode(Acao.CONFIGURAR)
+    execucoes = []
+    for ex in banco.ultimas_execucoes(ctx.con):
+        dados = _execucao_tela(ctx.con, ex, visiveis)
+        if not dados["itens"] and not configurar:
+            continue  # gerente/conferente: só execuções que tocaram os seus postos
+        dia = date.fromisoformat(ex["dia"])
+        dados["dia"] = dia
+        dados["planilhas"] = [{"posto": nome, "posto_id": pid, "dia": f"{dia:%d-%m-%Y}",
+                               "versoes": sorted(_versoes(ctx.con, pid, dia))}
+                              for pid, nome in dados["postos"].items()]
+        dados["envios"] = banco.envios_da_execucao(ctx.con, ex["id"]) if configurar else None
+        execucoes.append(dados)
+    envios = banco.ultimos_envios(ctx.con) if configurar else None
+    return _pagina(ctx, "historico.html", execucoes=execucoes,
+                   coletas=banco.ultimas_coletas(ctx.con, ctx.postos()), envios=envios)
 
 
 # ---------------------------------------------------------------- Usuários

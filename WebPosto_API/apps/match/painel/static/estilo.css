@@ -52,3 +52,6 @@ button.secundario { background: transparent; color: var(--destaque); }
 .dica { color: var(--suave); font-size: 13px; }
 details summary { cursor: pointer; color: var(--destaque); margin: 4px 0; }
 tr.edicao td { padding-top: 0; }
+td.estado.ok { color: var(--ok); }
+td.estado.alerta { color: var(--alerta); }
+td.estado.erro { color: var(--erro); }

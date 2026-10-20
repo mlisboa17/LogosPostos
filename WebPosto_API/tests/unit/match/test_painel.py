@@ -80,7 +80,7 @@ def _posto(con, nome="Doze", codigo=74014) -> int:
 
 
 def test_sem_login_redireciona(cli, admin):
-    for rota in ("/", "/postos", "/usuarios", "/agenda", "/historico", "/config/exportar"):
+    for rota in ("/", "/postos", "/usuarios", "/agenda", "/historico", "/coleta", "/config/exportar"):
         r = cli.get(rota)
         assert r.status_code == 303 and r.headers["location"] == "/entrar", rota
     r = cli.post("/coletar?posto_id=1", data={"csrf": "x"})
@@ -286,7 +286,7 @@ def test_coletar_inicia_em_thread(cli, admin, con, executar_falso):
     pid = _posto(con)
     tok = _logado(cli)
     r = cli.post(f"/coletar?posto_id={pid}&visivel=1", data={"csrf": tok})
-    assert r.status_code == 200 and "Coleta iniciada" in r.text
+    assert r.status_code == 303 and r.headers["location"].startswith("/coleta")
     chamadas, feito = executar_falso
     assert feito.wait(5)
     assert len(chamadas) == 1
@@ -302,9 +302,10 @@ def test_coletar_em_andamento(cli, admin, con, executar_falso):
     assert rotina._TRAVA.acquire(blocking=False)
     try:
         r = cli.post(f"/coletar?posto_id={pid}&visivel=0", data={"csrf": tok})
+        html = cli.get(r.headers["location"]).text
     finally:
         rotina._TRAVA.release()
-    assert "Já existe uma coleta em andamento. Aguarde terminar." in r.text
+    assert "Já existe uma coleta em andamento. Aguarde terminar." in html
     assert executar_falso[0] == []
 
 
@@ -417,7 +418,7 @@ def test_todas_as_telas_abrem_para_admin(cli, admin, con):
     banco.inserir_canal(con, "toast", {}, ativo=False)
     banco.registrar_envio(con, 1, ontem(), "erro", "Não foi possível falar com o Telegram.")
     _logado(cli)
-    for rota in ("/", "/postos", f"/postos/{pid}/fontes", "/canais", "/agenda", "/historico",
+    for rota in ("/", "/postos", f"/postos/{pid}/fontes", "/canais", "/agenda", "/historico", "/coleta",
                  "/usuarios", "/usuarios/log", "/static/estilo.css"):
         r = cli.get(rota)
         assert r.status_code == 200, rota
@@ -595,3 +596,151 @@ def test_planilha_com_conflito_existente_da_409(cli, admin, con, tmp_path, monke
         r = cli.get(f"/planilha?posto_id={pid}&dia={dia:%d-%m-%Y}")
         assert r.status_code == 409 and b"alheio" not in r.content
         assert "Apelido em conflito com outro posto; ajuste o cadastro." in r.text
+
+
+# ---------------------------------------------------------------- coleta ao vivo e histórico
+
+REFRESH = '<meta http-equiv="refresh" content="3">'
+
+
+def _execucao(con, itens, situacao="em_andamento", origem="agendada", usuario_id=None, dia=None):
+    eid = banco.abrir_execucao(con, origem, usuario_id, dia or ontem())
+    for pid, fonte, sit, msg in itens:
+        banco.item_execucao(con, eid, pid, fonte, sit, msg)
+    if situacao != "em_andamento":
+        banco.fechar_execucao(con, eid, situacao)
+    return eid
+
+
+def test_andamento_tem_refresh_quando_em_andamento(cli, admin, con):
+    pid = _posto(con, "Alfa", 1)
+    _execucao(con, [(pid, "premmia", "coletando", None), (pid, "pagbank_edi", "aguardando", None)])
+    _logado(cli)
+    html = cli.get("/coleta").text
+    assert REFRESH in html
+    assert "Coletando…" in html and "Aguardando" in html and "Agendada" in html
+    assert "Premmia" in html and "PagBank" in html
+
+
+def test_andamento_sem_refresh_quando_concluida(cli, admin, con):
+    pid = _posto(con, "Alfa", 1)
+    _execucao(con, [(pid, "premmia", "ok", "3 vendas."), (pid, "pagbank_edi", "coletando", None)],
+              situacao="concluida")
+    _logado(cli)
+    html = cli.get("/coleta").text
+    assert REFRESH not in html
+    assert re.search(r"Concluída às \d{2}/\d{2}/\d{4} \d{2}:\d{2}", html)
+    assert "OK" in html and "3 vendas." in html
+    assert "Não concluído" in html and "Coletando…" not in html
+
+
+def test_andamento_sem_execucao(cli, admin, con):
+    pid = _posto(con, "Alfa", 1)
+    _logado(cli)
+    html = cli.get("/coleta").text
+    assert "Nenhuma coleta registrada ainda." in html and REFRESH not in html
+    assert f"/coletar?posto_id={pid}" in html
+
+
+def test_andamento_so_postos_visiveis(cli, admin, con):
+    a, b = _posto(con, "Posto Alfa", 1), _posto(con, "Posto Beta", 2)
+    _execucao(con, [(a, "premmia", "erro", "Falha Alfa."), (b, "premmia", "erro", "Falha Beta.")])
+    acesso.criar_usuario(con, "Gê", "gerente", SENHA, Perfil.GERENTE, [a])
+    _logado(cli, "gerente")
+    html = cli.get("/coleta").text
+    assert "Posto Alfa" in html and "Falha Alfa." in html
+    assert "Posto Beta" not in html and "Falha Beta." not in html
+
+
+def test_coletar_redireciona_para_andamento(cli, admin, con, executar_falso):
+    pid = _posto(con)
+    tok = _logado(cli)
+    r = cli.post(f"/coletar?posto_id={pid}&visivel=0", data={"csrf": tok})
+    assert r.status_code == 303 and r.headers["location"].startswith("/coleta")
+    assert executar_falso[1].wait(5)
+    assert cli.get(r.headers["location"]).status_code == 200
+
+
+def test_coletar_duplo_mostra_em_andamento(cli, admin, con, executar_falso):
+    pid = _posto(con, "Alfa", 1)
+    _execucao(con, [(pid, "premmia", "coletando", None)], origem="painel", usuario_id=admin)
+    tok = _logado(cli)
+    assert rotina._TRAVA.acquire(blocking=False)
+    try:
+        r = cli.post(f"/coletar?posto_id={pid}&visivel=0", data={"csrf": tok})
+        assert r.status_code == 303 and r.headers["location"].startswith("/coleta")
+        html = cli.get(r.headers["location"]).text
+    finally:
+        rotina._TRAVA.release()
+    assert executar_falso[0] == []
+    assert "Já existe uma coleta em andamento." in html
+    assert "Coletando…" in html and REFRESH in html and "por Admin" in html
+    assert "Nenhuma coleta registrada ainda." not in html
+
+
+def test_historico_mostra_execucao_duracao_origem(cli, admin, con):
+    pid = _posto(con, "Alfa", 1)
+    eid = _execucao(con, [(pid, "premmia", "ok", None), (pid, "pagbank_edi", "erro", "PagBank fora.")],
+                    situacao="concluida", origem="repescagem")
+    con.execute("UPDATE execucao SET iniciada_em='2026-10-18T09:00:00+00:00',"
+                " terminada_em='2026-10-18T09:02:05+00:00' WHERE id=?", (eid,))
+    _execucao(con, [], situacao="falhou", origem="painel", usuario_id=admin)
+    canal = banco.inserir_canal(con, "telegram", {"chat_ids": ["1"]})
+    banco.registrar_envio(con, canal, ontem(), "erro", "Telegram recusou.", eid)
+    con.commit()
+    _logado(cli)
+    html = cli.get("/historico").text
+    assert "18/10/2026 06:00" in html and "18/10/2026 06:02" in html and "2m 5s" in html
+    assert "Repescagem" in html and "Concluída" in html and "Falhou" in html
+    assert "PagBank fora." in html and "Telegram recusou." in html
+    assert "por Admin" in html and "por Repescagem" in html
+
+
+def test_historico_versoes_da_planilha(cli, admin, con, tmp_path, monkeypatch):
+    from apps.match import relatorio_xlsx
+    monkeypatch.setenv("LOGOS_MATCH_DIR", str(tmp_path / "dados"))
+    pid = _posto(con, "Alfa", 1)
+    dia = ontem()
+    relatorio_xlsx.gerar(con, pid, dia)
+    banco.gravar_divergencias(con, pid, dia, "premmia", [{"tipo": "x", "explicacao_pt": "novo"}])
+    relatorio_xlsx.gerar(con, pid, dia)
+    _execucao(con, [(pid, "premmia", "ok", None)], situacao="concluida", dia=dia)
+    _logado(cli)
+    html = cli.get("/historico").text
+    for n in (1, 2):
+        assert f"/planilha?posto_id={pid}&amp;dia={dia:%d-%m-%Y}&amp;versao={n}" in html
+    assert "versao=3" not in html
+
+
+def test_planilha_versao_especifica_e_404(cli, admin, con, tmp_path, monkeypatch):
+    from apps.match import relatorio_xlsx
+    monkeypatch.setenv("LOGOS_MATCH_DIR", str(tmp_path / "dados"))
+    a, b = _posto(con, "Alfa", 1), _posto(con, "Beta", 2)
+    dia = ontem()
+    v1 = relatorio_xlsx.gerar(con, a, dia)
+    banco.gravar_divergencias(con, a, dia, "premmia", [{"tipo": "x", "explicacao_pt": "novo"}])
+    v2 = relatorio_xlsx.gerar(con, a, dia)
+    acesso.criar_usuario(con, "Cê", "conf", SENHA, Perfil.CONFERENTE, [a])
+    _logado(cli, "conf")
+    r = cli.get(f"/planilha?posto_id={a}&dia={dia:%d-%m-%Y}&versao=1")
+    assert r.status_code == 200 and r.content == v1.read_bytes() and v1.name in r.headers["content-disposition"]
+    r = cli.get(f"/planilha?posto_id={a}&dia={dia:%d-%m-%Y}&versao=2")
+    assert r.status_code == 200 and r.content == v2.read_bytes()
+    r = cli.get(f"/planilha?posto_id={a}&dia={dia:%d-%m-%Y}&versao=3")
+    assert r.status_code == 404 and "Versão não encontrada." in r.text
+    assert cli.get(f"/planilha?posto_id={b}&dia={dia:%d-%m-%Y}&versao=1").status_code == 403
+
+
+def test_historico_gerente_so_seus_postos(cli, admin, con):
+    a, b = _posto(con, "Posto Alfa", 1), _posto(con, "Posto Beta", 2)
+    _execucao(con, [(a, "premmia", "ok", "Alfa ok."), (b, "premmia", "erro", "Beta caiu.")],
+              situacao="concluida")
+    _execucao(con, [(b, "pagbank_edi", "erro", "Só Beta.")], situacao="concluida", origem="bandeja")
+    canal = banco.inserir_canal(con, "telegram", {"chat_ids": ["1"]})
+    banco.registrar_envio(con, canal, ontem(), "erro", "Envio secreto.", 1)
+    acesso.criar_usuario(con, "Gê", "gerente", SENHA, Perfil.GERENTE, [a])
+    _logado(cli, "gerente")
+    html = cli.get("/historico").text
+    assert "Alfa ok." in html
+    assert "Beta caiu." not in html and "Só Beta." not in html and "Bandeja" not in html
+    assert "Posto Beta" not in html and "Envio secreto." not in html

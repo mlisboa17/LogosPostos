@@ -2,6 +2,7 @@
 {% block titulo %}Hoje{% endblock %}
 {% block conteudo %}
 <h1>Hoje</h1>
+<p class="dica"><a href="/coleta">Acompanhar a coleta</a> · <a href="/historico">Histórico das coletas</a></p>
 {% if not postos %}<p>Nenhum posto liberado para você.</p>{% endif %}
 {% for item in postos %}
 <section class="cartao">
