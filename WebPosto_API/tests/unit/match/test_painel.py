@@ -600,7 +600,7 @@ def test_planilha_com_conflito_existente_da_409(cli, admin, con, tmp_path, monke
 
 # ---------------------------------------------------------------- coleta ao vivo e histórico
 
-REFRESH = '<meta http-equiv="refresh" content="3">'
+REFRESH = '<meta http-equiv="refresh" content="3;url=/coleta">'
 
 
 def _execucao(con, itens, situacao="em_andamento", origem="agendada", usuario_id=None, dia=None):
@@ -628,10 +628,47 @@ def test_andamento_sem_refresh_quando_concluida(cli, admin, con):
               situacao="concluida")
     _logado(cli)
     html = cli.get("/coleta").text
-    assert REFRESH not in html
+    assert 'http-equiv="refresh"' not in html
     assert re.search(r"Concluída às \d{2}/\d{2}/\d{4} \d{2}:\d{2}", html)
     assert "OK" in html and "3 vendas." in html
     assert "Não concluído" in html and "Coletando…" not in html
+
+
+def test_andamento_flash_some_depois_de_concluida(cli, admin, con):
+    pid = _posto(con, "Alfa", 1)
+    eid = _execucao(con, [(pid, "premmia", "coletando", None)])
+    _logado(cli)
+    html = cli.get("/coleta?ja=1").text
+    assert "Já existe uma coleta em andamento." in html and REFRESH in html
+    assert "Coleta iniciada." in cli.get("/coleta?iniciada=1").text
+    banco.fechar_execucao(con, eid, "concluida")
+    for url in ("/coleta?ja=1", "/coleta?iniciada=1"):
+        html = cli.get(url).text
+        assert "Concluída às" in html
+        assert "Já existe" not in html and "Coleta iniciada." not in html
+
+
+def test_andamento_nao_concluido_sem_tempo(cli, admin, con):
+    pid = _posto(con, "Alfa", 1)
+    _execucao(con, [(pid, "premmia", "coletando", None)], situacao="concluida")
+    _logado(cli)
+    html = cli.get("/coleta").text
+    assert re.search(r"Não concluído</td><td></td><td>—</td>", html)
+
+
+def test_andamento_gerente_ultima_execucao_dos_seus_postos(cli, admin, con):
+    a, b = _posto(con, "Posto Alfa", 1), _posto(con, "Posto Beta", 2)
+    acesso.criar_usuario(con, "Gê", "gerente", SENHA, Perfil.GERENTE, [a])
+    _execucao(con, [(b, "premmia", "ok", "Só Beta.")], situacao="concluida", origem="bandeja")
+    _logado(cli, "gerente")
+    html = cli.get("/coleta").text
+    assert "Nenhuma coleta registrada ainda." in html
+    assert "Bandeja" not in html and "Só Beta." not in html and "Concluída às" not in html
+    _execucao(con, [(a, "premmia", "ok", "Alfa ok.")], situacao="concluida", origem="repescagem")
+    _execucao(con, [(b, "premmia", "ok", "Beta de novo.")], situacao="concluida", origem="bandeja")
+    html = cli.get("/coleta").text
+    assert "Alfa ok." in html and "Repescagem" in html
+    assert "Bandeja" not in html and "Beta de novo." not in html
 
 
 def test_andamento_sem_execucao(cli, admin, con):
@@ -731,8 +768,12 @@ def test_planilha_versao_especifica_e_404(cli, admin, con, tmp_path, monkeypatch
     assert cli.get(f"/planilha?posto_id={b}&dia={dia:%d-%m-%Y}&versao=1").status_code == 403
 
 
-def test_historico_gerente_so_seus_postos(cli, admin, con):
+def test_historico_gerente_so_seus_postos(cli, admin, con, tmp_path, monkeypatch):
+    from apps.match import relatorio_xlsx
+    monkeypatch.setenv("LOGOS_MATCH_DIR", str(tmp_path / "dados"))
     a, b = _posto(con, "Posto Alfa", 1), _posto(con, "Posto Beta", 2)
+    relatorio_xlsx.gerar(con, a, ontem())
+    relatorio_xlsx.gerar(con, b, ontem())
     _execucao(con, [(a, "premmia", "ok", "Alfa ok."), (b, "premmia", "erro", "Beta caiu.")],
               situacao="concluida")
     _execucao(con, [(b, "pagbank_edi", "erro", "Só Beta.")], situacao="concluida", origem="bandeja")
@@ -744,3 +785,4 @@ def test_historico_gerente_so_seus_postos(cli, admin, con):
     assert "Alfa ok." in html
     assert "Beta caiu." not in html and "Só Beta." not in html and "Bandeja" not in html
     assert "Posto Beta" not in html and "Envio secreto." not in html
+    assert f"posto_id={a}&amp;" in html and f"posto_id={b}" not in html

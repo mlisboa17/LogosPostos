@@ -152,6 +152,7 @@ def test_dados_mudaram_cria_v2_e_v3(con, posto):
     assert p3.name == "Logos_Doze_17-10-2026_v3.xlsx"
     assert p1.read_bytes() == antes
     assert relatorio_xlsx.versoes(posto, DIA, "Doze") == [p1, p2, p3]
+    assert relatorio_xlsx.versoes_numeradas(posto, DIA, "Doze") == [(1, p1), (2, p2), (3, p3)]
     assert relatorio_xlsx.mais_recente(con, posto, DIA) == p3
 
 

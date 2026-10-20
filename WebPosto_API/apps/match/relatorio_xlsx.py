@@ -128,15 +128,20 @@ def _numero_versao(base: str, arq: Path) -> int | None:
     return int(m.group(2)) if m.group(2) else 1
 
 
-def versoes(posto_id: int, dia: date, apelido: str | None) -> list[Path]:
-    """Versões do dia, da mais antiga para a mais nova (a base é a versão 1)."""
+def versoes_numeradas(posto_id: int, dia: date, apelido: str | None) -> list[tuple[int, Path]]:
+    """(número, arquivo) das versões do dia, da mais antiga para a mais nova (a base é a versão 1)."""
     base = _base(apelido, posto_id, dia)
     achadas = []
     for arq in caminhos.planilhas().glob(f"{glob.escape(base)}*.xlsx"):
         n = _numero_versao(base, arq)
         if n is not None:
             achadas.append((n, arq))
-    return [a for _, a in sorted(achadas)]
+    return sorted(achadas)
+
+
+def versoes(posto_id: int, dia: date, apelido: str | None) -> list[Path]:
+    """Versões do dia, da mais antiga para a mais nova (a base é a versão 1)."""
+    return [a for _, a in versoes_numeradas(posto_id, dia, apelido)]
 
 
 def _apelido(con, posto_id: int) -> str | None:

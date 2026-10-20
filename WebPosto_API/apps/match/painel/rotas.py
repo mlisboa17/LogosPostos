@@ -456,17 +456,12 @@ def _dia_param(texto: str) -> date | None:
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
-def _num_versao(arq: Path) -> int:
-    m = relatorio_xlsx.PADRAO_ARQUIVO.match(arq.name)
-    return int(m.group(2)) if m and m.group(2) else 1
-
-
 def _versoes(con, posto_id: int, dia: date) -> dict[int, Path]:
     """Versões da planilha do dia ({número: arquivo}); vazio se o apelido está em conflito."""
     posto = banco.obter_posto(con, posto_id)
     if posto is None or relatorio_xlsx.conflito(con, posto_id):
         return {}
-    return {_num_versao(a): a for a in relatorio_xlsx.versoes(posto_id, dia, posto["apelido"])}
+    return dict(relatorio_xlsx.versoes_numeradas(posto_id, dia, posto["apelido"]))
 
 
 @router.get("/planilha")
@@ -480,7 +475,8 @@ async def planilha(posto_id: int, dia: str = "", versao: int | None = None,
     if relatorio_xlsx.conflito(ctx.con, posto_id):
         raise Recusado(409, "Apelido em conflito com outro posto; ajuste o cadastro.")
     if versao is not None:
-        arquivo = _versoes(ctx.con, posto_id, d).get(versao)
+        apelido = banco.obter_posto(ctx.con, posto_id)["apelido"]
+        arquivo = dict(relatorio_xlsx.versoes_numeradas(posto_id, d, apelido)).get(versao)
         if arquivo is None:
             raise Recusado(404, "Versão não encontrada.")
     else:
@@ -855,7 +851,8 @@ def _execucao_tela(con, ex, visiveis: set[int]) -> dict:
         itens.append({"posto": nomes[pid], "fonte": _NOME_FONTE.get(i["fonte"], i["fonte"]),
                       "estado": estado, "classe": _CLASSE.get(situacao, ""),
                       "mensagem": i["mensagem"] or "",
-                      "tempo": _duracao(i["iniciada_em"], i["terminada_em"]) if i["iniciada_em"] else "—"})
+                      "tempo": (_duracao(i["iniciada_em"], i["terminada_em"])
+                                if i["iniciada_em"] and situacao != "nao_concluido" else "—")})
     origem = _ORIGEM.get(ex["origem"], ex["origem"])
     quem = origem
     if ex["usuario_id"] is not None:
@@ -870,11 +867,20 @@ def _execucao_tela(con, ex, visiveis: set[int]) -> dict:
 async def coleta(ja: int = 0, iniciada: int = 0, ctx: Ctx = Depends(_ctx)):
     ctx.exigir(Acao.VER)
     visiveis = ctx.postos()
-    ex = banco.execucao_atual(ctx.con) or next(iter(banco.ultimas_execucoes(ctx.con, 1)), None)
+    configurar = ctx.pode(Acao.CONFIGURAR)
+    atual = banco.execucao_atual(ctx.con)
     rodando = rotina.em_andamento()
     # trava pega, mas a execução ainda não foi aberta no banco: não mostrar a anterior como atual
-    preparando = rodando and (ex is None or ex["situacao"] != "em_andamento")
-    dados = None if ex is None or preparando else _execucao_tela(ctx.con, ex, set(visiveis))
+    preparando = rodando and atual is None
+    dados = None
+    if not preparando:
+        # sem CONFIGURAR: a mais recente que toca algum posto visível (como no /historico)
+        for ex in ([atual] if atual else []) + list(banco.ultimas_execucoes(ctx.con)):
+            tela = _execucao_tela(ctx.con, ex, set(visiveis))
+            if configurar or tela["itens"]:
+                dados = tela
+                break
+    ativa = preparando or bool(dados and dados["aberta"])
     coletar = []
     if not rodando:
         for pid in visiveis:
@@ -882,9 +888,10 @@ async def coleta(ja: int = 0, iniciada: int = 0, ctx: Ctx = Depends(_ctx)):
             if posto is not None and posto["ativo"] and ctx.pode(Acao.COLETAR, pid):
                 coletar.append(posto)
     return _pagina(ctx, "andamento.html", execucao=dados, preparando=preparando, coletar=coletar,
-                   atualizar=preparando or bool(dados and dados["aberta"]),
-                   erro=COLETA_EM_ANDAMENTO if ja else None,
-                   mensagem="Coleta iniciada." if iniciada and not ja else None)
+                   atualizar=ativa,
+                   # o aviso só vale enquanto a coleta roda (o refresh já aponta para /coleta limpo)
+                   erro=COLETA_EM_ANDAMENTO if ja and (rodando or ativa) else None,
+                   mensagem="Coleta iniciada." if iniciada and not ja and (rodando or ativa) else None)
 
 
 @router.get("/historico")
