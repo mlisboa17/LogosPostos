@@ -9,6 +9,8 @@
 {% set e = execucao %}
 {% if e.aberta %}
 <p class="aviso alerta" role="status">Coleta em andamento. Esta página se atualiza sozinha.</p>
+{% elif e.interrompida %}
+<p class="aviso erro" role="status">A coleta foi interrompida antes de terminar (o Logos Match foi fechado no meio). Clique em Coletar agora para tentar de novo.</p>
 {% elif e.ex.situacao == "falhou" %}
 <p class="aviso erro" role="status">A coleta falhou. Terminou às {{ e.ex.terminada_em|data_hora }}.</p>
 {% else %}

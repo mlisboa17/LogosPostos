@@ -131,10 +131,10 @@ def _txt(v) -> str | None:
     return None if v is None else str(v)
 
 
-def inserir_posto(con, nome, apelido, cnpj, empresa_codigo_webposto) -> int:
+def inserir_posto(con, nome, apelido, cnpj, empresa_codigo_webposto, *, ativo: bool = True) -> int:
     cur = con.execute(
-        "INSERT INTO posto(nome, apelido, cnpj, empresa_codigo_webposto, criado_em)"
-        " VALUES (?,?,?,?,?)", (nome, apelido, cnpj, empresa_codigo_webposto, _agora()))
+        "INSERT INTO posto(nome, apelido, cnpj, empresa_codigo_webposto, criado_em, ativo)"
+        " VALUES (?,?,?,?,?,?)", (nome, apelido, cnpj, empresa_codigo_webposto, _agora(), int(ativo)))
     con.commit()
     return cur.lastrowid
 

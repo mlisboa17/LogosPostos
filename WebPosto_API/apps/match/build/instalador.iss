@@ -62,8 +62,12 @@ begin
     if ApagarDados then
     begin
       // Libera na pasta da rede os postos desta instalacao. Falha (pasta offline) nao para a
-      // desinstalacao: o resultado e ignorado de proposito.
-      Exec(ExpandConstant('{app}\{#ExeCli}'), '--liberar-postos', '', SW_HIDE, ewWaitUntilTerminated, Codigo);
+      // desinstalacao: so avisa que a outra maquina precisa usar "Assumir posto".
+      if (not Exec(ExpandConstant('{app}\{#ExeCli}'), '--liberar-postos', '', SW_HIDE,
+                   ewWaitUntilTerminated, Codigo)) or (Codigo <> 0) then
+        SuppressibleMsgBox('Não foi possível liberar os postos na pasta da rede. Eles podem continuar registrados '
+          + 'nela em nome desta máquina; na outra máquina, use "Assumir posto". A desinstalação vai continuar.',
+          mbInformation, MB_OK, IDOK);
       // Antes de remover os arquivos: apaga as entradas LogosMatch do Credential Manager.
       if (not Exec(ExpandConstant('{app}\{#ExeCli}'), '--apagar-credenciais', '', SW_HIDE,
                    ewWaitUntilTerminated, Codigo)) or (Codigo <> 0) then

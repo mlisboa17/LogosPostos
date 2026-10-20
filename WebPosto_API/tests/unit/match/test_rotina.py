@@ -329,6 +329,20 @@ def test_limpar_antigos_apaga_versoes(con):
     assert not velha.exists() and nova.exists()
 
 
+def test_limpar_antigos_apaga_execucoes(con):
+    pid = banco.inserir_posto(con, "Doze", "Doze", None, 74014)
+    ids = {}
+    for d in ("2025-09-17", "2025-09-18"):
+        eid = banco.abrir_execucao(con, "agendada", None, date.fromisoformat(d))
+        banco.item_execucao(con, eid, pid, "premmia", "ok")
+        banco.fechar_execucao(con, eid, "concluida")
+        ids[d] = eid
+    rotina.limpar_antigos(con, date(2026, 10, 18))  # limite 2025-09-18
+    assert [r["dia"] for r in con.execute("SELECT dia FROM execucao")] == ["2025-09-18"]
+    assert [r["execucao_id"] for r in con.execute("SELECT execucao_id FROM execucao_item")] == [
+        ids["2025-09-18"]]
+
+
 # ---- Task 2: registro de execuções ----
 def _posto_com_fontes(con):
     pid = banco.inserir_posto(con, "Posto Doze", "Doze", None, 74014)

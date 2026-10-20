@@ -141,8 +141,12 @@ def _coletar(visivel: bool) -> None:
         con.close()
 
 
-def _em_thread(visivel: bool):
-    return lambda: threading.Thread(target=_coletar, args=(visivel,), daemon=True).start()
+def _em_thread(visivel: bool, porta: int):
+    """Ação "Coletar agora" da bandeja: dispara a coleta e abre a tela que a acompanha."""
+    def acao():
+        threading.Thread(target=_coletar, args=(visivel,), daemon=True).start()
+        webbrowser.open(url_painel(porta) + "coleta")
+    return acao
 
 
 def _abrir_instancia_viva() -> None:
@@ -323,7 +327,8 @@ def main(argv: list[str] | None = None) -> int:
         gravar_porta(porta)
         logger.info("Logos Match iniciado")
         bandeja.rodar(lambda: webbrowser.open(url_painel(porta)), _dica_segura,
-                      _em_thread(False), _em_thread(True), lambda: sched.shutdown(wait=False))
+                      _em_thread(False, porta), _em_thread(True, porta),
+                      lambda: sched.shutdown(wait=False))
         return 0
     finally:
         apagar_porta()

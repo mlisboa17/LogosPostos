@@ -257,6 +257,41 @@ def test_coletar_em_andamento_avisa(monkeypatch):
     executar.assert_not_called()
 
 
+def test_coletar_agora_da_bandeja_abre_tela_da_coleta(monkeypatch):
+    ordem = []
+    monkeypatch.setattr(m, "_coletar", lambda visivel: ordem.append(("coletar", visivel)))
+    monkeypatch.setattr(m.webbrowser, "open", lambda url: ordem.append(("abrir", url)))
+    for visivel in (False, True):
+        ordem.clear()
+        acao = m._em_thread(visivel, 4999)
+        acao()
+        limite = time.monotonic() + 5
+        while len(ordem) < 2 and time.monotonic() < limite:
+            time.sleep(0.01)
+        assert ("coletar", visivel) in ordem
+        assert ("abrir", "http://127.0.0.1:4999/coleta") in ordem
+
+
+def test_main_passa_porta_para_coletar_da_bandeja(monkeypatch):
+    _prepara(monkeypatch)
+    capturado = {}
+    monkeypatch.setattr(m.bandeja, "rodar", lambda *a: capturado.setdefault("args", a))
+    abertos = []
+    monkeypatch.setattr(m.webbrowser, "open", abertos.append)
+    monkeypatch.setattr(m, "_coletar", lambda visivel: None)
+    assert m.main([]) == 0
+    capturado["args"][2]()
+    assert "http://127.0.0.1:4999/coleta" in abertos
+
+
+def test_instalador_avisa_quando_liberar_postos_falha():
+    from pathlib import Path
+    iss = (Path(m.__file__).resolve().parent / "build" / "instalador.iss").read_text(encoding="utf-8")
+    trecho = iss[iss.index("'--liberar-postos'"):iss.index("'--apagar-credenciais'")]
+    assert "(Codigo <> 0)" in trecho and "MsgBox(" in trecho
+    assert "Assumir posto" in trecho and "pasta da rede" in trecho
+
+
 def test_icone_existe_e_abre():
     from PIL import Image
     img = Image.open(bandeja.ICONE)

@@ -164,7 +164,16 @@ def liberar(pasta: Path, chave: str, id_instalacao: str) -> bool:
     return True
 
 
-def mensagem_bloqueio(dono: Dono) -> str:
+def _ja_cadastrado(dono: Dono) -> str:
     return (f"Este posto já está cadastrado na máquina {dono.maquina} desde "
-            f"{formatar_data_hora(ler_data_hora(dono.registrado_em))}. "
-            "Desative lá ou use 'Assumir posto'.")
+            f"{formatar_data_hora(ler_data_hora(dono.registrado_em))}.")
+
+
+def mensagem_bloqueio(dono: Dono) -> str:
+    return f"{_ja_cadastrado(dono)} Desative lá ou use 'Assumir posto'."
+
+
+def mensagem_salvo_desativado(dono: Dono) -> str:
+    """Posto novo (cadastro ou importação) que pertence a outra máquina: gravado desativado aqui."""
+    return (f"{_ja_cadastrado(dono)} Ele foi salvo desativado aqui; use 'Assumir posto' se a outra"
+            " máquina não coleta mais.")

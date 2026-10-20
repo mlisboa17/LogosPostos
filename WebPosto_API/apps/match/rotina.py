@@ -146,6 +146,9 @@ def limpar_antigos(con, hoje: date) -> None:
                 (limite,))
     for tabela in ("coleta", "divergencia", "envio"):
         con.execute(f"DELETE FROM {tabela} WHERE dia < ?", (limite,))  # noqa: S608 - nomes fixos
+    con.execute("DELETE FROM execucao_item WHERE execucao_id IN"
+                " (SELECT id FROM execucao WHERE dia < ?)", (limite,))
+    con.execute("DELETE FROM execucao WHERE dia < ?", (limite,))
     con.commit()
     for arq in caminhos.planilhas().glob("Logos_*_*.xlsx"):
         m = relatorio_xlsx.PADRAO_ARQUIVO.match(arq.name)

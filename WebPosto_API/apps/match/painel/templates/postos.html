@@ -48,10 +48,10 @@
   {% endfor %}
   </tbody>
 </table>
-{% if pulados %}
+{% if desativados %}
 <section class="cartao">
-  <h2>Não importados</h2>
-  <ul>{% for linha in pulados %}<li>{{ linha }}</li>{% endfor %}</ul>
+  <h2>Salvos desativados</h2>
+  <ul>{% for linha in desativados %}<li>{{ linha }}</li>{% endfor %}</ul>
 </section>
 {% endif %}
 

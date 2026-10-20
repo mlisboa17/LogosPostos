@@ -6,7 +6,7 @@
 {% for e in execucoes %}
 <section class="cartao">
   <h2>Dia {{ e.ex.dia|data }} · {{ e.situacao }} <small>{{ e.origem }} · por {{ e.quem }}</small></h2>
-  <p class="dica">Início {{ e.ex.iniciada_em|data_hora }} · fim {{ e.ex.terminada_em|data_hora }} · duração {{ e.duracao or "em andamento" }}</p>
+  <p class="dica">Início {{ e.ex.iniciada_em|data_hora }} · fim {{ e.ex.terminada_em|data_hora }} · duração {{ e.duracao or ("—" if e.interrompida else "em andamento") }}</p>
   <table>
     <thead><tr><th>Posto</th><th>Fonte</th><th>Situação final</th><th>Mensagem</th></tr></thead>
     <tbody>

@@ -183,9 +183,10 @@ def _validar_formato_canais(canais) -> None:
 
 
 def _de_outra_maquina(con, candidatos: list[tuple[int, str | None, str]],
-                      pulados: list[str] | None) -> tuple[set[int], set[int]]:
+                      desativados: list[str] | None) -> tuple[set[int], set[int]]:
     """(postos de outra máquina, postos sem dono) entre os novos, lendo a pasta da rede.
 
+    Os de outra máquina são gravados desativados (sem tocar na pasta da rede) para poder Assumir.
     Pasta inacessível levanta `PastaIndisponivel` antes de qualquer gravação.
     """
     pasta = banco.pasta_rede(con)
@@ -201,8 +202,8 @@ def _de_outra_maquina(con, candidatos: list[tuple[int, str | None, str]],
             livres.add(i)
         elif d.id_instalacao != meu:
             fora.add(i)
-            if pulados is not None:
-                pulados.append(f"{nome}: {registro_rede.mensagem_bloqueio(d)}")
+            if desativados is not None:
+                desativados.append(f"{nome}: {registro_rede.mensagem_salvo_desativado(d)}")
     return fora, livres
 
 
@@ -257,8 +258,8 @@ def _chave(codigo, cnpj) -> str | None:
     return registro_rede.chave_posto({"empresa_codigo_webposto": codigo, "cnpj": cnpj})
 
 
-def importar_units_json(con, caminho: Path, *, pulados: list[str] | None = None) -> int:
-    """Importa os postos do units.json. `pulados` recebe os que pertencem a outra máquina."""
+def importar_units_json(con, caminho: Path, *, desativados: list[str] | None = None) -> int:
+    """Importa os postos do units.json. `desativados` recebe os de outra máquina (salvos desativados)."""
     dados = json.loads(Path(caminho).read_text(encoding="utf-8"))
     existentes = {p["empresa_codigo_webposto"] for p in banco.listar_postos(con, so_ativos=False)}
     novos: set[int] = set()
@@ -274,17 +275,17 @@ def importar_units_json(con, caminho: Path, *, pulados: list[str] | None = None)
             novos.add(codigo)
     candidatos = [(i, _chave(u["empresa_codigo"], None), u["nome"]) for i, u in enumerate(unidades_)
                   if u["empresa_codigo"] not in existentes]
-    fora, livres = _de_outra_maquina(con, candidatos, pulados)
-    candidatos = [c for c in candidatos if c[0] not in fora]
+    fora, livres = _de_outra_maquina(con, candidatos, desativados)
     _validar_apelidos(con, [unidades_[i].get("apelido") for i, _c, _n in candidatos])
-    registrados = _registrar_na_rede(con, candidatos, livres)
+    registrados = _registrar_na_rede(con, [c for c in candidatos if c[0] not in fora], livres)
     criados, inseridos = 0, set()
     with _desfazer_se_falhar(con, registrados, inseridos):
         for i, u in enumerate(unidades_):
             codigo = u["empresa_codigo"]
-            if codigo in existentes or i in fora:
+            if codigo in existentes:
                 continue
-            pid = banco.inserir_posto(con, u["nome"], u.get("apelido"), None, codigo)
+            pid = banco.inserir_posto(con, u["nome"], u.get("apelido"), None, codigo,
+                                      ativo=i not in fora)
             inseridos.add(i)
             adm = u.get("administradoras", {})
             tem_pagbank = any(a.get("nome") == "PAGBANK" for a in u.get("adquirentes", []))
@@ -312,8 +313,8 @@ def exportar_config(con) -> dict:
     return {"postos": postos, "canais": canais}
 
 
-def importar_config(con, dados: dict, *, pulados: list[str] | None = None) -> int:
-    """Importa postos e canais. `pulados` recebe os postos que pertencem a outra máquina."""
+def importar_config(con, dados: dict, *, desativados: list[str] | None = None) -> int:
+    """Importa postos e canais. `desativados` recebe os de outra máquina (salvos desativados)."""
     existentes = {(p["nome"], p["empresa_codigo_webposto"])
                   for p in banco.listar_postos(con, so_ativos=False)}
     novos: set[int] = set()
@@ -333,22 +334,20 @@ def importar_config(con, dados: dict, *, pulados: list[str] | None = None) -> in
     ativos = [(i, _chave(p.get("empresa_codigo_webposto"), p.get("cnpj")), p["nome"])
               for i, p in enumerate(postos)
               if (p["nome"], p.get("empresa_codigo_webposto")) not in existentes and p.get("ativo", True)]
-    fora, livres = _de_outra_maquina(con, ativos, pulados)
-    _validar_apelidos(con, [p.get("apelido") for i, p in enumerate(postos)
-                            if (p["nome"], p.get("empresa_codigo_webposto")) not in existentes
-                            and i not in fora])
+    fora, livres = _de_outra_maquina(con, ativos, desativados)
+    _validar_apelidos(con, [p.get("apelido") for p in postos
+                            if (p["nome"], p.get("empresa_codigo_webposto")) not in existentes])
     registrados = _registrar_na_rede(con, [c for c in ativos if c[0] not in fora], livres)
     criados, inseridos = 0, set()
     with _desfazer_se_falhar(con, registrados, inseridos):
         for i, p in enumerate(postos):
             chave = (p["nome"], p.get("empresa_codigo_webposto"))
-            if chave in existentes or i in fora:
+            if chave in existentes:
                 continue
             pid = banco.inserir_posto(con, p["nome"], p.get("apelido"), p.get("cnpj"),
-                                      p.get("empresa_codigo_webposto"))
+                                      p.get("empresa_codigo_webposto"),
+                                      ativo=p.get("ativo", True) and i not in fora)
             inseridos.add(i)
-            if not p.get("ativo", True):
-                con.execute("UPDATE posto SET ativo=0 WHERE id=?", (pid,))
             for f in p.get("fontes", []):
                 banco.salvar_fonte(con, pid, f["tipo"], f.get("ativo", False), f.get("config", {}))
             existentes.add(chave)

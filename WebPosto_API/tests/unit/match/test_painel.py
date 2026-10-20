@@ -612,7 +612,8 @@ def _execucao(con, itens, situacao="em_andamento", origem="agendada", usuario_id
     return eid
 
 
-def test_andamento_tem_refresh_quando_em_andamento(cli, admin, con):
+def test_andamento_tem_refresh_quando_em_andamento(cli, admin, con, monkeypatch):
+    monkeypatch.setattr(rotina, "em_andamento", lambda: True)
     pid = _posto(con, "Alfa", 1)
     _execucao(con, [(pid, "premmia", "coletando", None), (pid, "pagbank_edi", "aguardando", None)])
     _logado(cli)
@@ -634,14 +635,16 @@ def test_andamento_sem_refresh_quando_concluida(cli, admin, con):
     assert "Não concluído" in html and "Coletando…" not in html
 
 
-def test_andamento_flash_some_depois_de_concluida(cli, admin, con):
+def test_andamento_flash_some_depois_de_concluida(cli, admin, con, monkeypatch):
     pid = _posto(con, "Alfa", 1)
     eid = _execucao(con, [(pid, "premmia", "coletando", None)])
     _logado(cli)
+    monkeypatch.setattr(rotina, "em_andamento", lambda: True)
     html = cli.get("/coleta?ja=1").text
     assert "Já existe uma coleta em andamento." in html and REFRESH in html
     assert "Coleta iniciada." in cli.get("/coleta?iniciada=1").text
     banco.fechar_execucao(con, eid, "concluida")
+    monkeypatch.setattr(rotina, "em_andamento", lambda: False)
     for url in ("/coleta?ja=1", "/coleta?iniciada=1"):
         html = cli.get(url).text
         assert "Concluída às" in html
@@ -849,10 +852,6 @@ def test_cadastro_bloqueado_outra_maquina_409(cli, admin, con, tmp_path):
     rr.registrar(rede, "12345678000190", "OUTRA", "Cnpj")
     bloqueio = rr.mensagem_bloqueio(rr.dono(rede, "74014"))
     tok = _logado(cli)
-    r = cli.post("/postos", data={"csrf": tok, "acao": "novo", "nome": "Doze",
-                                  "empresa_codigo_webposto": "74014"})
-    assert r.status_code == 409 and bloqueio in _texto(r)
-    assert banco.listar_postos(con, so_ativos=False) == []
     pid = _posto(con)
     banco.definir_posto_ativo(con, pid, False)
     r = cli.post("/postos", data={"csrf": tok, "acao": "ativar", "id": str(pid)})
@@ -962,3 +961,126 @@ def test_assumir_mostra_aviso_e_loga_maquina_anterior(cli, admin, con, tmp_path)
     assert "Posto assumido. Clique em Ativar para voltar a coletar." in _texto(r)
     log = con.execute("SELECT detalhe FROM log_acesso WHERE acao='assumir_posto'").fetchone()
     assert log["detalhe"] == f"posto={pid};antes={socket.gethostname()}"
+
+
+# ---------------------------------------------------------------- revisão final v0.2
+
+def _desativado_aqui(dono) -> str:
+    return (f"Este posto já está cadastrado na máquina {dono.maquina} desde "
+            f"{rr.formatar_data_hora(rr.ler_data_hora(dono.registrado_em))}. Ele foi salvo desativado"
+            " aqui; use 'Assumir posto' se a outra máquina não coleta mais.")
+
+
+def test_baixar_planilha_regera_apos_nova_coleta(cli, admin, con, tmp_path, monkeypatch):
+    from openpyxl import load_workbook
+    monkeypatch.setenv("LOGOS_MATCH_DIR", str(tmp_path / "dados"))
+    a = _posto(con, "Alfa", 1)
+    fid = banco.salvar_fonte(con, a, "premmia", True, {})
+    dia = ontem()
+    banco.registrar_coleta(con, fid, dia, "erro", 0, "0", "Premmia fora.")
+    _logado(cli)
+    url = f"/planilha?posto_id={a}&dia={dia:%d-%m-%Y}"
+    r1 = cli.get(url)
+    assert r1.status_code == 200 and f"Logos_Alfa_{dia:%d-%m-%Y}.xlsx" in r1.headers["content-disposition"]
+    banco.registrar_coleta(con, fid, dia, "ok", 3, "30", None)  # nova coleta, sem canal ativo
+    r2 = cli.get(url)
+    assert r2.status_code == 200 and f"Logos_Alfa_{dia:%d-%m-%Y}_v2.xlsx" in r2.headers["content-disposition"]
+    arq = tmp_path / "dados" / "planilhas" / f"Logos_Alfa_{dia:%d-%m-%Y}_v2.xlsx"
+    assert r2.content == arq.read_bytes()
+    wb = load_workbook(arq, read_only=True)
+    try:
+        situacoes = [linha[1] for linha in wb["Resumo"].iter_rows(min_row=2, values_only=True)]
+    finally:
+        wb.close()
+    assert situacoes == ["OK"]
+    r3 = cli.get(url)  # sem mudança: mesmo arquivo, nenhuma versão nova
+    assert r3.content == r2.content and "_v2.xlsx" in r3.headers["content-disposition"]
+    assert not (arq.parent / f"Logos_Alfa_{dia:%d-%m-%Y}_v3.xlsx").exists()
+    r = cli.get(url + "&versao=1")
+    assert r.status_code == 200 and r.content == r1.content
+
+
+def _assumir_ativar_coletar(cli, tok, con, rede, pid, chave, executar_falso):
+    r = cli.get("/postos")
+    assert f'action="/postos/{pid}/assumir"' in r.text and "Desativado" in r.text
+    assert cli.post(f"/postos/{pid}/assumir", data={"csrf": tok, "confirmar": "1"}).status_code == 303
+    assert rr.dono(rede, chave).id_instalacao == banco.id_instalacao(con)
+    r = cli.post("/postos", data={"csrf": tok, "acao": "ativar", "id": str(pid)})
+    assert r.status_code == 303 and banco.obter_posto(con, pid)["ativo"]
+    r = cli.post(f"/coletar?posto_id={pid}&visivel=0", data={"csrf": tok})
+    assert r.status_code == 303 and executar_falso[1].wait(5)
+    assert executar_falso[0][0]["posto_id"] == pid
+
+
+def test_maquina_substituta_cadastra_desativado_e_assume(cli, admin, con, tmp_path, executar_falso):
+    rede = _rede(con, tmp_path)
+    rr.registrar(rede, "74014", "OUTRA", "Doze")
+    antes = rr.dono(rede, "74014")
+    tok = _logado(cli)
+    r = cli.post("/postos", data={"csrf": tok, "acao": "novo", "nome": "Doze",
+                                  "empresa_codigo_webposto": "74014"})
+    assert r.status_code == 200 and _desativado_aqui(antes) in _texto(r)
+    [posto] = banco.listar_postos(con, so_ativos=False)
+    assert not posto["ativo"] and posto["empresa_codigo_webposto"] == 74014
+    assert rr.dono(rede, "74014") == antes  # pasta da rede intocada
+    _assumir_ativar_coletar(cli, tok, con, rede, posto["id"], "74014", executar_falso)
+
+
+def test_maquina_substituta_importa_desativado_e_assume(cli, admin, con, tmp_path, executar_falso):
+    rede = _rede(con, tmp_path)
+    rr.registrar(rede, "74014", "OUTRA", "Doze")
+    antes = rr.dono(rede, "74014")
+    tok = _logado(cli)
+    dados = json.dumps({"postos": [{"nome": "Doze", "empresa_codigo_webposto": 74014},
+                                   {"nome": "Vip", "empresa_codigo_webposto": 5}]})
+    r = cli.post("/config/importar", data={"csrf": tok},
+                 files={"arquivo": ("c.json", dados, "application/json")})
+    assert r.status_code == 200
+    texto = _texto(r)
+    assert "Salvos desativados" in texto and f"Doze: {_desativado_aqui(antes)}" in texto
+    assert "1 posto(s) salvo(s) desativado(s)" in texto
+    postos = {p["nome"]: p for p in banco.listar_postos(con, so_ativos=False)}
+    assert not postos["Doze"]["ativo"] and postos["Vip"]["ativo"]
+    assert rr.dono(rede, "74014") == antes
+    assert rr.dono(rede, "5").id_instalacao == banco.id_instalacao(con)
+    _assumir_ativar_coletar(cli, tok, con, rede, postos["Doze"]["id"], "74014", executar_falso)
+
+
+def test_coleta_orfa_sem_refresh(cli, admin, con, monkeypatch):
+    pid = _posto(con, "Alfa", 1)
+    _execucao(con, [(pid, "premmia", "ok", "3 vendas."), (pid, "pagbank_edi", "coletando", None)])
+    _logado(cli)
+    monkeypatch.setattr(rotina, "em_andamento", lambda: False)
+    html = cli.get("/coleta").text
+    assert 'http-equiv="refresh"' not in html
+    assert "Não concluído" in html and "Coletando…" not in html
+    assert "Esta página se atualiza sozinha" not in html and "Concluída às" not in html
+    assert "A coleta foi interrompida" in html
+    monkeypatch.setattr(rotina, "em_andamento", lambda: True)
+    html = cli.get("/coleta").text
+    assert REFRESH in html and "Coletando…" in html
+
+
+def test_pasta_rede_indisponivel_no_meio_nao_salva(cli, admin, con, tmp_path, monkeypatch):
+    _posto(con, "Doze", 74014)
+    b = _posto(con, "Vip", 5)
+    _posto(con, "Real", 6)
+    rede = tmp_path / "rede"
+    rede.mkdir()
+    rr.registrar(rede, "5", "OUTRA", "Vip")
+    real = rr.registrar
+    chamadas = []
+
+    def falha_no_terceiro(pasta, chave, *a):
+        chamadas.append(chave)
+        if len(chamadas) == 3:
+            raise rr.PastaIndisponivel(rr.MSG_INDISPONIVEL)
+        return real(pasta, chave, *a)
+
+    monkeypatch.setattr(rr, "registrar", falha_no_terceiro)
+    tok = _logado(cli)
+    r = cli.post("/pasta-rede", data={"csrf": tok, "acao": "salvar", "caminho": str(rede)})
+    assert r.status_code == 503 and rr.MSG_INDISPONIVEL in _texto(r)
+    assert len(chamadas) == 3
+    assert banco.pasta_rede(con) is None
+    assert banco.obter_posto(con, b)["ativo"]  # nada desativado
