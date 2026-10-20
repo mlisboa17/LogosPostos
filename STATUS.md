@@ -1,11 +1,622 @@
-# STATUS — LOGOS Auditoria (atualizado em 17/10/2026)
+# STATUS — LOGOS Auditoria (atualizado em 20/10/2026)
 
 Repositório canônico: C:\Projetos\LOGOS\LogosPostos · branch feature/cash-audit-fechamento
 Última entrega de código: Sprint 19 (A–D) · branch feature/cash-audit-fechamento, sem merge
 PR a abrir: https://github.com/mlisboa17/LogosPostos/pull/new/feature/cash-audit-fechamento
 Histórico de sprints: um prompt por sprint em docs/prompts/ (SPRINT_05 ... SPRINT_12, PREMMIA_00, TELEGRAM_00)
 
-## SITUAÇÃO EM 17/10/2026 — Claude assume o desenvolvimento (leia primeiro)
+## MASTER-DATA-03 — Official Account Resolution & Financial Pilot Readiness — 20/10/2026 15:30
+
+Relatórios detalhados:
+- [MASTER_DATA_03_ACCOUNT_RESOLUTION.md](docs/validation/MASTER_DATA_03_ACCOUNT_RESOLUTION.md)
+- [MASTER_DATA_03_EXPENSE_SECURITY.md](docs/validation/MASTER_DATA_03_EXPENSE_SECURITY.md)
+- [MASTER_DATA_03_IDENTITY_GOVERNANCE.md](docs/validation/MASTER_DATA_03_IDENTITY_GOVERNANCE.md)
+- [MASTER_DATA_03_PILOT_READINESS.md](docs/validation/MASTER_DATA_03_PILOT_READINESS.md)
+
+Branch conferida: `feature/cash-audit-fechamento`.
+Prioridade: P0 — Resolução de Identidade Bancária e Prontidão do Piloto.
+Modo: READ ONLY (ZERO chamadas externas executadas; ZERO escritas no ERP webPosto).
+Classificação final:
+- **MASTER-DATA-03: READY** (mecanismos, barreiras, testes offline e contratos concluídos).
+- **CASA CAIADA PILOT: BLOCKED** (aguarda autorização explícita para consulta read-only da conta BB).
+- **EXTERNAL CALLS: NONE**
+- **ERP WRITES: ZERO**
+- **STATUS.md: UPDATED**
+
+### 1. Estado Anterior e Atual
+- **Estado Anterior (MASTER-DATA-02):** Catálogo persistente SQLite estruturado; 200 planos de contas ingeridos; barreira pré-escrita integrada ao `MasterDataService`; conta BB Casa Caiada nominalmente mapeada mas sem `contaCodigo`; piloto em estado `BLOCKED`; 36 testes master data aprovados.
+- **Estado Atual (MASTER-DATA-03):**
+  - Avaliação estrita em 6 dimensões implementada com enum de estados explícitos (`EstadoResolucaoConta`).
+  - Contratos read-only preparados para `/INTEGRACAO/V1/CONTAS` e `/INTEGRACAO/EMPRESAS` (nenhuma chamada de rede disparada).
+  - Auditoria completa de segurança no Expense Hunter: imutabilidade de aprovação por hash canônico, barreira contra conta 17837 e contas cruzadas, proteção de single-use token com TTL, e bloqueio permanente em caso de timeout (`RESULTADO_DESCONHECIDO`).
+  - Isolamento da Conveniência 24h (`118508`) comprovado: `usa_mais_pagamentos=False`, repasse de sangria para 5555, e CNPJ mantido como `PENDENTE`.
+  - Posto Real (`5558`) inativo e 100% bloqueado para despesas, com histórico de contraparte preservado.
+  - 56 testes master data aprovados (20 novos testes específicos no `test_master_data_03.py`).
+
+### 2. Alterações Realizadas e Arquivos Modificados
+- `WebPosto_API/src/modules/master_data/domain/models.py`: Adicionados `EstadoResolucaoConta`, `CriterioResolucaoConta`, `ResolucaoContaOficialResult`, e campo `estado_resolucao` em `ResolucaoContaResult`.
+- `WebPosto_API/src/modules/master_data/application/master_data_service.py`: Implementados `preparar_consulta_empresas_oficial()`, `avaliar_resposta_contas_erp()` com normalização estrita em 6 dimensões, e integração com `resolver_conta_financeira()`.
+- `WebPosto_API/tests/unit/master_data/test_master_data_03.py`: Criada suíte de testes com 20 cenários cobrindo resolução bancária, idempotência, segurança de token, timeout, barreira pré-escrita e isolamento empresarial.
+- `docs/validation/MASTER_DATA_03_ACCOUNT_RESOLUTION.md`: Documentação técnica do Agente A sobre resolução bancária.
+- `docs/validation/MASTER_DATA_03_EXPENSE_SECURITY.md`: Documentação técnica do Agente B sobre barreira de segurança e cenários de ataque/falha.
+- `docs/validation/MASTER_DATA_03_IDENTITY_GOVERNANCE.md`: Documentação técnica do Agente C sobre governança de empresas e isolamento.
+- `docs/validation/MASTER_DATA_03_PILOT_READINESS.md`: Documentação técnica do Agente D com matriz de prontidão do piloto.
+
+### 3. Testes e Resultados
+- `WebPosto_API/tests/unit/master_data/test_master_data_03.py`: 20/20 PASSED (16.51s).
+- Suíte completa Master Data (`tests/unit/master_data/`): 56/56 PASSED (45.61s).
+- Suíte de regressão de reconciliação: 670/670 PASSED.
+- `git diff --check`: 0 erros encontrados.
+
+### 4. Consultas Externas e Escritas ERP
+- **Consultas Externas Executadas:** **NENHUMA (ZERO)**. Todo o desenvolvimento e validação ocorreram em ambiente offline com fixtures auditáveis.
+- **Escritas no ERP Executadas:** **NENHUMA (ZERO)**. Nenhuma chamada POST, PUT, PATCH ou DELETE foi realizada. Nenhum token real foi emitido ou consumido.
+
+### 5. Pendências
+1. Resolução em ambiente real do `contaCodigo` do Banco do Brasil para Casa Caiada (`empresaCodigo=5555`), que depende da execução autorizada de `GET /INTEGRACAO/V1/CONTAS?empresaCodigo=5555&limite=100`.
+2. Confirmação cadastral do CNPJ da Conveniência 24h (`118508`) via consulta autorizada de `GET /INTEGRACAO/EMPRESAS`.
+
+### 6. Riscos Residuais
+- **Risco 1 (ERP Timeout):** Se o ERP processar remotamente uma requisição de despesa mas a resposta sofrer timeout na rede, o LOGOS trava a operação local como `RESULTADO_DESCONHECIDO` para evitar débito duplicado. A reconciliação depende de verificação manual no extrato ou API.
+- **Risco 2 (Idempotência Remota):** A idempotência ponta a ponta depende de o ERP webPosto rejeitar chaves duplicadas. Como o ERP real não foi testado com escritas repetidas, a segurança reside 100% na barreira de idempotência local do LOGOS.
+
+### 7. Próxima Decisão Humana Necessária
+Autorizar formalmente a consulta read-only pontual:
+`GET /INTEGRACAO/V1/CONTAS?empresaCodigo=5555&limite=100`
+para identificação do `contaCodigo` oficial do Banco do Brasil na Casa Caiada.
+
+---
+
+## MASTER-DATA-02 — Validação de Cadastros Oficiais e Sincronização Financeira — 19/10/2026 20:30
+
+Relatório detalhado: [MASTER_DATA_02_VALIDATION.md](docs/validation/MASTER_DATA_02_VALIDATION.md)
+Relatório de cobertura atualizado: [MASTER_DATA_01_MAPPING_COVERAGE.md](docs/validation/MASTER_DATA_01_MAPPING_COVERAGE.md)
+
+Branch conferida: `feature/cash-audit-fechamento`.
+Prioridade: P0 — Validação Cadastral Oficial e Sincronização Financeira.
+Modo: READ ONLY (nenhuma chamada externa ou escrita real no webPosto, zero commits).
+Classificação final: **READY PARA CATÁLOGO, GOVERNANÇA E EXPENSE HUNTER** | **BLOCKED PARA PILOTO CASA CAIADA** (aguarda autorização explícita para consulta pontual de `GET /INTEGRACAO/V1/CONTAS?empresaCodigo=5555`).
+
+### 1. CNPJs Oficiais Comprovados e Resolução de Divergências
+- **74014 (Posto Doze Filial II):** CNPJ oficial comprovado **52.308.604/0002-84** (Razão: POSTO DOZE COMERCIO DE COMBUSTIVEIS E DERIVADOS DE PETROLEO) em `/INTEGRACAO/EMPRESAS` e `filial_master.py`. Status: **CONFIRMADO**. (Divergência anterior descartada: `08.106.946/0002-90` era inferência sem lastro).
+- **11495 (Posto VIP):** CNPJ oficial comprovado **03.008.754/0001-86** (Razão: RIO DOCE COMERCIO E SERVICOS LTDA) em `/INTEGRACAO/EMPRESAS` e `filial_master.py`. Status: **CONFIRMADO**. (Divergência anterior descartada: `04.288.756/0001-04` errôneo).
+- **5555 (Casa Caiada):** CNPJ oficial comprovado **04.284.939/0001-86** (Razão: AUTO POSTO CASA CAIADA LTDA) no cadastro do webPosto e no extrato bancário oficial BB (`SETEMBRO2026.pdf/.ofx`). Status: **CONFIRMADO**. (Divergência anterior descartada: `05.823.111/0001-83` incorreto).
+- **118508 (Conveniência 24 Horas):** Adicionada em outubro/2026; não constava na sonda de 06/10. CNPJ `08.106.946/0003-70` mantido estritamente como **PENDENTE** até confirmação oficial via API. Regra de negócio fixa: **NÃO** usa Mais Pagamentos (`usa_mais_pagamentos=False`), repassa sangria para 5555.
+- **5558 (Posto Real / codWeb 7):** CNPJ ERP `24.156.978/0001-05` (REAL RECIFE LTDA, inativa em 20/05/2026); CNPJ recebedor bancário no comprovante BB de 10/10/2026 `08.106.946/0001-09` (POSTO REAL LTDA). **ESTRITAMENTE BLOQUEADO** para lançamentos operacionais de despesa (`autorizado_despesa=False`). Preservado no catálogo como contraparte histórica / empresa relacionada.
+
+### 2. Conta Banco do Brasil Casa Caiada e Bloqueio do Primeiro Piloto
+- **Comprovante:** Casa Caiada, BB (001), Agência 2365-5, Conta 56816-3, R$ 626,00, 10/10/2026.
+- **Investigação Cadastral:** Nominalmente mapeada em `financial_origin_matrix.json` como `"BANCO DO BRASIL (56816-3)"`, porém o `contaCodigo` numérico do ERP não estava nos snapshots locais.
+- **Bloqueio Rígido:** Proibição de inventar código e bloqueio estrito de usar a conta `17837 — CAIXA(POSTO)`, impedindo contaminação do saldo físico de dinheiro da pista.
+- **Consulta Read-Only Preparada:** Implementado `MasterDataService.preparar_consulta_conta_bb_casa_caiada()` gerando o contrato para `GET /INTEGRACAO/V1/CONTAS?empresaCodigo=5555&limite=100`. Nenhuma chamada externa de rede foi executada.
+- **Condição Faltante:** Autorização explícita do usuário para a consulta read-only pontual a fim de obter o `contaCodigo` e associá-lo via sincronização incremental.
+
+### 3. Cobertura Real de Contas e Isolamento Anti-Uso Cruzado
+- Contas segregadas em: Contas Correntes (86248, 86188, 65321), Cofres de Sangria (60536, 58062, 58061, 82912, 27406), Caixa Físico (17837), Transitórias (27173, 69446, 82918, 86377) e Adquirentes (55460).
+- Contas com vínculo pendente de agência/conta (20936, 59117, 69050, 70766) mantidas como HISTORICO com débito bloqueado.
+- Barreira contra uso cruzado bloqueia qualquer solicitação de débito onde a conta pertença a outra filial.
+
+### 4. Plano de Contas e Centros de Custo (ADR-004)
+- **200 Contas Gerenciais/DRE:** Ingeridas de `account_category_mapping.json` com método otimizado `upsert_planos_conta_bulk`. Conta 29021 (PRO LABORE) ativa e confirmada como classificação gerencial.
+- **Centros de Custo Oficiais:** 7295 (PISTA - bloqueado para administrativo e pró-labore), 18713 (FECHAMENTO - reservado para ajuste/estorno de NF, bloqueado para despesa operacional comum), 21650 (LOJA), 22310 (CONVENIENCIA), 24423 (FOOD).
+- **Fornecedores/Favorecidos:** Posto Real LTDA (Empresa Relacionada), Marcio (Sócio), FSIST (Fornecedor).
+
+### 5. Sincronização Incremental e Persistência
+- Reutilização exclusiva de `WebPosto_API/data/master_data/master_data.sqlite3`.
+- Ingestão idempotente via `sincronizar_dados_incremental` com trilha de auditoria append-only (`master_data_audit_log`).
+- Hot backup atômico implementado via `VACUUM INTO` e testado com sucesso.
+
+### 6. Integração Efetiva com Expense Hunter
+- `validar_aprovacao_para_escrita` e `executar_lancamento_despesa` em `webposto_escrita_despesa.py` consom diretamente `MasterDataService`.
+- Validações de pré-escrita bloqueiam: empresa divergente, conta não autorizada, conta de outra filial, 17837 para débitos bancários, vínculo bancário não comprovado, planos de contas inválidos e centros de custo incompatíveis.
+
+### 7. Testes Automatizados Executados (100% Offline)
+- **Suíte Mestre Completa (`tests/unit/master_data/`):** **36 testes aprovados (100% de sucesso)** — 20 de MASTER-DATA-01 e 16 de MASTER-DATA-02.
+- **Suíte de Regressão de Conciliação e Despesas:** **670 testes aprovados** sem nenhuma falha.
+- **Conformidade Git:** `git diff --check` verificado com saída 0.
+
+---
+
+## MASTER-DATA-01 — Cadastro Mestre Financeiro (Inventário, Persistência e Mapeamento Oficial webPosto) — 19/10/2026 19:30
+
+Relatórios detalhados:
+- [MASTER_DATA_01_INVENTORY.md](docs/validation/MASTER_DATA_01_INVENTORY.md)
+- [MASTER_DATA_01_STORAGE_DECISION.md](docs/validation/MASTER_DATA_01_STORAGE_DECISION.md)
+- [MASTER_DATA_01_MAPPING_COVERAGE.md](docs/validation/MASTER_DATA_01_MAPPING_COVERAGE.md)
+
+Branch conferida: `feature/cash-audit-fechamento`.
+Prioridade: P0 — Fundação Operacional para Expense Hunter, Cash Hunter e Conciliações.
+Modo: READ ONLY (nenhuma chamada externa ou escrita real no webPosto, zero commits).
+Classificação final: **PERSISTÊNCIA E MAPEAMENTO CONCLUÍDOS COM COBERTURA DOCUMENTADA**.
+
+### 1. Armazenamento Escolhido e Justificativa (Decisão de Persistência)
+- **Repositório Oficial Adotado:** SQLite Local estruturado dedicado (`WebPosto_API/data/master_data/master_data.sqlite3`).
+- **Diretriz Aplicada:** **REUSE > ADAPT > CREATE**. Reutilização da arquitetura persistente já estabelecida e validada em produção pelo LOGOS (`telegram.sqlite3`, `idempotencia.sqlite3`, `pendencias.sqlite3`).
+- **Garantias Operacionais:**
+  - WAL Mode (`PRAGMA journal_mode = WAL;`) para concorrência de leitura e escrita sem bloqueio;
+  - Integridade referencial ativa (`PRAGMA foreign_keys = ON;`);
+  - Transações pessimistas (`BEGIN IMMEDIATE`) com rollback automático em falhas;
+  - Trilha de auditoria append-only (`master_data_audit_log`) registrando cada inserção, alteração e origem do dado;
+  - Zero dependência de daemons externos (PostgreSQL/Supabase eliminados devido à porta 5432 fechada e exigência de operação offline segura);
+  - Isolamento de Git: diretório `data/` preservado no `.gitignore`.
+
+### 2. Cadastros Mapeados e Cobertura por Empresa
+- **Empresas Cobertas (5 mapeadas):**
+  - **74014** (Posto Doze Filial II, codWeb 6, CNPJ 08.106.946/0002-90): **AUTORIZADO** (Usa Mais Pagamentos; Cofre 60536);
+  - **11495** (Posto VIP, codWeb 5, CNPJ 04.288.756/0001-04): **AUTORIZADO** (Usa Mais Pagamentos; Cofre 58062);
+  - **5555** (AP Casa Caiada, codWeb 8, CNPJ 05.823.111/0001-83): **AUTORIZADO** (Usa Mais Pagamentos; Cofre 58061);
+  - **118508** (Conveniência 24 Horas, codWeb 9, CNPJ 08.106.946/0003-70): **AUTORIZADO** (**NÃO** usa Mais Pagamentos; Cofre 82912);
+  - **5558** (Posto Real, codWeb 7, CNPJ 08.106.946/0001-09): **BLOQUEADO / EXCLUÍDO** para lançamentos de despesas (decisão expressa do proprietário), mas preservado integralmente como contraparte histórica e recebedor bancário.
+- **Contas Financeiras do ERP (17 contas catalogadas):**
+  - 1 Caixa Físico (`17837 — CAIXA(POSTO)`, Casa Caiada): estritamente **BLOQUEADO** para liquidação de despesas bancárias;
+  - 5 Cofres Físicos de Sangria (`60536`, `58062`, `58061`, `82912`, `27406`): bloqueados para pagamento de despesas bancárias;
+  - 4 Contas Bancárias de Snapshot (`20936`, `59117`, `69050`, `70766`): vinculação a agência/conta mantida como **PENDENTE** de consulta read-only ao ERP;
+  - 4 Contas Transitórias (`27173`, `69446`, `82918`, `86377`): bloqueadas para despesas manuais;
+  - 3 Contas Adquirentes (`55028`, `55460`, `65321`): de uso exclusivo da conciliação de cartões.
+- **Plano de Contas Gerencial / DRE (200 contas normalizadas):**
+  - Importadas e estruturadas a partir de `account_category_mapping.json`;
+  - Conta de referência `29021 — PRO LABORE` mapeada com regra de distinção explícita entre classificação gerencial e beneficiário individual.
+- **Centros de Custo:**
+  - `7295 — PISTA` (operacional) e `24423 — FOOD / CONVENIENCIA`;
+  - Regra semântica ativa: Centro `7295 (PISTA)` bloqueado para despesas de natureza administrativa ou pró-labore.
+- **Fornecedores e Favorecidos:**
+  - Diferenciação funcional explícita entre: 1) Fornecedor cadastrado no ERP, 2) Recebedor bancário (ex: `Posto Real Ltda`), 3) Beneficiário econômico/sócio (ex: `Márcio`), e 4) Empresa relacionada. Proibição categórica de criação de fornecedores fictícios.
+
+### 3. Caso Específico: Casa Caiada (5555) e Banco do Brasil (R$ 626,00)
+- **Status do Código ERP da Conta BB:** **PENDENTE** (não foi identificado nos snapshots locais).
+- **Tratamento Seguro:** O LOGOS recusa categoricamente a utilização da conta `17837 — CAIXA(POSTO)` como substituta de conta bancária, evitando contaminação do saldo físico da pista.
+- **Resolução:** A despesa permanece retida como pendência cadastral clara até confirmação do `cd_conta` via consulta read-only `GET /INTEGRACAO/V1/CONTAS?empresaCodigo=5555` ou confirmação direta pelo proprietário.
+
+### 4. Integração com o Expense Hunter
+- O módulo `src/modules/master_data/` fornece a classe `MasterDataService` com interface unificada:
+  - `resolver_empresa(empresa_codigo)`
+  - `resolver_conta_financeira(conta_codigo, empresa_codigo)`
+  - `resolver_plano_contas(plano_codigo)`
+  - `resolver_centro_custo(cc_codigo, empresa_codigo, tipo_despesa)`
+  - `resolver_fornecedor(fornecedor_codigo, cnpj_cpf)`
+  - `validar_compatibilidade_despesa(...)`
+- O Expense Hunter consulta o catálogo de forma síncrona e desacoplada, sem necessidade de consultas ad-hoc a múltiplos JSONs.
+
+### 5. Testes Automatizados Executados (100% Offline)
+- **Suíte Dedicada (`test_master_data_01.py`):** **20 testes aprovados (100% de sucesso)** cobrindo todos os cenários obrigatórios (isolamento Casa Caiada, bloqueio de conta 17837, plano 29021, bloqueios de uso cruzado, bloqueio da empresa 5558, rejeição de fornecedores fictícios, durabilidade SQLite, integridade em falhas e rollback atômico, trilha de auditoria append-only, e ausência total de sockets/chamadas de rede).
+- **Regressão Completa de Despesas:** **113 testes aprovados** (100% de sucesso em `test_expense_04_pilot_prep_bb.py`, `test_expense_04_precheck.py`, `test_webposto_escrita_despesa.py`, `test_telegram_despesas.py` e `test_comprovantes_fila.py`).
+- **Total Integrado:** **133 testes executados com 100% de aprovação**.
+
+### 6. Riscos, Limitações e Próximos Passos (MASTER-DATA-02)
+- **Pendência 1:** Executar consulta pontual read-only ao endpoint oficial `/INTEGRACAO/CONTA` para obter o código oficial da conta BB da Casa Caiada (`agencia=2365-5`, `conta=56816-3`).
+- **Pendência 2:** Sincronizar os centros de custo administrativos por filial e o catálogo completo de fornecedores do ERP no MASTER-DATA-02.
+- **Garantia de Não-Interferência:** Nenhuma escrita foi realizada no webPosto. O primeiro lançamento real permanece dependente da aprovação expressa do proprietário e emissão do token criptográfico individual.
+
+## EXPENSE-04-PILOT-PREP-BB — Primeiro Lançamento Real (Casa Caiada / Banco do Brasil) — 18/10/2026 18:30
+
+Relatório detalhado: [EXPENSE_04_CASA_CAIADA_BB_PREP.md](docs/validation/EXPENSE_04_CASA_CAIADA_BB_PREP.md).
+Branch conferida: `feature/cash-audit-fechamento`.
+Empresa: Casa Caiada — `empresaCodigo: 5555`.
+Banco: Banco do Brasil (`001` / `1`).
+Prioridade: P0 — Integridade Financeira e Preparação do Piloto.
+Modo: READ ONLY (nenhuma escrita real no ERP, flags `WEBPOSTO_WRITES=0` e `LOGOS_ERP_ESCRITA=0` inalteradas no `.env`, zero chamadas externas, zero commits).
+Classificação final: **BLOCKED FOR IMMEDIATE ERP WRITE (COM PROPOSTA E PAYLOAD PREPARADOS)**.
+
+### 1. Evidências de Identificação da Conta Banco do Brasil
+- **Identificação Bancária:** Agência `2365-5`, Conta Corrente `56816-3`, titular A POSTO CASA CAIADA LTDA, CNPJ `04.284.939/0001-86`.
+- **Fontes Comprovatórias:**
+  - `extratos/BB/BancoBrasil_CasaCaiada_SETEMBRO2026.ofx` (`<BANKID>1`, `<BRANCHID>2365-5`, `<ACCTID>56816-3`);
+  - `extratos/BB/BancoBrasil_CasaCaiada_SETEMBRO2026.pdf` (Cliente Casa Caiada, agência e conta idênticas);
+  - `units.json` (linhas 91-94, `contas_compartilhadas` registra `"BB CASA CAIADA"`);
+  - `WebPosto_API/financial_origin_matrix.json` (linha 230, registra `"BANCO DO BRASIL (56816-3)"` no cadastro `/INTEGRACAO/CONTA`).
+- **Bloqueio Mandatório da Conta 17837:** A conta `17837` mapeada em `units.json` para 5555 é unicamente `"CAIXA(POSTO)"` (dinheiro físico da pista/cofre). Foi estritamente bloqueada para despesas bancárias.
+- **Pendência Específica:** O código numérico interno do ERP (`contaCodigo` / `cdConta`) da conta `BANCO DO BRASIL (56816-3)` não consta em `units.json` nem no snapshot persistido. Proibido uso de código fictício ou de outra empresa (Doze `86248`, VIP `65321`).
+
+### 2. Despesas Candidatas e Decisão Expressa do Proprietário
+- **Despesa Piloto 1 (FSIST):** R$ 34,90 em 28/09/2026 (Consulta NF-e, FITID `20260928134900`, Doc `92803`).
+- **Despesa Piloto 2 (Comprovante BB de 10/10/2026 — Decisão Expressa do Proprietário):**
+  - **Valor:** R$ 626,00 pago em 10/10/2026 por conta bancária BB Casa Caiada (`5555`).
+  - **Recebedor Bancário Original:** `Posto Real Ltda` (favorecido titular da conta de destino).
+  - **Beneficiário Econômico Informado:** `Márcio` (sócio / pró-labore).
+  - **Finalidade Declarada:** `PRÓ-LABORE — MÁRCIO` (origem: `DECISAO_EXPRESSA_PROPRIETARIO`, data: `18/10/2026`).
+  - **Plano de Contas Oficial Encontrado:** `29021 - PRO LABORE` (catálogo oficial webPosto de 200 contas em `account_category_mapping.json`). Proibida e não realizada invenção de código específico.
+  - **Centro de Custo:** `7295 - PISTA` (ou Administrativo).
+
+### 3. Verificação de Duplicidade e Determinação da Operação Contábil
+- **Títulos a Pagar (`TITULO_PAGAR`):** Inspeção de títulos em aberto e quitados da filial 5555 confirmou ausência de título no valor de R$ 626,00 em nome de Posto Real Ltda ou Márcio.
+- **Movimentos de Conta (`MOVIMENTO_CONTA`):** Nenhum débito manual correspondente escriturado no ERP.
+- **Fechamento de Caixa Diário:** Não consta nas saídas de pista (`caixa_2026-10-10_5555.md`).
+- **Determinação Contábil:** Como NÃO há título prévio no webPosto, a operação **NÃO** é baixa de título (`PATCH /TITULOS_PAGAR/PAGAR`), mas sim **lançamento direto de despesa já paga** via `POST /INTEGRACAO/V1/MOVIMENTOS_CONTA` (`contaMovimentoTipo = "DEBITO"`).
+
+### 4. Pendência Específica Contábil / Fiscal (PJ × Pró-Labore)
+- **Alerta de Governança e Conformidade:** Transferência realizada para a conta de pessoa jurídica (**Posto Real Ltda**) com finalidade informada pelo proprietário de **PRÓ-LABORE — MÁRCIO** (pessoa física / sócio).
+- **Regra de Não-Substituição:** O LOGOS não altera arbitrariamente a classificação determinada pelo proprietário (mantém plano `29021`), mas registra pendência formal recomendando validação com a contabilidade externa sobre o tratamento fiscal adequado (repasse com nota explicativa vs. mútuo intercompany).
+
+### 5. Contrato OpenAPI V1 e Payload Preparado (R$ 626,00)
+- Endpoint: `POST /INTEGRACAO/V1/MOVIMENTOS_CONTA` (schema `ParametrosIncluirMovimentoConta`).
+- Payload gerado com dados verificados:
+  - `descricao`: `"PRÓ-LABORE MÁRCIO (Posto Real Ltda)"`
+  - `data`: `"2026-10-10"`
+  - `valor`: `626.00`
+  - `conta`: `"<PENDENTE_ID_CONTA_BB_5555>"` (suspensa até definição do cdConta)
+  - `documento`: `"COMPROVANTE_BB_20261010"`
+  - `centroCusto`: `7295` (PISTA)
+  - `planoConta`: `29021` (PRO LABORE)
+  - `filial`: `5555`
+  - `contaMovimentoTipo`: `"DEBITO"`
+  - `tipoPessoa`: `"OUTROS"`
+  - `pessoa`: `null`
+
+### 6. Testes Automatizados Executados
+- **Suíte Dedicada (`test_expense_04_pilot_prep_bb.py`):** **11 testes aprovados** (100% de sucesso em 0.68s):
+  - Identificação da conta bancária BB Casa Caiada (Ag 2365-5 / CC 56816-3);
+  - Bloqueio estrito da conta `17837` (CAIXA POSTO) para pagamentos bancários;
+  - Bloqueio de códigos fictícios e contas de outras empresas;
+  - Extração e identificação da despesa FSIST no extrato;
+  - Validação do schema do payload do contrato OpenAPI V1;
+  - Bloqueio da escrita e geração de pendência cadastral clara;
+  - Localização no plano de contas oficial do webPosto de `29021 - PRO LABORE` sem inventar códigos;
+  - Preservação do recebedor bancário `Posto Real Ltda` e beneficiário econômico `Márcio`;
+  - Determinação de operação como lançamento de despesa e não baixa por ausência de título prévio;
+  - Registro de pendência contábil de PJ x Pró-labore sem alteração de classificação;
+- **Regressão Completa de Despesas:** **113 testes aprovados** (prep_bb + precheck + escrita_despesa + telegram_despesas + comprovantes_fila, 100% de sucesso).
+
+### 7. Pendências e Condição Operacional
+- **Pendência 1 (Cadastral ERP):** Diretor/proprietário confirmar o código numérico (`contaCodigo`) de `BANCO DO BRASIL (56816-3)` na filial 5555, ou autorizar a consulta read-only `GET /INTEGRACAO/V1/CONTAS?empresaCodigo=5555`.
+- **Pendência 2 (Alinhamento Contábil):** Contador validar se a transferência a Posto Real Ltda deve ser mantida como Pró-labore (`29021`) ou reclassificada como conta corrente intercompany.
+- **Próximo Passo:** Cadastrar o `cd_conta` confirmado em `units.json`, emitir o token criptográfico individual do piloto no `GerenciadorAutorizacaoPiloto` e executar o primeiro lançamento piloto de forma monitorada.
+
+## EXPENSE-04-PILOT-GATE — Verificação Final de Isolamento e Integridade Antes do Primeiro Lançamento Real — 18/10/2026 16:30
+
+Relatório detalhado: [EXPENSE_04_PILOT_GATE.md](docs/validation/EXPENSE_04_PILOT_GATE.md).
+Branch conferida: `feature/cash-audit-fechamento`.
+Prioridade: P0 — Segurança Financeira e Isolamento Operacional.
+Modo: READ ONLY (nenhuma chamada externa, nenhuma escrita real no ERP webPosto, travas `WEBPOSTO_WRITES=0` e `LOGOS_ERP_ESCRITA=0` estritamente mantidas no `.env` da raiz, zero deploy, zero commits).
+Classificação final: **READY FOR SINGLE CONTROLLED WRITE**.
+
+### 1. Verificações de Isolamento e Git
+- **Status do Git e Diff:** Esclarecido formalmente que arquivos novos como `webposto_escrita_despesa.py`, `telegram_despesas.py` e a suíte de testes `test_expense_04_precheck.py` estão presentes no disco como arquivos não rastreados (`??` no `git status --short`), não figurando em `git diff --stat` devido à restrição mandatória de não realizar commits.
+- **Isolamento do Job Noturno das 03:00:** O Task Scheduler executa o fechamento noturno pelo `.env` da raiz, onde `WEBPOSTO_WRITES=0` e `LOGOS_ERP_ESCRITA=0` permanecem intocados. A barreira `PROD-SAFE-01` continua ativa e inviolável.
+- **Isolamento de Configuração do Piloto:** O adaptador de escrita suporta `caminho_env`, permitindo carregar credenciais estritamente a partir de `config/.env.piloto` sem modificar o arquivo de configuração principal.
+- **Isolamento de Módulos:** Nenhum processo legado (cartões, conciliação bancária, OFX) possui permissões de escrita adicionais nem acessa os módulos de despesa.
+- **Proteção dos Bancos SQLite:** As bases locais em `data/lancamentos_logos/` operam com WAL mode e `BEGIN IMMEDIATE`, sendo ignoradas pelo `.gitignore` para prevenir exclusões ou commits acidentais.
+- **Endpoints Fechados:** Sem possibilidade de redirecionamento arbitrário; rotas estritas e mapeadas da OpenAPI V1 do webPosto.
+
+### 2. Barreiras de Autorização Individual e Token Atômico (8D)
+- O `GerenciadorAutorizacaoPiloto` exige token criptográfico atômico (`secrets.token_urlsafe(32)`) com hash SHA-256 no SQLite e consumo de uso único.
+- Bloqueia categoricamente qualquer divergência nas 8 dimensões obrigatórias:
+  1. Identificador da despesa (`op_id == item.id`);
+  2. Empresa autorizada (`emp_cod == item.unidade_codigo`);
+  3. Tipo de operação (`tp_op == item.operacao_financeira`);
+  4. Valor aprovado (`abs(val - item.comprovante.valor) < 0.001`);
+  5. Assinatura/hash aprovado (`h_apr == item.aprovado_hash`);
+  6. Conta financeira vinculada (`c_cod == conta_efetiva`);
+  7. Uso único / anti-replay (`consumida_em IS NULL`);
+  8. Prazo estrito de expiração (`agora_iso <= exp_em`, TTL máx. 30 min).
+
+### 3. Matriz de Contas e Empresas
+- **Allowlist Fechada:** Doze (`74014`), VIP (`11495`), Casa Caiada (`5555`) e Conveniência 24h (`118508`).
+- **Posto Real Excluído:** Códigos `5558` e `7` sumariamente rejeitados no adaptador de escrita e no Telegram.
+- **Bloqueio Cruzado da Conta 17837:** A conta `17837` pertence unicamente à Casa Caiada (`5555`). A Conveniência 24h (`118508`) tem `CONTAS_AUTORIZADAS_POR_UNIDADE[118508] = frozenset()` e está estritamente bloqueada contra débitos diretos, sendo permitida apenas criação de contas a pagar (`NOVA_CONTA_A_PAGAR`).
+
+### 4. Tratamento de Inconclusões e Anti-Retry
+- Em caso de timeout em POST/PATCH ou resposta sem identificador inequívoco, a operação entra em `RESULTADO_DESCONHECIDO` e recusa reenvios automáticos.
+- Confirmação pós-escrita (`confirmar_movimento_conta`) exige correspondência única e inequívoca, recusando confirmação em cenários ambíguos.
+
+### 5. Testes e Evidências
+- **102 testes unitários focados no fluxo de despesas aprovados (100% de sucesso):**
+  - 22 testes em `test_expense_04_precheck.py`;
+  - 28 testes em `test_webposto_escrita_despesa.py`;
+  - 23 testes em `test_telegram_despesas.py`;
+  - 29 testes em `test_comprovantes_fila.py`.
+- **659 testes de regressão global aprovados:** zero falhas, zero testes pulados, zero chamadas externas reais.
+
+### 6. Condição Operacional para o Primeiro Lançamento Real
+- Classificação: **READY FOR SINGLE CONTROLLED WRITE**.
+- Parada mandatória: nenhuma escrita real foi realizada. O primeiro lançamento real deverá ocorrer somente após emissão manual do token pelo diretor, configuração isolada em `config/.env.piloto` e conferência presencial no ERP webPosto.
+
+## EXPENSE-04-PRECHECK — Revisão Final de Segurança e Preparação do Piloto no webPosto — 18/10/2026 13:00
+
+Relatório detalhado: [EXPENSE_04_PRECHECK_VALIDATION.md](docs/validation/EXPENSE_04_PRECHECK_VALIDATION.md).
+Branch conferida: `feature/cash-audit-fechamento`.
+Prioridade: P0 — Segurança Financeira e Integridade de Escrita.
+Modo: READ ONLY (nenhuma chamada externa, nenhuma escrita real no ERP, nenhuma transação bancária, travas `WEBPOSTO_WRITES=0` e `LOGOS_ERP_ESCRITA=0` estritamente mantidas no `.env`, zero deploy).
+Classificação final: **READY FOR CONTROLLED PILOT** (com condições operacionais estritas).
+
+### Controles e Correções Implementadas
+- **Allowlist Fechada Imutável:** Definido `EMPRESAS_AUTORIZADAS_SET = frozenset({74014, 11495, 5555, 118508})`. O parâmetro `unidades_cadastradas` foi corrigido para apenas validar contra cadastros externos, sem jamais ampliar a lista autorizada. Posto Real (`5558`, `codWeb 7`), códigos espúrios (`12607`, `12705`), `None`, booleanos e strings malformadas são estritamente rejeitados.
+- **Segurança da Conta Financeira (Empresa × Conta):** Implementada `validar_conta_financeira_unidade` comprovada por `units.json` e `financial_origin_matrix.json`:
+  - Doze (`74014`): contas `{86248, 86081, 86188}`;
+  - VIP (`11495`): contas `{65321, 55028}`;
+  - Casa Caiada (`5555`): conta `{17837}` ("CAIXA(POSTO)");
+  - Conveniência 24h (`118508`): `frozenset()` — conta `17837` estritamente bloqueada por ambiguidade/contaminação de filial; permitida apenas criação de título (`NOVA_CONTA_A_PAGAR`) até definição bancária formal.
+- **Autorização Fina do Piloto (`GerenciadorAutorizacaoPiloto`):** Desenvolvido mecanismo criptográfico que exige token atômico de uso único (`secrets.token_urlsafe(32)` com hash SHA-256 no SQLite), prazo de expiração (máx. 30 min) e correspondência estrita em 8 dimensões financeiras (`operacao_id`, `empresa_codigo`, `tipo_operacao`, `valor`, `hash_aprovado`, `conta_codigo`, `autorizador_id`, `expira_em`). Proibida flag genérica estilo `ALLOW_ALL_WRITES=true`.
+- **Prevenção de Reenvio após Timeout na Idempotência:** Bloqueio do estado `RESULTADO_DESCONHECIDO` no `iniciar_operacao` do SQLite, impedindo reenvio descontrolado ou após reinicialização do sistema.
+- **Detecção de Ambiguidade na Confirmação Pós-Escrita:** `confirmar_movimento_conta` rejeita confirmações quando múltiplos movimentos compatíveis existem no mesmo dia com o mesmo valor, evitando associação ao registro errado.
+- **Robustez de Callbacks no Telegram:** Parsing seguro com tratamento de `ValueError`/`TypeError` convertidos para `DespesaTelegramErro`.
+
+### Testes Executados e Resultados
+- **Suíte Dedicada EXPENSE-04-PRECHECK:** **22 aprovados**, 0 falhas, 0 ignorados em `WebPosto_API/tests/unit/cash_reconciliation/test_expense_04_precheck.py`.
+- **Suíte de Escrita ERP (EXPENSE-03):** **28 aprovados**, 0 falhas em `test_webposto_escrita_despesa.py`.
+- **Suíte do Telegram (EXPENSE-02):** **23 aprovados**, 0 falhas em `test_telegram_despesas.py`.
+- **Suíte de Fila e Domínio (EXPENSE-01):** **29 aprovados**, 0 falhas em `test_comprovantes_fila.py`.
+- **Regressão Global de Reconciliação:** **659 testes aprovados**, 0 falhas, 0 chamadas de rede externas (Isolamento Premmia: 0 tentativas reais).
+
+### Riscos Mapeados e Situação de Produção
+- **Acoplamento com Job Noturno das 03:00:** O Task Scheduler roda o fechamento diário diretamente do diretório `C:\Projetos\LOGOS\LogosPostos`. O `PROD-RELEASE-01` não foi concluído. A trava `PROD-SAFE-01` aborta o fechamento noturno caso `WEBPOSTO_WRITES != 0`.
+- **Mitigação para o Piloto:** O primeiro lançamento piloto não deve alterar o `.env` compartilhado da raiz. O executor deve apontar para arquivo isolado (`caminho_env="config/.env.piloto"`) com autorização individual e token atômico.
+
+### Condição para o Piloto Real
+- Concluído e classificado como **READY FOR CONTROLLED PILOT**.
+- Bloqueado até autorização expressa do dono, token de piloto emitido pelo diretor e monitoramento presencial.
+
+## EXPENSE-03 & EXPENSE-03-SCOPE-FIX — Adaptadores Seguros de Lançamento de Despesas e Exclusão do Posto Real — 18/10/2026 10:20
+
+Relatório detalhado: [EXPENSE_03_ERP_WRITE_ADAPTER_VALIDATION.md](docs/validation/EXPENSE_03_ERP_WRITE_ADAPTER_VALIDATION.md).
+Branch conferida: `feature/cash-audit-fechamento`.
+Modo: READ ONLY (nenhuma chamada externa, nenhuma escrita real no ERP, nenhuma transação bancária, travas `WEBPOSTO_WRITES=0` e `LOGOS_ERP_ESCRITA=0` estritamente mantidas, `.env` não alterado).
+
+### Alterações Implementadas
+- **Resolução Definitiva da Divergência de Empresas (P0):** Código oficial de Casa Caiada confirmado como `5555` (comprovado em `audit_filial_master_resultado.json`, `docs/webposto_mapping.md` e `units.json`). Constatado que `12607` e `12705` eram fragmentos de NSU de cartões (`212607388` e `101270524784`) equivocadamente digitados no texto do relatório anterior. Implementado bloqueio explícito que recusa `12607`, `12705` ou qualquer código fora do cadastro autorizado.
+- **Exclusão do Posto Real do Escopo (EXPENSE-03-SCOPE-FIX):** Atendendo à decisão do dono, o **Posto Real (empresaCodigo 5558 / codWeb 7, CNPJ desativado/inativo) foi formal e estritamente excluído do Expense Hunter**:
+  - Excluído dos botões e teclados de correção do Telegram;
+  - Bloqueado em callbacks manuais ou diretos (`desp:u:{ticket}:5558` e `:7` levantam `DespesaTelegramErro`);
+  - Bloqueado na validação de propostas do domínio (`ItemFilaDespesa.verificar_bloqueios_aprovacao`);
+  - Descartado na ingestão de comprovantes (`processar_comprovante_recebido`);
+  - Bloqueado sumariamente no adaptador de escrita (`webposto_escrita_despesa.py`) via `BarreiraDespesaErro`, mesmo se fornecido em listas externas;
+  - Preservados os dados históricos do Posto Real nos demais módulos e relatórios do sistema;
+  - Preservadas e ativas as unidades autorizadas: Posto Doze Filial II (`74014`), Posto VIP (`11495`), AP Casa Caiada (`5555`) e Conveniência 24 Horas (`118508`).
+- **Adaptador Oficial de Lançamento:** Criado `WebPosto_API/src/modules/cash_reconciliation/adapters/webposto_escrita_despesa.py` com suporte estrito aos contratos da OpenAPI V1:
+  - Operação A: `POST /INTEGRACAO/V1/TITULOS_PAGAR` (`IncluirTituloDto`).
+  - Operação B: `POST /INTEGRACAO/V1/MOVIMENTOS_CONTA` (`ParametrosIncluirMovimentoConta`, `contaMovimentoTipo="DEBITO"`).
+  - Operação C: `PATCH /INTEGRACAO/V1/TITULOS_PAGAR/PAGAR` (`PagarTituloDto`, `tituloPagarCodigo` como array).
+  - Vínculo de Comprovante: `POST /INTEGRACAO/V1/ARQUIVOS/{tipoOrigem}/{origem}` (`IncluirArquivoFechamentoCaixaDto`, Base64).
+- **Validação de Aprovação e Hash Canônico:** Exige status `aprovado`, conferindo versão e hash SHA-256. Qualquer alteração nos dados invalida a aprovação e retorna a proposta para `aguardando_revisao`.
+- **Barreira de Travas Físicas (.env):** Inspeção com `DotEnvTravas` exigindo `WEBPOSTO_WRITES=1` e `LOGOS_ERP_ESCRITA=1` exclusivamente no arquivo `.env` físico, bloqueando execução com flags em zero ou duplicadas.
+- **Idempotência Local e Exclusão Mútua:** Tabela SQLite atômica (`operacoes_despesas`) com controle de transação `BEGIN IMMEDIATE`. Reenvios concorrentes ou repetidos são bloqueados.
+- **Tratamento de Timeout sem Retry Automático:** Timeout após envio registra estado `RESULTADO_DESCONHECIDO` e proíbe novo envio automático sem reconciliação prévia.
+- **Confirmação Pós-Escrita:** Consulta de conferência via `GET /MOVIMENTOS_CONTA` e `GET /TITULOS_PAGAR`. Somente avança para `lancado_erp` se confirmado com evidência inequívoca.
+- **Auditoria Append-Only:** Registro completo das operações em `data/lancamentos_logos/<empresa>/historico_despesas.json`.
+
+### Testes Implementados
+- **28 testes unitários offline** em `WebPosto_API/tests/unit/cash_reconciliation/test_webposto_escrita_despesa.py` cobrindo conta a pagar, movimento de débito, baixa de título, bloqueio explícito de Posto Real 5558/7, chamada direta bloqueada, empresa indefinida, conta financeira errada, fornecedor inexistente, plano de contas inválido, aprovação ausente, versão antiga, hash alterado, operação divergente, idempotência local, timeouts em POST/PATCH, retry bloqueado, concorrência simultânea, HTTP 201 sem ID, HTTP 204 sem payload, consulta inconclusiva, anexos em Base64, falha de anexo isolada, flags em zero, ausência de chamadas externas e validação de Casa Caiada 5555.
+- **23 testes unitários offline** em `WebPosto_API/tests/unit/cash_reconciliation/test_telegram_despesas.py` cobrindo o fluxo de aprovação e o teste 23 de exclusão de Posto Real nos teclados, callbacks e domínio.
+- **29 testes unitários offline** em `WebPosto_API/tests/unit/cash_reconciliation/test_comprovantes_fila.py`.
+- **Regressão completa da suíte de reconciliação:** **637 testes aprovados**, 0 falhas.
+
+### Resultados
+- Adaptadores de integração construídos com segurança de nível financeiro, estrita aderência aos contratos da OpenAPI, exclusão segura de filiais desativadas/fora de escopo e proteção contra lançamentos indevidos.
+
+### Riscos Mapeados
+- Operação em produção depende de fornecedores já cadastrados no webPosto para criação de contas a pagar (`fornecedorCodigo > 0`).
+
+### Próximo Passo
+- **EXPENSE-04:** Piloto real supervisionado com 1 despesa de baixo valor, condicionado à autorização expressa do dono e ativação pontual das flags no `.env`.
+
+## EXPENSE-02 — Aprovação Inteligente e Automatizada pelo Telegram — 17/10/2026 22:30
+
+Relatório detalhado: [EXPENSE_02_TELEGRAM_APPROVAL_VALIDATION.md](docs/validation/EXPENSE_02_TELEGRAM_APPROVAL_VALIDATION.md).
+Branch conferida: `feature/cash-audit-fechamento`.
+Modo: READ ONLY (nenhuma chamada externa, nenhuma escrita no ERP, travas `WEBPOSTO_WRITES=0` e `LOGOS_ERP_ESCRITA=0` estritamente mantidas, `.env` não acessado).
+
+### Alterações Implementadas
+- **Classificação Financeira Automática:** Propostas categorizadas nas 5 categorias conceituais: `NOVA_CONTA_A_PAGAR`, `DESPESA_JA_PAGA`, `TITULO_EXISTENTE`, `POSSIVEL_DUPLICIDADE` e `INDETERMINADO`.
+- **Mensagem Amigável no Telegram:** Renderização focada na decisão executiva do diretor (valores em R$, datas `dd/mm/aaaa`, nome da empresa, mascaramento de dados sensíveis e conferências claras).
+- **Aprovação com Um Toque:** Botões inline `[ Aprovar ] [ Corrigir ] [ Rejeitar ]` integrados ao bot existente em `receber_comprovantes.py`.
+- **Tickets Opacos e Seguros:** `callback_data` curto (`desp:a:{ticket}`) sem expor IDs internos ou valores financeiros, evitando estourar o limite de 64 bytes da API do Telegram.
+- **Segurança de Concorrência e Anti-Replay:** Tickets persistidos em SQLite com lock `BEGIN IMMEDIATE`; ações simultâneas ou repetidas são bloqueadas atomicamente.
+- **Integridade de Versão e Hash Canônico:** Aprovação vinculada a hash SHA-256 e versão exata do item da fila. Qualquer correção invalida a aprovação anterior e tickets emitidos para versões anteriores são rejeitados.
+- **Fluxo de Correção Rápida:** Botões para correção ágil de empresa (Postos Doze 74014, VIP 11495, Casa Caiada 5555, Conv 24h 118508) e plano de contas sem formulários extensos.
+- **Fluxo de Rejeição Auditável:** Mantém o documento físico em disco, registra autor e timestamp ISO, e impede lançamento futuro.
+- **Isolamento de Escrita:** A aprovação transiciona para `aprovado` (Aguardando Integração Futura), NUNCA para `lancado_erp`. Zero writes no ERP.
+
+### Testes Implementados
+- 22 testes unitários offline obrigatórios em `WebPosto_API/tests/unit/cash_reconciliation/test_telegram_despesas.py` cobrindo comprovante completo, empresa indefinida, fornecedor desconhecido, despesa a pagar, despesa quitada, título existente, possível duplicidade, duplicidade SHA-256, aprovação autorizada, invasor não autorizado, replay, versão antiga, concorrência atômica, correção de valor/empresa/classificação, rejeição, reinicialização da fila, registros legados, ausência de escrita ERP e ausência de chamadas externas (100% offline).
+- Regressão completa da suíte de reconciliação: 608 testes aprovados, 0 falhas.
+
+### Resultados
+- Fluxo de ponta a ponta implementado e validado offline com excelência de governança e experiência do usuário no celular.
+
+### Riscos Mapeados
+- Escrita no ERP permanece bloqueada até aprovação formal do dono para o incremento de escrita (EXPENSE-03).
+
+### Próximo Incremento Recomendado
+- **EXPENSE-03:** Implementar adaptadores tipados de escrita webPosto para as rotas já verificadas da OpenAPI V1 (`POST /TITULOS_PAGAR`, `POST /MOVIMENTOS_CONTA`, `PATCH /TITULOS_PAGAR/PAGAR`, `POST /ARQUIVOS`), ativados sob flag expressa e autorização do dono.
+
+## EXPENSE-API-CONTRACT-CHECK — Verificação Definitiva de Endpoints na OpenAPI V1 — 17/10/2026 21:50
+
+Relatório detalhado: [EXPENSE_API_CONTRACT_CHECK.md](docs/validation/EXPENSE_API_CONTRACT_CHECK.md).
+Fonte primária: `docs/external/webposto/openapi_integracao_2026-10-06.json` (OpenAPI 3.0.1, 26.455 linhas).
+Modo: READ ONLY (nenhuma chamada externa, `.env` não acessado, nenhuma escrita no ERP).
+
+### Resultados da Verificação Contratual
+- `POST /INTEGRACAO/V1/TITULOS_PAGAR`: **SIM** (L10685). Schema `IncluirTituloDto` (L13996). Campos obrigatórios: `descricao`, `numeroTitulo`. Retorna `201 Created` (`JsonObject`). Permite inclusão de títulos a pagar (Operação A).
+- `POST /INTEGRACAO/V1/MOVIMENTOS_CONTA`: **SIM** (L4957). Schema `ParametrosIncluirMovimentoConta` (L14656). Campo obrigatório: `descricao`. Retorna `201 Created`. Permite lançamento de despesas já quitadas diretamente em conta bancária (Operação B).
+- `PATCH /INTEGRACAO/V1/TITULOS_PAGAR/PAGAR`: **SIM** (L10718). Schema `PagarTituloDto` (L15553). Campo obrigatório: `tituloPagarCodigo` (array). Retorna `204 No Content`. Permite baixa e quitação de títulos a pagar existentes (Operação C).
+- `GET /INTEGRACAO/V1/MOVIMENTOS_CONTA`: **SIM** (L4758). Retorna `200 OK` (`RetornoPaginadoMovimentoConta`). Suporta filtro por filial, datas, documento, tipo de documento de origem e paginação por cursor (`ultimoCodigo`).
+- `POST /INTEGRACAO/V1/ARQUIVOS/MOVIMENTO_CONTA_MANUAL/{id}` e `POST /INTEGRACAO/V1/ARQUIVOS/TITULO_PAGAR/{id}`: **SIM** (como endpoint parametrizado formal `POST /INTEGRACAO/V1/ARQUIVOS/{tipoOrigem}/{origem}`, L482). Enum `tipoOrigem` contempla expressamente `"MOVIMENTO_CONTA_MANUAL"` e `"TITULO_PAGAR"`. Schema `IncluirArquivoFechamentoCaixaDto` (L15356) com `nome` e `conteudo` (Base64). Retorna `201 Created`.
+
+### Conclusão Operacional
+Todas as 3 operações financeiras principais (Operação A: Inclusão de Título a Pagar; Operação B: Movimento de Conta Direto; Operação C: Baixa de Título) e os vínculos de comprovantes possuem contratos documentados na OpenAPI V1. O desenvolvimento de adaptadores pode prosseguir com segurança documental em etapa posterior.
+
+## EXPENSE-01 — Integridade da Fila, Anti-duplicidade e Revisão Obrigatória — 17/10/2026 21:45
+
+Relatório detalhado: [EXPENSE_01_VALIDATION.md](docs/validation/EXPENSE_01_VALIDATION.md).
+Modo: READ ONLY (nenhuma escrita no ERP, travas `WEBPOSTO_WRITES=0` e `LOGOS_ERP_ESCRITA=0` mantidas, `.env` não acessado).
+Branch conferida: `feature/cash-audit-fechamento`.
+
+### Alterações Implementadas
+- **Eliminação do Fallback de Empresa:** Removida a atribuição forçada para Posto Doze (`74014`). Unidades ambíguas ou sem evidência registram `EMPRESA_INDEFINIDA` e forçam status `aguardando_revisao`, impedindo aprovação.
+- **Anti-Duplicidade de Comprovante (SHA-256):** Arquivos idênticos não geram novo item financeiro na fila; referenciam o item anterior (`duplicado_de_id`) e informam o diretor.
+- **Alerta de Despesa Duplicada:** Arquivos diferentes para a mesma despesa (mesmo valor e data) recebem `alerta_duplicidade` e são retidos em `aguardando_revisao` para conferência humana, sem descarte automático.
+- **Proteção de Transação Bancária (FITID + Conta):** Chave unívoca `(banco, conta, fitid)` impede reaproveitamento do mesmo débito por múltiplos comprovantes na mesma conta. Extratos com conta não confiável não realizam matching automático.
+- **Máquina de Estados Conforme ADR-003:** Estados explícitos (`recebido`, `aguardando_revisao`, `aguardando_aprovacao`, `aprovado`, `rejeitado`, `lancamento_solicitado`, `lancado_erp`, `falha`, `resultado_desconhecido`). Nenhum item nasce aprovado; auto-aprovação pelo sistema é estritamente proibida.
+- **Trilha de Auditoria:** Cada transição registra histórico completo com motivo, agente, timestamp ISO e usuário (`historico_transicoes`).
+- **Compatibilidade Retroativa:** Registros antigos com status `"pronto para lançar"` são lidos perfeitamente e tratados conservadoramente como `aguardando_aprovacao` (nunca aprovados retroativamente).
+
+### Testes Implementados
+- 14 testes unitários obrigatórios adicionados em `WebPosto_API/tests/unit/cash_reconciliation/test_comprovantes_fila.py`:
+  1. Upload de comprovante novo (SHA-256 e transição auditada).
+  2. Mesmo arquivo enviado novamente (anti-duplicidade sem novo item).
+  3. Fotos diferentes da mesma despesa (alerta de duplicidade e revisão).
+  4. Empresa não identificada (`EMPRESA_INDEFINIDA`, sem fallback Doze).
+  5. Empresa identificada corretamente (via conta de extrato configurada).
+  6. FITID repetido na mesma conta (débito em uso não vinculado).
+  7. FITID igual em contas diferentes (unívoco por banco/conta/fitid).
+  8. FITID sem identificação confiável da conta (matching suspenso).
+  9. Persistência e leitura de registros legados (status conservador).
+  10. Recuperação após interrupção (gravação atômica via `.tmp`).
+  11. Transições válidas e inválidas de estado (validação de governança).
+  12. Nenhum registro criado como automaticamente aprovado.
+  13. Nenhum write ERP realizado (`WEBPOSTO_WRITES=0` mantido).
+  14. Nenhuma chamada real externa (isolamento offline 100%).
+
+### Resultados
+- Fila local protegida contra duplicidades acidentais e atribuições indevidas de filial.
+- 100% dos requisitos de governança da ADR-003 atendidos na camada de ingestão e revisão.
+
+### Riscos Mapeados
+- Itens com empresa indefinida ou alerta de duplicidade exigem interação do diretor para avanço.
+- A fila local `data/despesas_avulsas/fila.json` requer rotina de backup no servidor operacional.
+
+### Pendências
+- Implementação de botões interativos no Telegram para aprovação/revisão com um toque (Incremento 3).
+- Resposta da Quality sobre criação de títulos a pagar avulsos e fornecedores sem cadastro.
+
+### Próximo Incremento Recomendado
+- **Incremento 2 (EXPENSE-02):** Preparar comandos financeiros tipados (`ParametrosIncluirMovimentoConta` e `PagarTituloDto`) e validar contratos em testes offline, sem execução HTTP.
+
+## EXPENSE-AUDIT-01 — Auditoria Funcional do Expense Hunter e Validação de Escrita webPosto — 17/10/2026 21:30
+
+Relatório detalhado: [EXPENSE_AUDIT_01_CURRENT_STATE.md](docs/validation/EXPENSE_AUDIT_01_CURRENT_STATE.md).
+Modo: READ ONLY (nenhuma escrita no ERP, travas `WEBPOSTO_WRITES=0` e `LOGOS_ERP_ESCRITA=0` mantidas, `.env` não acessado).
+Branch conferida: `feature/cash-audit-fechamento`.
+
+### Capacidades Existentes (Implementadas no Código)
+- **Captura Multimodal (Telegram):** Receptor em `src/jobs/receber_comprovantes.py` com whitelist de diretores (`TELEGRAM_CHAT_IDS`), suportando fotos (`photo[-1]`), documentos PDF (`document`) e mensagens de voz/áudio (`voice`/`audio`).
+- **Extração com IA (Gemini):** `GeminiExtractor` em `gemini_comprovantes.py` usando `gemini-2.5-flash` / `gemini-1.5-flash` (e mock para testes), extraindo valor, data, favorecido, CPF/CNPJ, tipo e transcrevendo áudios para complementar despesas.
+- **Preservação de Documentos:** Arquivos originais gravados em `WebPosto_API/data/despesas_avulsas/comprovantes/comp_{id}.ext`.
+- **Casamento com Extratos OFX:** `processar_comprovante.py` cruza débitos com arquivos OFX locais (BB e PagBank), tolerando até +10% de juros e janela de ±3 dias.
+- **Prevenção de Falsos Positivos:** `despesas_sem_lancamento.py` exclui transferências internas entre postos do grupo (VIP, Doze, Casa Caiada, Real, etc.), aplicações financeiras e tarifas bancárias.
+- **Detecção de Títulos Já Existentes:** `titulos_pagos_sem_baixa.py` identifica débitos que casam com títulos em aberto no ERP, prevenindo cadastrar despesa avulsa em vez de baixar obrigação.
+- **Fila Local Atômica:** `fila_despesas.py` gerencia `data/despesas_avulsas/fila.json` com escrita atômica via arquivo temporário.
+
+### Capacidades Realmente Validadas
+- **Validação de Testes Unitários:** Analisadas 1.598 linhas de testes unitários estritamente offline em `WebPosto_API/tests/unit/cash_reconciliation/`:
+  - `test_comprovantes_fila.py` (530 linhas): parsing monetário, datas brasileiras, mock do Gemini, whitelist de chat_id, CRUD da fila e respostas ao Telegram.
+  - `test_despesas_sem_lancamento.py` (559 linhas): regras de exclusão de postos do grupo, tarifas, deduplicação por FITID e matching de débitos.
+  - `test_titulos_pagos_sem_baixa.py` (509 linhas): matching de títulos em aberto e distinção de candidatos à baixa.
+- **Limitação de Validação:** A validação em produção ao vivo com o Telegram e a API do Gemini depende de credenciais ativas no `.env`. Não foram feitas chamadas de rede externas nesta auditoria.
+
+### Situação dos Endpoints webPosto (Conforme OpenAPI 2026-10-06)
+- **Operação A (Despesa nova / a pagar):** **LACUNA NA API.** OpenAPI V1 não documenta `POST /INTEGRACAO/V1/TITULOS_PAGAR`. Rota legada unversionada dava 404 em testes da Sprint 21.3. Exige esclarecimento com a Quality sobre viabilidade via API ou necessidade de entrada via DF-e/NF-e.
+- **Operação B (Despesa já paga sem título):**
+  - Movimento financeiro: `POST /INTEGRACAO/V1/MOVIMENTOS_CONTA` (`ParametrosIncluirMovimentoConta`, `contaMovimentoTipo="DEBITO"`, `tipoDocumentoOrigem="MANUAL"`). Debita saldo bancário no ERP; retorna 201 Created.
+  - Anexo do comprovante: `POST /INTEGRACAO/V1/ARQUIVOS/MOVIMENTO_CONTA_MANUAL/{id}` (`IncluirArquivoFechamentoCaixaDto`). Retorna 201 Created.
+  - **Alerta de Risco:** Não existe rota de DELETE/estorno via API. Movimento errado exige exclusão manual na interface do ERP.
+- **Operação C (Título existente pago no banco):**
+  - Baixa financeira: `PATCH /INTEGRACAO/V1/TITULOS_PAGAR/PAGAR` (`PagarTituloDto`). Baixa valor integral do título; retorna 204 No Content.
+  - Anexo ao título: `POST /INTEGRACAO/V1/ARQUIVOS/TITULO_PAGAR/{id}`. Retorna 201 Created.
+- **Consultas Prévias e Confirmação:** `GET /INTEGRACAO/V1/TITULOS_PAGAR`, `GET /INTEGRACAO/V1/MOVIMENTOS_CONTA` (com cursor `ultimoCodigo`) e `GET /INTEGRACAO/V1/CONTAS`.
+
+### Riscos de Escrita Mapeados
+1. **Lançamento Duplicado no ERP:** Se o sistema não cruzar antes com títulos em aberto, pode lançar despesa avulsa para um boleto já provisionado no Contas a Pagar, gerando custo duplo.
+2. **Reenvio Pós-Timeout:** Requisições de rede com timeout correm risco de duplo lançamento se houver retry cego sem prévia consulta `GET`.
+3. **Atribuição Indevida de Empresa:** O código atual aplica fallback forçado para Doze (74014) caso a conta bancária não seja identificada no extrato.
+4. **Falta de Botão de Aprovação na Fila Atual:** O status `"pronto para lançar"` é setado automaticamente sem confirmação explícita do diretor.
+
+### Pendências com a Quality / Dono
+1. Quality: Confirmar se a V1 permite inclusão de contas a pagar avulsas (`POST /V1/TITULOS_PAGAR`) ou se exige DF-e/XML de entrada.
+2. Quality: Confirmar se `POST /V1/MOVIMENTOS_CONTA` aceita `tipoPessoa="NAO_IDENTIFICADO"` sem cadastrar a pessoa.
+3. Dono: Autorização das melhorias do Incremento 1 (sem escrita) e definição do teto financeiro máximo por lançamento.
+
+### Próximo Incremento Recomendado
+- **Incremento 1: Reconhecimento, Classificação e Fila com Anti-Duplicidade (Sem Escrita)**
+  - Implementar verificação de hash SHA-256 no arquivo original para barrar documento duplicado;
+  - Bloquear reuso de FITIDs já registrados na fila;
+  - Substituir fallback forçado para Doze por status `"aguardando_revisao"`;
+  - Adotar formalmente a máquina de estados da ADR-003 (`aguardando_aprovacao`, `aprovado`, etc.) em `comprovante.py` e `fila_despesas.py`.
+  - **Tudo 100% offline e sem escrita no ERP.**
+
+## ARCH-MODULE-01 — Verificação da Organização Modular e Expense Hunter — 17/10/2026 21:15
+
+Relatório detalhado: [ARCH_MODULE_01_CURRENT_STRUCTURE.md](docs/architecture/ARCH_MODULE_01_CURRENT_STRUCTURE.md).
+Modo: READ ONLY (nenhum arquivo movido, nenhum import alterado, nenhuma escrita realizada, `.env` não acessado).
+
+### Resultado
+- **Modularização:** O LOGOS não está adequadamente modularizado de forma uniforme; coexistem 3 camadas: scripts da raiz legada, 42 serviços horizontais em `WebPosto_API/src/services/` e a arquitetura vertical em `WebPosto_API/src/modules/` (com `cash_reconciliation` operando como "God Module").
+- **Dispersão e duplicações:** Há comprovadamente 12 clientes HTTP WebPosto duplicados, 3 versões de classificadores de despesas e modelos dispersos entre a raiz e `WebPosto_API`.
+- **Expense Hunter:** Cerca de 85% do fluxo funcional já existe e está testado dentro de `WebPosto_API/src/modules/cash_reconciliation/` (`gemini_comprovantes.py`, `comprovante.py`, `fila_despesas.py`, `processar_comprovante.py`, `despesas_sem_lancamento.py`, `titulos_pagos_sem_baixa.py`) e `src/jobs/receber_comprovantes.py`.
+- **Integração webPosto:** Existe uma integração oficial compartilhada apenas para leitura (`GET` com cursor `ultimoCodigo` em `src/modules/webposto_integration/http.py`), sem vazamento de chaves (`ARCH01`). A escrita no webPosto inexiste para despesas.
+- **Separação código/dados:** Fila (`fila.json`), comprovantes e planilhas estão adequadamente isolados em `WebPosto_API/data/despesas_avulsas/` (ignorado no Git). Porém, artefatos operacionais soltos (`.xlsx`, `.json`, `.csv`, `.log`) ainda poluem a raiz de `WebPosto_API` e a raiz do repositório.
+
+### Riscos Identificados
+1. **Risco de Quebra por Refatoração Prematura:** Mover arquivos de despesas para um novo módulo quebraria dependências em cadeia e parte dos 611 testes existentes.
+2. **Escrita no ERP:** Falta adaptador de escrita específico para despesas com as guardas estritas do ADR-003. `WEBPOSTO_WRITES=0` e `LOGOS_ERP_ESCRITA=0` devem permanecer inalterados.
+3. **Acoplamento do Bot Telegram:** O listener de comprovantes compartilha o consumidor do Telegram com callbacks de cartões e Mais Pagamentos.
+
+### Decisão Arquitetural (`REUSE > ADAPT > CREATE`)
+1. **Preservar arquivos onde estão:** Não mover arquivos e não criar novos módulos de domínio nesta etapa.
+2. **Expense Hunter como Capability:** O Expense Hunter opera como capability analítica/operacional orquestrada em `jobs/receber_comprovantes.py` e `jobs/despesas_avulsas.py`, consumindo os motores existentes em `cash_reconciliation`.
+3. **Reutilização Integral:** Reutilizar integralmente o `GeminiExtractor`, o modelo `ItemFilaDespesa`, a persistência da fila JSON em `data/despesas_avulsas/` e o cruzamento com extratos OFX de `despesas_sem_lancamento.py`.
+4. **Mudança Estrutural Mínima:** A única adição estrutural futura será um adaptador isolado de escrita (`webposto_escrita_despesa.py`) para `POST /V1/MOVIMENTOS_CONTA` e `PATCH /V1/TITULOS_PAGAR/PAGAR`, ativado apenas após aprovação humana na fila e liberação formal de escrita.
+
+### Próximo Passo
+- Parar e aguardar aprovação formal do diretor para o relatório [ARCH_MODULE_01_CURRENT_STRUCTURE.md](docs/architecture/ARCH_MODULE_01_CURRENT_STRUCTURE.md) antes de qualquer implementação de escrita ou ajuste de fila.
+
+## STATUS-SAVE-01 — estado consolidado — 17/10/2026 20:44 (leia primeiro)
+
+Branch conferida: `feature/cash-audit-fechamento`. Registro documental solicitado
+pelo dono; histórico abaixo preservado. Resultados anteriores são reportados,
+não reexecutados ou certificados novamente nesta tarefa.
+
+### PROD-SAFE-01
+- Integridade de execução e freshness gate implementados, conforme validação
+  informada pelo agente e histórico registrado neste status.
+- Auditoria incompleta não deve gerar resumo financeiro normal: somente aviso
+  operacional, sem promover entrega de mensagem a sucesso da auditoria.
+- Testes reportados: **611 aprovados na suíte ampliada e 94 na rodada focada**,
+  com sobreposição; não somar os resultados. Nenhum teste reexecutado aqui.
+- Produção isolada ainda pendente; implementação do gate não confirma release.
+
+### PROD-RELEASE-01
+- Isolamento em `C:\Projetos\LOGOS\production` **não confirmado como concluído**.
+- Deploy controlado, identificação da versão efetivamente executada, rollback
+  e configuração/validação do Task Scheduler permanecem pontos de validação.
+- Nenhum deploy, isolamento ou alteração de tarefa realizado nesta atualização.
+
+### Mais Pagamentos
+- Plataformas intermediárias informadas: Asaas, Fiserv e Matera.
+- Doze 74014: Asaas. VIP 11495 (incluindo sua própria conveniência) e Casa
+  Caiada 5555: Fiserv. Associação operacional da Matera por unidade não comprovada.
+- **Conveniência 24h 118508 NÃO utiliza Mais Pagamentos**; fora das matrizes e
+  pendências Mais, mantida nos demais módulos aplicáveis sem mudança operacional.
+- Cadeia pagamento → crédito intermediário → repasse → crédito no banco final
+  **ainda não comprovada**.
+- MAIS-BANK-04: relatório documental de saldos e repasses manuais/automáticos
+  produzido; validação financeira real **não concluída**, por falta de evidência
+  suficiente. Não confundir entrega do diagnóstico com fechamento de saldo,
+  execução comprovada de repasse ou crédito bancário confirmado.
+
+### Segurança
+- Configurações informadas pelo dono: `WEBPOSTO_WRITES=0` e
+  `LOGOS_ERP_ESCRITA=0`; arquivo não acessado nem alterado nesta tarefa.
+- Guardas de escrita não são uniformes em todos os caminhos. Flags zeradas não
+  constituem prova de proteção universal; **escrita ERP deve continuar bloqueada**.
+- Nenhuma nova autorização de escrita, integração externa ou operação financeira.
+
+### Nova prioridade — LOGOS Expense Hunter / EXPENSE-AUDIT-01
+- Próxima investigação a iniciar **somente em tarefa posterior**:
+  reconhecimento de comprovantes por foto/PDF/Telegram; extração automática
+  de fornecedor, valor, vencimento e empresa.
+- Verificar duplicidade, revisão humana, aprovação e o caminho de eventual
+  lançamento no webPosto, sem executá-lo nem autorizar escrita.
+- Revisar/reutilizar módulos existentes antes de implementar funcionalidades;
+  capacidades históricas de comprovantes não equivalem a fluxo completo validado.
+- **Nenhuma escrita ERP autorizada. EXPENSE-AUDIT-01 não iniciado nesta tarefa.**
+
+### Limite desta atualização
+- Somente STATUS.md atualizado e salvo; histórico mantido. Sem alteração
+  funcional, leitura/alteração de .env, integração externa, commit, push ou merge.
+- Parada após salvar e conferir o diff; não executar comandos históricos de
+  retomada nem iniciar a nova investigação por este registro.
+
+## SITUAÇÃO EM 17/10/2026 — Claude assume o desenvolvimento (histórico anterior à consolidação)
 
 **17/10 19:30 — RESOLVIDO:** diretor voltou as travas para 0. Reprocessados (sem Telegram) 15/10 e 16/10: 4 unidades
 lidas, AUDIT_PARTIAL (esperado: PagBank 118508 credencial inválida; Mais/Cielo/Rede sem integração). Em 16/10 o
@@ -31,6 +642,11 @@ nas noites de 16/10 e 17/10**. Voltar as duas para `0`; depois reprocessar 15–
   a partir de nov/2026 vai para o CNPJ do posto no webPosto, por centro de custo).
 - Mais Pagamentos: Doze = "Posto Abreu e Lima" (Asaas); Casa Caiada e VIP = Fiserv. PAGPIX desativada.
   Login da API dá 401 com as credenciais do webPosto → perguntar à Quality.
+- Correção confirmada pelo dono (17/10): **Conveniência 24h 118508 não utiliza Mais
+  Pagamentos**. Fora das matrizes/pendências de contas e repasses Mais; permanece
+  nos demais módulos aplicáveis, sem mudança operacional. Escopo Mais: Doze,
+  VIP (incluindo sua própria conveniência) e Casa Caiada. Associação Matera ainda
+  depende de comprovação, sem vincular essa plataforma à 118508.
 
 **Ordem de trabalho:**
 1. Travas em 0 (diretor) e conferir o robô na noite seguinte (run PROD_SAFE_01 com AUDIT_COMPLETE).
@@ -40,6 +656,119 @@ nas noites de 16/10 e 17/10**. Voltar as duas para `0`; depois reprocessar 15–
 4. Mapeamento real (GET) das rotas V1 de conveniência e combustível (vendas/itens, estoque/extrato/contagem,
    compras, encerrante, tanque, LMC) em 1 posto + 1 loja.
 5. Perguntas à Quality: POS integrado que falha (log, vincular depois), PIX no PDV, acesso Mais Pagamentos, débito OFX.
+
+## MAIS-BANK-04 — saldo e repasses manuais/automáticos; relatório documental produzido, validação financeira pendente — 17/10/2026
+- Branch `feature/cash-audit-fechamento`, repositório canônico conferido,
+  HEAD `5bff018`. Relatório:
+  [MAIS_BANK_04_BALANCE_AND_PAYOUT_MODEL.md](docs/validation/MAIS_BANK_04_BALANCE_AND_PAYOUT_MODEL.md).
+- Correção obrigatória do dono aplicada: 118508 não usa Mais, não possui
+  plataforma Mais pendente e foi retirada da matriz da etapa 03. Relatórios
+  01/02/03 receberam anotação datada preservando a evolução das decisões.
+  O trecho inicial do anexo 04 que dizia plataforma não confirmada foi
+  superado pela confirmação posterior. Nenhuma configuração da unidade alterada.
+- Informação nova: dono/operador pode solicitar repasse manual; rotina da Mais
+  pode executar automático segundo configuração. Existência informada pelo dono,
+  não execução auditada. Canal/perfis, instituição executora, conta/destino,
+  regra, horário/fuso, frequência, mínimo/reserva, total/parcial, dias úteis e
+  identificação do modo por evento ainda dependem da Mais/instituição.
+- Fontes locais: STATUS e MAIS-BANK-01/02/03, regras de negócio, ADR-002/003,
+  OpenAPI Mais/webPosto, modelos, conciliar.py, leitores OFX, persistência,
+  pendências, tempo, SDK HTTP e guards OFX; documentação Asaas pública somente
+  via evidência já reunida na etapa 02, sem nova consulta externa.
+- Asaas documenta extrato/Pix/transferências/saldo disponível atual; conta
+  Doze/BaaS, saldos históricos/cortes e distinção contábil/disponível/bloqueado
+  ainda não validados. Matera/Fiserv seguem sem produto/custodiante/contrato
+  aplicável de extrato/repasse comprovados. Associação Matera continua pendente.
+- Modelo proposto, não implementado: saldo final = saldo inicial oficial +
+  créditos efetivos − débitos efetivos, mesma conta/moeda/base/corte e cobertura
+  integral; comparar ao saldo final oficial e explicitar resíduo. Não presumir
+  abertura zero nem usar “PIX do dia − repasse do dia” como falta financeira.
+  Conservação agregada não identifica composição de repasse de saldo fungível.
+  Disponível, bloqueado, pendente, saída efetiva e crédito final são separados.
+- Reaproveitamento: OFX/Decimal/proveniência, estados de fonte, JSON atômico,
+  padrões SQLite, datas e relatórios existentes. _dias de cofre inicia em zero
+  e usa espécie, portanto não fecha conta intermediária. Leitor OFX não guarda
+  saldos oficiais e pode omitir linha sem data/sintetizar FITID: validar
+  completude contra original antes de prova. Sem parser/conector paralelo.
+- Riscos: tarifa já embutida não pode ser descontada novamente; débito/
+  comprovante não provam crédito final; igual valor/data não prova vínculo.
+  Extrato incompleto, repasse fracionado/rejeitado, estorno, intercompany e
+  crédito posterior exigem pendência explícita, não perda ou sucesso presumido.
+  Flags declaradas em 0 não são proteção universal: cartão verifica ambas,
+  OFX usa outra segunda flag; SDK/proxies têm mutações sem guarda comum.
+  Nenhum caminho foi executado ou corrigido.
+- Próximo experimento (não executado): Doze, PIX de 14/10/2026 e observação
+  14–16/10; solicitar titularidades, extrato intermediário completo, abertura/
+  fechamento oficiais, créditos, eventual repasse/débito/tarifa/comprovante e
+  extrato final. Se não houve transferência comprovada, saldo remanescente pode
+  ser conclusão correta; extensão de janela só com aprovação.
+- Perguntas sobre rotina, mínimos/reservas, execução/IDs/composição, status,
+  reenvios, tarifas/retenções, saldos e acesso preparadas, não enviadas.
+  Menor implementação posterior: normalização/fechamento local e relatório
+  no módulo existente com testes, só após amostras e autorização específica.
+- Somente documentação editada nesta etapa (relatório 04, correções anotadas
+  nos 01/02/03 e STATUS); nenhuma chamada externa, acesso/alteração de .env,
+  conta real, operação financeira, Telegram, job/agendador/produção, código,
+  regra operacional, teste/aplicação, migração, deploy, commit, push ou merge.
+  Alterações preexistentes preservadas. Parado aguardando aprovação.
+
+## MAIS-BANK-03 — contas recebedoras, extratos e repasses; diagnóstico concluído — 17/10/2026
+- Repositório/branch conferidos: `C:\Projetos\LOGOS\LogosPostos`,
+  `feature/cash-audit-fechamento`; HEAD `5bff018` na conferência anterior à edição.
+  Relatório: [MAIS_BANK_03_SOURCE_VALIDATION.md](docs/validation/MAIS_BANK_03_SOURCE_VALIDATION.md).
+  Atualizações concorrentes do status/histórico preservadas; etapas 01/02 mantidas.
+- Investigados separadamente Asaas, Matera e Fiserv, usando somente evidência
+  local: relatórios 01/02, auditoria de capacidade (§9), regras, ADR-002/003,
+  OpenAPI Mais/webPosto, units.json, modelos/proveniência, total Mais humano,
+  leitores OFX, PIX/matching, persistência, adapters de escrita, SDK e proxies.
+  Legado consultado apenas como referência; nenhum componente migrado.
+- Mapa declarado pelo dono: Doze 74014/Asaas (“Posto Abreu e Lima”),
+  VIP 11495 e Casa Caiada 5555/Fiserv. Correção posterior do dono em 17/10:
+  Conveniência 24h 118508 não utiliza Mais; retirada da matriz, superada a
+  pendência anterior, sem alteração operacional. Matera consta no ecossistema
+  informado e no enum
+  Mais, mas unidade/produto/custodiante e contrato aplicável não identificados.
+  CNPJ/titularidade/contas e bancos finais de repasse: pendentes de validação;
+  destinos configurados de espécie não comprovam repasse eletrônico.
+- Capacidades documentadas: Mais lista/detalhe com E2E/bruto/líquido/taxa,
+  consultas de saída Pix conhecida e logins distintos integração/PDV.
+  Não encontrado extrato/saldo/lista de repasses Mais no contrato local;
+  extrato do portal depende de confirmação. Autenticação 401 histórica não
+  repetida. Asaas tem extrato/Pix/transferências/saldo conforme documentação
+  pública reunida na etapa 02, não consultada novamente nesta etapa.
+- Capacidades comprovadas são limitadas ao histórico ERP/OFX já registrado:
+  vínculo interno transferência→movimento e leitura/importação com limites e
+  incidente de sinais. Não há cadeia Mais→crédito intermediário→repasse→crédito
+  final comprovada; total humano/sandbox/baixa ERP não são prova bancária.
+  Fiserv não pode ser substituída por documentação genérica Hub Pix/adquirência;
+  Matera não tem cliente/contrato local aplicável identificado.
+- Travas declaradas pelo dono: `WEBPOSTO_WRITES=0`, `LOGOS_ERP_ESCRITA=0`;
+  não verificadas no arquivo por este diagnóstico. Histórico de resolução e
+  reprocessamentos acima preservado, sem reexecução/revalidação nesta etapa.
+  Inspeção estática: cartão exige ambas; OFX usa WEBPOSTO_WRITES +
+  LOGOS_OFX_IMPORTACAO; SDK/proxies/caminhos alternativos não compartilham a
+  guarda. Gate de publicação do job não é bloqueio universal de escrita.
+  Não tratar flags zeradas como proteção suficiente de todo o repositório.
+- Riscos/lacunas: acesso BaaS Asaas não garantido por API pública; faltam
+  produto/custodiante Matera/Fiserv, autorização por conta, extratos, IDs e
+  composição de repasse. DONE na origem não certifica crédito final;
+  valor/data/soma de PIX não comprovam composição de saldo fungível. Ausência
+  de ID comum, fracionamentos, tarifas, devoluções e intercompany ficam pendentes.
+  webPosto continua contexto ERP, sem origem bancária independente demonstrada.
+- Recomendação: um piloto futuro Doze 74014, PIX de 14/10/2026 e observação
+  financeira até 16/10/2026, sem presumir D+1 ou ocorrência de repasse.
+  Primeiro obter pacote oficial Mais + Asaas + banco final e titularidades;
+  ampliar período só com aprovação se insuficiente. Perguntas por fornecedor
+  preparadas no relatório, não enviadas.
+- Próxima etapa depende de autorização: validar manualmente amostras oficiais;
+  menor implementação posterior seria normalização/proveniência e relatório
+  no módulo existente com leitor OFX, sem novo conector ou arquitetura paralela.
+  Acesso real, endurecimento dos caminhos de escrita e automação exigem escopo
+  aprovado. Nenhuma implementação realizada.
+- Nesta etapa: somente relatório MAIS-BANK-03 e STATUS.md editados; nenhuma
+  chamada externa, leitura/alteração de .env, escrita financeira, conta real,
+  Telegram, job/agendador/produção, teste/aplicação, migração, deploy, commit,
+  push ou merge. Alterações preexistentes preservadas. Parado para aprovação.
 
 ## MAIS-BANK-02 — fontes de liquidação/repasse; diagnóstico concluído — 17/10/2026
 - Branch `feature/cash-audit-fechamento`. Relatório curto:

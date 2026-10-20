@@ -28,4 +28,6 @@ data/lancamentos_logos/
 WebPosto_API/data/lancamentos_logos/
 pytest_temp/
 WebPosto_API/pytest_temp/
+_test_tmp/
+**/_test_tmp/
 
