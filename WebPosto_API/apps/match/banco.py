@@ -95,7 +95,11 @@ CREATE TABLE execucao_item (
 ALTER TABLE envio ADD COLUMN execucao_id INTEGER;
 """
 
-_MIGRACOES = [(1, _SCHEMA_V1), (2, _SCHEMA_V2), (3, _SCHEMA_V3)]
+_SCHEMA_V4 = """
+ALTER TABLE instalacao ADD COLUMN pasta_rede TEXT;
+"""
+
+_MIGRACOES = [(1, _SCHEMA_V1), (2, _SCHEMA_V2), (3, _SCHEMA_V3), (4, _SCHEMA_V4)]
 
 
 def _agora() -> str:
@@ -287,6 +291,18 @@ def atualizar_canal(con, canal_id: int, config: dict, ativo: bool) -> None:
 def salvar_horarios(con, hora_coleta: str, hora_repescagem: str) -> None:
     id_instalacao(con)
     con.execute("UPDATE instalacao SET hora_coleta=?, hora_repescagem=?", (hora_coleta, hora_repescagem))
+    con.commit()
+
+
+def pasta_rede(con) -> Path | None:
+    id_instalacao(con)
+    valor = con.execute("SELECT pasta_rede FROM instalacao LIMIT 1").fetchone()[0]
+    return Path(valor) if valor else None
+
+
+def salvar_pasta_rede(con, caminho: str | None) -> None:
+    id_instalacao(con)
+    con.execute("UPDATE instalacao SET pasta_rede=?", (caminho or None,))
     con.commit()
 
 

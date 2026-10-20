@@ -144,7 +144,7 @@ def test_migracao_2_atualiza_banco_v1(tmp_path, monkeypatch):
     c = banco.conectar(caminho)
     row = c.execute("SELECT * FROM instalacao").fetchone()
     assert (row["id_instalacao"], row["hora_coleta"], row["hora_repescagem"]) == ("abc", "06:00", "10:00")
-    assert c.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 3
+    assert c.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 4
     c.close()
     novo = banco.conectar(tmp_path / "novo.db")
     assert novo.execute("SELECT COUNT(*) FROM instalacao").fetchone()[0] == 1

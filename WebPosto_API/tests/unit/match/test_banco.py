@@ -45,7 +45,7 @@ def test_migracao_idempotente(tmp_path):
     banco.conectar(arq).close()
     c = banco.conectar(arq)
     rows = c.execute("SELECT version FROM schema_version").fetchall()
-    assert [r[0] for r in rows] == [1, 2, 3]
+    assert [r[0] for r in rows] == [1, 2, 3, 4]
     nomes = {r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert {"instalacao", "posto", "fonte", "coleta", "transacao", "caixa_webposto",
             "divergencia", "canal", "envio", "usuario", "usuario_posto", "log_acesso"} <= nomes
@@ -124,7 +124,7 @@ def test_migracao_3_de_banco_v2(tmp_path):
     raw.close()
     con = banco.conectar(caminho)
     try:
-        assert con.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 3
+        assert con.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 4
         assert con.execute("SELECT nome FROM posto").fetchone()[0] == "Doze"
         assert tuple(con.execute("SELECT dia, execucao_id FROM envio").fetchone()) == ("2026-10-17", None)
         eid = banco.abrir_execucao(con, "painel", None, "2026-10-17")
