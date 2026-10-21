@@ -1,9 +1,63 @@
-# STATUS — LOGOS Auditoria (atualizado em 20/10/2026)
+# STATUS — LOGOS Auditoria (atualizado em 21/10/2026)
 
 Repositório canônico: C:\Projetos\LOGOS\LogosPostos · branch feature/cash-audit-fechamento
 Última entrega de código: Sprint 19 (A–D) · branch feature/cash-audit-fechamento, sem merge
 PR a abrir: https://github.com/mlisboa17/LogosPostos/pull/new/feature/cash-audit-fechamento
 Histórico de sprints: um prompt por sprint em docs/prompts/ (SPRINT_05 ... SPRINT_12, PREMMIA_00, TELEGRAM_00)
+
+## MASTER-DATA-04 — Resolução Oficial da Conta Bancária (Casa Caiada) — 21/10/2026 11:35
+
+Relatórios detalhados:
+- [MASTER_DATA_04_CHECKPOINT.md](docs/checkpoints/MASTER_DATA_04_CHECKPOINT.md)
+- [MASTER_DATA_04_RESUME_PROMPT.md](docs/checkpoints/MASTER_DATA_04_RESUME_PROMPT.md)
+
+Branch conferida: `feature/cash-audit-fechamento`.
+Prioridade: P0 — Execução da Consulta Oficial Read-Only e Resolução de Identidade.
+Modo: READ ONLY (1 única requisição GET executada com autorização expressa; ZERO chamadas adicionais; ZERO escritas no ERP webPosto).
+Classificação final:
+- **ACCOUNT RESOLUTION: BLOCKED** (conta `27173 — BANCO DO BRASIL (56816-3)` identificada no ERP, mas agência, titular e CNPJ não são fornecidos pelo endpoint do webPosto).
+- **CASA CAIADA PILOT: BLOCKED** (permanece travado até deliberação humana sobre a suficiência do código `27173`).
+- **EXTERNAL CALLS: 1 (GET /INTEGRACAO/V1/CONTAS?empresaCodigo=5555&limite=100)**
+- **ERP WRITES: ZERO**
+- **STATUS.md: UPDATED**
+
+### 1. Detalhes da Consulta Oficial Read-Only Executada
+- **Data/Hora:** `2026-10-21T11:31:15.910989`
+- **Endpoint:** `GET https://web.qualityautomacao.com.br/INTEGRACAO/V1/CONTAS?empresaCodigo=5555&limite=100`
+- **Status HTTP:** `200 OK`
+- **Tempo de Resposta:** `1019.58 ms`
+- **Quantidade de Registros:** 9 contas cadastradas na filial 5555.
+- **Chamadas Adicionais:** Nenhuma (zero retries, zero redirecionamentos, zero paginação).
+
+### 2. Evidência Empírica Sanitizada das Contas da Casa Caiada no ERP
+1. `contaCodigo: 17837` — `descricao: "CAIXA(POSTO)"` (ativo: true)
+2. `contaCodigo: 20936` — `descricao: "SANTANDER (3909 130006368)"` (ativo: true)
+3. `contaCodigo: 27173` — `descricao: "BANCO DO BRASIL (56816-3)"` (ativo: true, saldoAtual: -8685811.91)
+4. `contaCodigo: 27406` — `descricao: "BRADESCO(16652-9)"` (ativo: false)
+5. `contaCodigo: 55460` — `descricao: "PAGPIX"` (ativo: false)
+6. `contaCodigo: 69446` — `descricao: "PAGBANK"` (ativo: false)
+7. `contaCodigo: 70766` — `descricao: "PAGBANK (CASA CAIADA)"` (ativo: true)
+8. `contaCodigo: 82912` — `descricao: "VIBRA CASA CAIADA"` (ativo: true)
+9. `contaCodigo: 86379` — `descricao: "MAIS PAGAMENTOS - FISERV"` (ativo: true)
+
+### 3. Avaliação das 6 Dimensões de Governança
+- **Dimensão 1 (Empresa = 5555):** **CONFIRMADO** (campo `empresaCodigo: 5555`).
+- **Dimensão 2 (Banco = 001):** **PARCIAL / COMPATÍVEL** (identificado no texto "BANCO DO BRASIL", sem coluna estruturada no endpoint).
+- **Dimensão 3 (Agência = 2365-5):** **AUSENTE NO ERP** (o endpoint `/INTEGRACAO/V1/CONTAS` não possui campo de agência e a descrição omite a agência).
+- **Dimensão 4 (Conta = 56816-3):** **CONFIRMADO** (identificado textualmente no sufixo da descrição `(56816-3)`).
+- **Dimensão 5 (Titular = AUTO POSTO CASA CAIADA LTDA):** **AUSENTE NO ERP** (o endpoint não retorna titular).
+- **Dimensão 6 (CNPJ = 04.284.939/0001-86):** **AUSENTE NO ERP** (o endpoint não retorna CNPJ).
+
+### 4. Decisão de Persistência Local
+Em estrita conformidade com as regras invioláveis ("Não inferir dados ausentes. Se existir divergência, duplicidade, ausência de código ou conta bloqueada, retornar BLOCKED") e ("Se houver risco de sobrescrever vínculo existente ou alterar permissões de uso, não persistir"):
+- A conta `27173` **NÃO foi reclassificada automaticamente** no banco de dados local `master_data.sqlite3`.
+- No catálogo mestre local, a conta `27173` permanece temporariamente rotulada como `TRANSITORIA` com bloqueio para despesas.
+- Zero alterações persistidas; integridade e histórico 100% preservados.
+
+### 5. Próxima Decisão Humana Necessária
+O diretor/proprietário deve deliberar se autoriza formally a reclassificação da conta `27173` para `CONTA_CORRENTE` da Casa Caiada (`banco="001"`, `agencia="2365-5"`, `conta="56816-3"`), aceitando a evidência textual `"BANCO DO BRASIL (56816-3)"` como comprovação suficiente frente às limitações de schema do webPosto.
+
+---
 
 ## MASTER-DATA-03 — Official Account Resolution & Financial Pilot Readiness — 20/10/2026 15:30
 
