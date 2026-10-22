@@ -5,6 +5,41 @@ Repositório canônico: C:\Projetos\LOGOS\LogosPostos · branch feature/cash-aud
 PR a abrir: https://github.com/mlisboa17/LogosPostos/pull/new/feature/cash-audit-fechamento
 Histórico de sprints: um prompt por sprint em docs/prompts/ (SPRINT_05 ... SPRINT_12, PREMMIA_00, TELEGRAM_00)
 
+# TECH-DEBT-01 — Auditoria de Scripts e Arquivos Históricos — 22/10/2026
+
+## Resultado da Auditoria
+
+- **AUDITORIA CONCLUÍDA EM MODO READ-ONLY OFFLINE.**
+- **Cinco Scripts Não Rastreados em `WebPosto_API/scripts/`:**
+  - `probe_premmia_portal.py`: Automação Playwright para portal Premmia/Vibra da filial VIP (11495) e leitura ERP webPosto. Risco alto de bloqueio de conta e CAPTCHA. Classificado como **ARQUIVAR / QUARENTENA**. Permanece não rastreado e sem execução.
+  - Quatro scripts `scratch_*` (`scratch_audit_p0.py`, `scratch_check_probe_raw.py`, `scratch_probe.py`, `scratch_probe_endpoints.py`): Utilitários estáticos de leitura local de arquivos JSON/TXT já superados. Zero chamadas externas e zero credenciais. Classificados como **CANDIDATOS A DESCARTE**.
+- **Dois Arquivos Históricos `-mlisboa17.py` em `WebPosto_API/src/`:**
+  - `dependencies-mlisboa17.py` e `main-mlisboa17.py`: Diagnosticados como cópias residuais de conflito de sincronização de arquivo / rascunhos interrompidos. Ambos possuem erros fatais de sintaxe (`SyntaxError`) e zero importações no projeto.
+  - Arquivos canônicos correspondentes (`dependencies.py` e `main.py`): Compilam com `py_compile` (exit code 0), importam limpo e sustentam rotas e testes unitários.
+  - Nenhum arquivo histórico foi alterado, renomeado ou removido nesta etapa.
+- **ACCOUNT 27173:** Permanece `TRANSITORIA` e `BLOCKED`.
+- **Piloto Casa Caiada:** Permanece `BLOCKED`.
+- **Cadeia Mais Pagamentos:** Permanece `BLOCKED`.
+- **Zero chamadas externas; zero escritas no ERP webPosto.**
+
+## Riscos Identificados
+
+1. **Risco de Execução Acidental de Automação de Portal:** O script `probe_premmia_portal.py` aciona navegador interativo e consome credenciais de ambiente, com risco severo de bloqueio de conta Premmia em caso de execução não supervisionada.
+2. **Falha de `compileall` Global por Arquivos Truncados:** O comando `compileall` global continuará falhando enquanto os arquivos truncados `-mlisboa17.py` permanecerem no repositório.
+
+## Requisitos Pendentes
+
+- **P0:** Deliberação formal do diretor sobre a conta `27173` (Casa Caiada BB) e obtenção de pacote documental real do Posto Doze (74014).
+- **P1:** Autorização para arquivamento ou descarte formal dos quatro scripts `scratch_*` e quarentena de `probe_premmia_portal.py`.
+- **P2:** Remoção autorizada dos dois arquivos mortos `-mlisboa17.py` para restauração do `compileall` global limpo.
+
+## Comandos e Testes Offline Executados
+
+- `python -m py_compile WebPosto_API/src/main.py WebPosto_API/src/interfaces/http/dependencies.py`: **100% OK (Exit code 0)**.
+- `python -c "import sys; sys.path.insert(0, 'WebPosto_API'); from src.interfaces.http.dependencies import get_current_user, get_db; print('Dependencies OK')"`: **100% OK**.
+- `python -c "import sys; sys.path.insert(0, 'WebPosto_API'); from src.main import app; print('App OK')"`: **100% OK**.
+- `python -m pytest WebPosto_API/tests/unit/cash_reconciliation/test_piloto_cartao.py -q --no-cov`: **48 passed, 7 warnings** (0 tentativas de portal/rede).
+
 # MAIS-BANK-05 — Consolidação Documental de Liquidação e Repasses — 22/10/2026
 
 ## Resultado da Revisão
