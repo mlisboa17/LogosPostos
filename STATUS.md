@@ -1,9 +1,60 @@
-# STATUS — LOGOS Auditoria (atualizado em 21/10/2026)
+# STATUS — LOGOS Auditoria (atualizado em 22/10/2026)
 
 Repositório canônico: C:\Projetos\LOGOS\LogosPostos · branch feature/cash-audit-fechamento
 Última entrega de código: Sprint 19 (A–D) · branch feature/cash-audit-fechamento, sem merge
 PR a abrir: https://github.com/mlisboa17/LogosPostos/pull/new/feature/cash-audit-fechamento
 Histórico de sprints: um prompt por sprint em docs/prompts/ (SPRINT_05 ... SPRINT_12, PREMMIA_00, TELEGRAM_00)
+
+## MASTER-DATA-05 — Bank Account Identity Evidence Review (Casa Caiada) — 22/10/2026 13:40
+
+Relatórios detalhados:
+- [MASTER_DATA_05_ACCOUNT_EVIDENCE.md](MASTER_DATA_05_ACCOUNT_EVIDENCE.md)
+- [MASTER_DATA_05_RECLASSIFICATION_IMPACT.md](MASTER_DATA_05_RECLASSIFICATION_IMPACT.md)
+- [MASTER_DATA_05_CHECKPOINT.md](docs/checkpoints/MASTER_DATA_05_CHECKPOINT.md)
+- [MASTER_DATA_05_RESUME_PROMPT.md](docs/checkpoints/MASTER_DATA_05_RESUME_PROMPT.md)
+
+Branch conferida: `feature/cash-audit-fechamento`.
+Prioridade: P0 — Revisão Cadastral de Evidências, Avaliação de Impacto e Governança da Conta 27173.
+Modo: READ ONLY (100% de inspeção local e análise documental; ZERO chamadas externas; ZERO escritas no ERP webPosto).
+Classificação final:
+- **ACCOUNT 27173: BLOCKED** (classificação defensiva TRANSITORIA mantida; reclassificação para CONTA_CORRENTE BB depende de deliberação formal do diretor ou validação em tela).
+- **CASA CAIADA PILOT: BLOCKED** (permanece travado até aprovação humana da conta e emissão do token criptográfico de uso único).
+- **EXTERNAL CALLS: ZERO**
+- **ERP WRITES: ZERO**
+- **STATUS.md: UPDATED**
+
+### 1. Origem Histórica e Natureza da Classificação TRANSITORIA (Agente A)
+- **Origem Fática:** Inserida no bootstrap mestre em 21/10/2026 14:33:44 (`MasterDataService._obter_contas_iniciais()`, tabela `master_contas_financeiras`, `audit_id: 21`), decorrente do probe de rede que retornou 17 IDs de `/INTEGRACAO/CONTA`.
+- **Inferida vs. Comprovada:** Comprovadamente **INFERIDA DEFENSIVAMENTE** pelo LOGOS como medida de segurança *fail-closed* devido à ausência de filial associada nos metadados globais. **Não representa uma conta transitória de fato no plano de contas do ERP**.
+- **Metadados:** No SQLite local, `27173` segue com `empresa_codigo = null`, `permite_debito_despesa = False`, `confiabilidade = HISTORICO`.
+
+### 2. Evidências Oficiais e Confronto de Fontes (Agente B)
+- **Extrato Oficial BB (OFX e PDF):** Agência `2365-5`, Conta Corrente `56816-3`, Banco `001`, Titular `AUTO POSTO CASA CAIADA LTDA`, CNPJ `04.284.939/0001-86` (confirmado em transações PIX recebidas no extrato).
+- **Cadastro no webPosto (MASTER-DATA-04):** `empresaCodigo: 5555`, `contaCodigo: 27173`, `descricao: "BANCO DO BRASIL (56816-3)"`, `ativo: true`, `saldoAtual: -8685811.91`.
+- **Matriz de Auditoria:**
+  - Filial (5555): **CONFIRMADO (100%)**
+  - Banco (001): **CONFIRMADO TEXTUAL (99%)**
+  - Conta Corrente (56816-3): **CONFIRMADO TEXTUAL (100%)**
+  - Titular / CNPJ: **CONFIRMADO VIA CADASTRO DA FILIAL 5555**
+  - Agência (2365-5): **AUSENTE NO ERP** (endpoint `/INTEGRACAO/V1/CONTAS` não fornece coluna de agência nem a inclui na descrição).
+- **Regra Anti-Presunção:** Pela ausência de agência no schema do endpoint, a conta `27173` não foi reclassificada de forma autônoma pelo sistema.
+
+### 3. Governança e Controle de Impactos (Agente C)
+- **Blindagem do Caixa Físico (17837):** A conta `17837 — CAIXA(POSTO)` permanece terminantemente restrita a `CAIXA_FISICO` e bloqueada para despesas bancárias.
+- **Isolamento de Despesas:** Nenhuma despesa ou rotina automatizada utiliza `27173`.
+- **Análise de Impacto Futuro:** A reclassificação formal de `27173` viabilizará despesas legítimas do BB (como FSIST R$ 34,90 e Piloto R$ 626,00), impedirá contaminação do saldo físico da pista, isolará estritamente a filial 5555 de outras empresas, e será registrada de forma append-only no `master_data_audit_log`.
+
+### 4. Testes Executados e Resultados
+- Suíte completa Master Data (`tests/unit/master_data/`): **56/56 PASSED (100%)**
+- Suíte de Preparação do Piloto BB (`test_expense_04_pilot_prep_bb.py`): **11/11 PASSED (100%)**
+- `git diff --check`: 0 erros encontrados.
+
+### 5. Próxima Decisão Humana Necessária
+Deliberação formal do diretor/proprietário entre:
+1. **Autorização Formal:** Aceitar a evidência textual `"BANCO DO BRASIL (56816-3)"` na filial `5555` como prova suficiente para reclassificar `27173` como conta corrente da Casa Caiada; OU
+2. **Inspeção em Tela:** Exigir conferência visual prévia da agência `2365-5` no cadastro de contas da interface web do webPosto antes da reclassificação.
+
+---
 
 ## MASTER-DATA-04 — Resolução Oficial da Conta Bancária (Casa Caiada) — 21/10/2026 11:35
 
