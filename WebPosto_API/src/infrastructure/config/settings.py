@@ -2,13 +2,15 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from pydantic import Field
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 load_dotenv(Path(__file__).resolve().parents[3] / ".env")
 
 
 class Settings(BaseSettings):
     """Configurações da aplicação, com dotenv carregado explicitamente."""
+
+    model_config = SettingsConfigDict(env_file=None, case_sensitive=False, extra="ignore")
 
     # Ambiente
     environment: str = "development"
@@ -67,11 +69,6 @@ class Settings(BaseSettings):
     # Circuit Breaker
     circuit_breaker_threshold: int = 5
     circuit_breaker_timeout: int = 60
-
-    class Config:
-        env_file = None
-        case_sensitive = False
-        extra = "ignore"
 
 
 # Instância global de settings

@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Any
 
 import jwt
@@ -12,7 +12,7 @@ def create_access_token(
     *,
     expires_delta: timedelta | None = None,
 ) -> str:
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     exp = now + (expires_delta or timedelta(minutes=settings.access_token_expire_minutes))
     payload = {
         "sub": subject,
@@ -26,7 +26,7 @@ def create_access_token(
 
 
 def create_refresh_token(subject: str) -> str:
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     exp = now + timedelta(days=settings.refresh_token_expire_days)
     payload = {"sub": subject, "exp": exp, "iat": now, "token_type": "refresh"}
     token = jwt.encode(payload, settings.secret_key, algorithm=settings.jwt_algorithm)
