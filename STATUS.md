@@ -5,6 +5,98 @@ Repositório canônico: C:\Projetos\LOGOS\LogosPostos · branch feature/cash-aud
 PR a abrir: https://github.com/mlisboa17/LogosPostos/pull/new/feature/cash-audit-fechamento
 Histórico de sprints: um prompt por sprint em docs/prompts/ (SPRINT_05 ... SPRINT_12, PREMMIA_00, TELEGRAM_00)
 
+# SPRINT 1 CODEX — Saneamento e Baseline Offline — 22/10/2026
+
+## Resultado
+
+- **SPRINT 1: CONCLUÍDA NO ESCOPO OFFLINE SEGURO.**
+- Conta `27173` permanece `TRANSITORIA`, com débito desabilitado.
+- Piloto Casa Caiada permanece `BLOCKED`.
+- Nenhuma chamada ERP, escrita ERP, reclassificação, lançamento, merge, reset ou clean foi executado.
+
+## Classificação dos 24 arquivos inicialmente não rastreados
+
+1. **Implementação e testes EXPENSE (6 arquivos, manter):** adaptadores `telegram_despesas.py` e `webposto_escrita_despesa.py`; quatro suítes `test_expense_04_*`, `test_telegram_despesas.py` e `test_webposto_escrita_despesa.py`. Conjunto integrado às alterações rastreadas do fluxo de comprovantes e validado offline.
+2. **Arquitetura e evidências EXPENSE (9 arquivos, manter):** `ARCH_MODULE_01_CURRENT_STRUCTURE.md` e oito relatórios `EXPENSE_*`. Documentação vinculada ao fluxo testado, sem autorização operacional.
+3. **Evidências MAIS BANK (4 arquivos, manter separado):** `MAIS_BANK_01` a `MAIS_BANK_04`. Outro fluxo de trabalho; não foi misturado ao baseline Expense.
+4. **Ferramentas de investigação (5 arquivos, não integrar nesta sprint):** `probe_premmia_portal.py` e quatro scripts `scratch_*`. Podem realizar investigação externa ou são descartáveis; permaneceram sem execução e fora dos commits da Sprint 1.
+
+## Revisão de segurança e correção P0
+
+A revisão encontrou comportamento fail-open quando a whitelist Telegram estava vazia. Mensagens comuns e callbacks de aprovação poderiam ser aceitos sem um diretor integralmente configurado. A correção aplicada torna os dois caminhos fail-closed:
+
+- o listener rejeita qualquer atualização se `TELEGRAM_CHAT_IDS` estiver vazio;
+- callbacks de despesas exigem conjuntos não vazios de chat e usuário autorizado;
+- foram adicionados testes de regressão para configuração vazia;
+- nenhum callback ou mensagem de teste acessou Telegram real.
+
+## Baseline validado
+
+- Master data: **56 passed**.
+- Fluxos focados de piloto/escrita: **61 passed**.
+- Comprovantes e autenticação Telegram após o P0: **54 passed**.
+- Suíte completa `tests/unit/cash_reconciliation`: **672 passed**, **151 warnings**, zero tentativa real de navegador/portal.
+- `git diff --check` do conjunto funcional: sem erro de whitespace; apenas avisos de futura conversão LF/CRLF. Documentos históricos preservam quebras Markdown com dois espaços finais.
+
+## Débitos conhecidos preservados
+
+- `src/interfaces/http/dependencies-mlisboa17.py` e `src/main-mlisboa17.py` já estavam versionados com erro de sintaxe; por isso `compileall` global ainda falha. Eles não pertencem ao conjunto alterado da Sprint 1 e permanecem P2 para decisão de remoção ou reparo.
+- Há avisos de Pydantic v1, `datetime.utcnow()` e chave JWT curta usada nos testes. Não impedem o baseline, mas devem ser tratados em sprint técnica.
+- Scripts de probe/scratch não foram apagados nem executados.
+
+## Organização de commits
+
+- Commit funcional: fluxo Expense, barreiras fail-closed e testes offline.
+- Commit documental: arquitetura, evidências EXPENSE e atualização do `STATUS.md`.
+- Evidências MAIS BANK e scripts de investigação permanecem separados para revisão própria.
+
+# CONTINUIDADE CODEX — Auditoria Offline e Estado Atual — 22/10/2026
+
+## Veredito executivo
+
+- **Branch validada:** `feature/cash-audit-fechamento`.
+- **HEAD auditado:** `539f8e4980de027657da495ffe0d68fd1338d780` (`MASTER-DATA-05`).
+- **Checkpoint solicitado:** `3e1c2f814afd94e0d1e2fbb65d9652e0f77e7b1` (`MASTER-DATA-04`) existe e é ancestral do HEAD.
+- **MASTER-DATA-03:** íntegro no estado atual; suíte `tests/unit/master_data` com **56/56 testes aprovados**.
+- **ACCOUNT 27173: BLOCKED.** Nenhuma reclassificação foi executada.
+- **CASA CAIADA PILOT: BLOCKED.** Nenhum lançamento ou chamada ERP foi executado.
+
+## Evidência local da conta 27173
+
+Consulta somente leitura ao arquivo local `WebPosto_API/data/master_data/master_data.sqlite3`:
+
+- `empresa_codigo = null`;
+- `descricao = "CONTA TRANSITORIA 27173"`;
+- `tipo_conta = "TRANSITORIA"`;
+- `banco_codigo`, `agencia` e `conta_numero` ausentes;
+- `permite_debito_despesa = false`;
+- `confiabilidade = "HISTORICO"` e `origem_dado = "webposto_probe"`;
+- trilha `master_data_audit_log`: uma única `INSERCAO` de bootstrap, sem reclassificação posterior.
+
+Confronto de evidências: o retorno sanitizado do MASTER-DATA-04 associa `empresaCodigo 5555`, `contaCodigo 27173`, descrição `BANCO DO BRASIL (56816-3)` e conta ativa. Extrato local e documentação apontam banco 001, agência 2365-5, conta 56816-3, titular Casa Caiada e CNPJ 04.284.939/0001-86. Entretanto, agência, titular e CNPJ não são campos estruturados do retorno ERP preservado. A união dessas fontes é forte para revisão humana, mas insuficiente para uma reclassificação automática sob a regra anti-inferência vigente.
+
+## Árvore de trabalho preservada
+
+Na fotografia inicial da auditoria havia 8 arquivos rastreados modificados e 24 arquivos não rastreados, concentrados no fluxo de comprovantes/despesas, adaptadores, testes e documentação. Nenhum `reset`, `clean`, merge ou descarte foi realizado. O arquivo `WebPosto_API/tests/conftest.py`, que já estava modificado, recebeu uma adaptação de isolamento: cada execução usa um diretório temporário exclusivo, evitando reaproveitar bancos SQLite de idempotência de execuções anteriores. A organização posterior está registrada na seção da Sprint 1 acima.
+
+## Validação offline reproduzível
+
+- `python -m pytest tests/unit/master_data -q` em `WebPosto_API`: **56 passed**; zero tentativa real de portal; há avisos de conexões SQLite não fechadas e dois arquivos Python legados não parseáveis pela cobertura.
+- `python -m pytest WebPosto_API/tests/unit/cash_reconciliation/test_expense_04_pilot_prep_bb.py WebPosto_API/tests/unit/cash_reconciliation/test_expense_04_precheck.py WebPosto_API/tests/unit/cash_reconciliation/test_webposto_escrita_despesa.py -q --no-cov` na raiz: **61 passed**; zero tentativa real de navegador/portal.
+- A primeira execução combinada expôs reuso de estado SQLite no fixture e dependência do diretório de execução. Após a adaptação do fixture e execução a partir da raiz, todos os testes funcionais passaram. O `--no-cov` evita aplicar a esta suíte isolada o limiar global de cobertura do projeto pai; não oculta falhas funcionais.
+
+## Priorização
+
+- **P0 — manter fail-closed:** preservar `27173` como `TRANSITORIA`, débito desabilitado e piloto Casa Caiada `BLOCKED`; proibir escrita ERP, lançamento e reclassificação até decisão humana específica apoiada por validação visual ou aceite formal da suficiência documental.
+- **P0 — sanidade da árvore:** revisar e separar as alterações locais anteriores antes de qualquer commit, porque o conjunto mistura implementação, scripts de probe, documentação e testes ainda não rastreados.
+- **P1 — robustez offline:** eliminar os avisos de conexões SQLite não fechadas e tornar caminhos de testes independentes do diretório de execução; manter bloqueio explícito de transporte externo nas suítes.
+- **P1 — evidência estruturada:** preparar, sem persistir, uma matriz de decisão assinável com os seis atributos da conta e hashes/referências dos documentos locais; a decisão continua humana.
+- **P2 — higiene técnica:** corrigir os dois arquivos legados não parseáveis pela cobertura e racionalizar scripts `scratch/probe`, sem executar chamadas externas.
+
+## Limites mantidos nesta continuidade
+
+Não foram executadas chamadas ERP, escritas ERP, reclassificação da conta, lançamento de despesa, `git reset`, `git clean` ou merge. A próxima transição continua dependendo de autorização específica e não é implícita nesta auditoria.
+
 ## MASTER-DATA-05 — Bank Account Identity Evidence Review (Casa Caiada) — 22/10/2026 13:40
 
 Relatórios detalhados:
