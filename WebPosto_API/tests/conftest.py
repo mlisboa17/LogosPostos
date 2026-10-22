@@ -1,6 +1,7 @@
 import asyncio
 from datetime import datetime
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 from dotenv import load_dotenv
@@ -13,8 +14,19 @@ from sqlalchemy.orm import sessionmaker
 
 from src.infrastructure.repositories.models import Base
 
-
 _tentativas_portal = []
+
+_TEST_RUN_ID = uuid4().hex
+_TEST_TMP_ROOT = Path(__file__).resolve().parent / "_test_tmp" / _TEST_RUN_ID
+_TEST_TMP_ROOT.mkdir(parents=True, exist_ok=True)
+
+
+@pytest.fixture
+def tmp_path(request):
+    safe_name = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in request.node.name)
+    p = _TEST_TMP_ROOT / safe_name
+    p.mkdir(parents=True, exist_ok=True)
+    return p
 
 
 @pytest.fixture(autouse=True)
@@ -29,6 +41,7 @@ def bloquear_navegadores_e_portal_premmia(monkeypatch, tmp_path):
 
     tentativas = []
     from src.modules.cash_reconciliation.adapters import propostas_lancamento
+
     monkeypatch.setattr(propostas_lancamento, "DIRETORIO", tmp_path / "propostas_lancamento")
 
     def bloquear(*args, **kwargs):

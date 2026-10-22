@@ -1,4 +1,5 @@
 """Isola os testes do banco real de pendências (data/pendencias)."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -13,20 +14,32 @@ from src.modules.cash_reconciliation.adapters import webposto_escrita_cartao
 def _banco_pendencias_temporario(tmp_path, monkeypatch):
     from src.modules.cash_reconciliation.application import pix_cnpj
     from src.modules.cash_reconciliation.application import mais_pagamentos
+
     monkeypatch.setattr(mais_pagamentos, "DIRETORIO", tmp_path / "mais_pagamentos")
     monkeypatch.setattr(pix_cnpj, "DIRETORIO_PAGBANK", tmp_path / "PAGBANK")
     monkeypatch.setattr(pendencias, "DIRETORIO_PENDENCIAS", tmp_path / "pendencias")
-    monkeypatch.setattr(pendencias, "BANCO_PENDENCIAS", tmp_path / "pendencias" / "pendencias.sqlite3")
+    monkeypatch.setattr(
+        pendencias, "BANCO_PENDENCIAS", tmp_path / "pendencias" / "pendencias.sqlite3"
+    )
 
     pasta_comp = tmp_path / "despesas_avulsas" / "comprovantes"
     monkeypatch.setattr(fila_despesas, "obter_pasta_comprovantes", lambda: pasta_comp)
-    monkeypatch.setattr(fila_despesas, "obter_caminho_fila", lambda: tmp_path / "despesas_avulsas" / "fila.json")
+    monkeypatch.setattr(
+        fila_despesas, "obter_caminho_fila", lambda: tmp_path / "despesas_avulsas" / "fila.json"
+    )
 
 
 @pytest.fixture(autouse=True)
-def _piloto_isolado(tmp_path_factory, monkeypatch):
-    raiz = tmp_path_factory.mktemp("piloto")
+def _piloto_isolado(tmp_path, monkeypatch):
+    raiz = tmp_path / "piloto"
+    raiz.mkdir(parents=True, exist_ok=True)
     env = raiz / ".env"
-    env.write_text("WEBPOSTO_WRITES=0\nLOGOS_ERP_ESCRITA=0\nLOGOS_CARTAO_AUTOMATICO=0\n", encoding="utf-8")
-    monkeypatch.setattr(webposto_escrita_cartao, "resolver_caminho_env", lambda caminho=None: Path(caminho) if caminho else env)
+    env.write_text(
+        "WEBPOSTO_WRITES=0\nLOGOS_ERP_ESCRITA=0\nLOGOS_CARTAO_AUTOMATICO=0\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        webposto_escrita_cartao,
+        "resolver_caminho_env",
+        lambda caminho=None: Path(caminho) if caminho else env,
+    )
     monkeypatch.setattr(webposto_escrita_cartao, "DIRETORIO_AUDITORIA_PADRAO", raiz / "auditoria")

@@ -38,6 +38,7 @@ def enviar_mensagem(
     chat_ids: Iterable[str | int],
     cliente: httpx.Client | None = None,
     parse_mode: str | None = None,
+    reply_markup: dict[str, Any] | None = None,
 ) -> list[ResultadoDestinatario]:
     resultados = []
     ids = list(dict.fromkeys(str(chat_id).strip() for chat_id in chat_ids if str(chat_id).strip()))
@@ -48,13 +49,17 @@ def enviar_mensagem(
             resultado = None
             for _ in range(TENTATIVAS):
                 try:
+                    payload: dict[str, Any] = {
+                        "chat_id": chat_id,
+                        "text": texto,
+                    }
+                    if parse_mode:
+                        payload["parse_mode"] = parse_mode
+                    if reply_markup:
+                        payload["reply_markup"] = reply_markup
                     resposta = http.post(
                         f"{API_BASE}/bot{token}/sendMessage",
-                        json={
-                            "chat_id": chat_id,
-                            "text": texto,
-                            **({"parse_mode": parse_mode} if parse_mode else {}),
-                        },
+                        json=payload,
                         timeout=TIMEOUT_SEGUNDOS,
                     )
                 except httpx.HTTPError as exc:
