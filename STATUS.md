@@ -5,6 +5,42 @@ Repositório canônico: C:\Projetos\LOGOS\LogosPostos · branch feature/cash-aud
 PR a abrir: https://github.com/mlisboa17/LogosPostos/pull/new/feature/cash-audit-fechamento
 Histórico de sprints: um prompt por sprint em docs/prompts/ (SPRINT_05 ... SPRINT_12, PREMMIA_00, TELEGRAM_00)
 
+# MAIS-BANK-05 — Consolidação Documental de Liquidação e Repasses — 22/10/2026
+
+## Resultado da Revisão
+
+- **CONSOLIDAÇÃO CONCLUÍDA EM MODO READ-ONLY OFFLINE.**
+- **Cadeia Mais Pagamentos: BLOCKED** para todas as unidades por ausência de comprovação documental ponta a ponta.
+- **Escopo Confirmado:** Posto Doze (`74014`), Posto VIP (`11495`, incluindo sua própria loja) e Casa Caiada (`5555`).
+- **Conveniência 24h (`118508`): FORA DO ESCOPO** Mais Pagamentos (confirmado expressamente pelo proprietário). Nenhuma associação a Asaas, Fiserv ou Matera se aplica.
+- **Matera:** Presente no ecossistema de pagamentos como tecnologia BaaS/infraestrutura, sem nenhuma associação operacional comprovada a qualquer filial do grupo.
+- **Modelo de Conservação de Saldo:** Formalizada a fungibilidade de saldos em contas intermediárias. A métrica `PIX do dia - repasses do dia` NÃO mede perda financeira sem extrato analítico oficial do período.
+- **Conta 27173 (Casa Caiada):** Permanece `TRANSITORIA`, com débito desabilitado.
+- **Piloto Casa Caiada:** Permanece estritamente `BLOCKED`.
+- **Zero chamadas externas; zero escritas no ERP webPosto.**
+
+## Riscos Identificados
+
+1. **Falsas Divergências de Caixa:** Tratar a defasagem temporal entre capturas de PIX e repasses agregados como falta de numerário, ignorando a fungibilidade de saldos intermediários.
+2. **Contaminação Inter-Filiais:** Repassar valores de uma filial para conta de outra filial sem contrato formal de mútuo.
+3. **Contaminação com Sangria da Pista:** Utilizar contas bancárias de cofre físico de espécie da pista para recebimento de adquirentes eletrônicos sem contraparte comprovada.
+4. **Travas não universais em SDK genérico:** Necessidade de manter estrito isolamento offline para evitar que métodos genéricos do SDK sem decorators executem chamadas externas.
+
+## Requisitos Pendentes
+
+- **P0:** Obtenção de pacote documental real e sanitizado do Posto Doze (`74014`) de 14 a 16/10/2026: extrato analítico Asaas completo + comprovante de repasse com taxa + extrato bancário final do crédito.
+- **P0:** Deliberação formal do diretor sobre a aceitação da descrição textual `"BANCO DO BRASIL (56816-3)"` para a conta `27173` ou conferência visual em tela.
+- **P1:** Identificação cadastral oficial dos custodiantes e contas de VIP e Casa Caiada junto à Quality/Fiserv.
+- **P1:** Obtenção de credencial de integração formal somente leitura (`GET`) junto à Quality/Mais Pagamentos.
+- **P2:** Saneamento técnico dos arquivos legados corrompidos (`src/interfaces/http/dependencies-mlisboa17.py` e `src/main-mlisboa17.py`) e dos avisos de depreciação.
+
+## Comandos e Testes Offline Executados
+
+- `python -m pytest WebPosto_API/tests/unit/master_data -q --no-cov`: **56 passed** (0 tentativas de navegador/portal).
+- `python -m pytest WebPosto_API/tests/unit/cash_reconciliation/test_expense_04_pilot_prep_bb.py WebPosto_API/tests/unit/cash_reconciliation/test_expense_04_precheck.py WebPosto_API/tests/unit/cash_reconciliation/test_webposto_escrita_despesa.py -q --no-cov`: **61 passed** (0 tentativas de navegador/portal).
+- `python -m pytest WebPosto_API/tests/unit/cash_reconciliation/ -q --no-cov`: **672 passed, 151 warnings** (0 tentativas de navegador/portal).
+- `git diff --check`: 0 erros de formatação ou whitespace encontrados.
+
 # SPRINT 1 CODEX — Saneamento e Baseline Offline — 22/10/2026
 
 ## Resultado
