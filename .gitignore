@@ -31,3 +31,8 @@ WebPosto_API/pytest_temp/
 _test_tmp/
 **/_test_tmp/
 
+.superpowers/
+
+# Logos Match - saidas do PyInstaller/Inno Setup
+WebPosto_API/dist/
+WebPosto_API/build/

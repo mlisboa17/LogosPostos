@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block titulo %}Hoje{% endblock %}
+{% block conteudo %}
+<h1>Hoje</h1>
+<p class="dica"><a href="/coleta">Acompanhar a coleta</a> · <a href="/historico">Histórico das coletas</a></p>
+{% if not postos %}<p>Nenhum posto liberado para você.</p>{% endif %}
+{% for item in postos %}
+<section class="cartao">
+  <h2>{{ item.posto.apelido or item.posto.nome }} <small>{{ item.posto.nome }} · dia {{ item.dia|data }}</small></h2>
+  <ul class="fontes">
+    {% for f in item.fontes %}<li><span class="icone">{{ f.icone }}</span> <strong>{{ f.nome }}</strong>: {{ f.texto }}</li>
+    {% else %}<li>Nenhuma fonte cadastrada.</li>{% endfor %}
+  </ul>
+  <p>Total coletado: <strong>{{ item.total|dinheiro }}</strong> · <a href="/planilha?posto_id={{ item.posto.id }}&amp;dia={{ item.dia.strftime('%d-%m-%Y') }}">Baixar planilha</a></p>
+  {% if item.divergencias %}
+  <table>
+    <thead><tr><th>Fonte</th><th>O que houve</th><th>Como corrigir</th><th>Responsável</th></tr></thead>
+    <tbody>
+    {% for d in item.divergencias %}
+      <tr><td>{{ d.fonte|fonte }}</td><td>{{ d.explicacao_pt or "" }}</td><td>{{ d.correcao_pt or "" }}</td><td>{{ d.responsavel or "—" }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p>Nenhuma divergência neste dia.</p>{% endif %}
+  {% if item.pode_coletar %}
+  <div class="acoes">
+    <form method="post" action="/coletar?posto_id={{ item.posto.id }}&amp;visivel=0"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit">Coletar agora</button></form>
+    <form method="post" action="/coletar?posto_id={{ item.posto.id }}&amp;visivel=1"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" class="secundario">Coletar agora (visível)</button></form>
+    <form method="post" action="/reenviar?posto_id={{ item.posto.id }}"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" class="secundario">Reenviar</button></form>
+  </div>
+  {% endif %}
+</section>
+{% endfor %}
+{% endblock %}

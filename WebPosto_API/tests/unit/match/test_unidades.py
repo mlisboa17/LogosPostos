@@ -1,0 +1,335 @@
+import json
+import threading
+from pathlib import Path
+
+import pytest
+
+from apps.match import banco, credenciais, relatorio_xlsx, unidades
+from src.modules.cash_reconciliation import config as cfg
+from src.shared import segredos
+
+UNITS = Path(cfg.__file__).parent / "units.json"
+
+
+@pytest.fixture
+def con(tmp_path):
+    c = banco.conectar(tmp_path / "t.db")
+    yield c
+    c.close()
+
+
+@pytest.fixture(autouse=True)
+def _limpa():
+    yield
+    segredos.definir_resolvedor(None)
+    cfg.definir_provedor_unidades(None)
+
+
+def test_resolvedor_pagbank_por_empresa(con, keyring_falso):
+    pid = banco.inserir_posto(con, "Doze", "Doze", None, 74014)
+    credenciais.salvar(f"{pid}/pagbank/token", "TOK")
+    unidades.ativar(con)
+    assert segredos.obter_segredo("PAGBANK_TOKEN_74014") == "TOK"
+
+
+def test_resolvedor_lc_e_nome_desconhecido(con, keyring_falso, monkeypatch):
+    pid = banco.inserir_posto(con, "Doze", None, None, 74014)
+    credenciais.salvar(f"{pid}/webposto/chave", "K")
+    credenciais.salvar(f"{pid}/premmia/usuario", "U")
+    r = unidades.resolvedor(con)
+    assert r(f"LC_{pid}_WEBPOSTO_CHAVE") == "K"
+    assert r(f"LC_{pid}_PREMMIA_USUARIO") == "U"
+    monkeypatch.setenv("OUTRO", "x")
+    assert r("OUTRO") is None
+    assert r("PAGBANK_TOKEN_99999") is None
+
+
+def test_posto_sem_webposto_tem_codigo_negativo(con):
+    pid = banco.inserir_posto(con, "Novo", None, None, None)
+    u = unidades.montar(con)
+    assert list(u) == [-pid]
+    assert u[-pid].apelido == f"P{pid}"
+    assert u[-pid].chave_env == f"LC_{pid}_WEBPOSTO_CHAVE"
+
+
+def test_resolvedor_posto_codigo_negativo(con, keyring_falso):
+    pid = banco.inserir_posto(con, "Novo", None, None, None)
+    credenciais.salvar(f"{pid}/pagbank/usuario", "usr")
+    assert unidades.resolvedor(con)(f"PAGBANK_USER_{-pid}") == "usr"
+
+
+def test_montar_usa_fonte_premmia_e_administradoras(con):
+    pid = banco.inserir_posto(con, "Doze", "Doze", None, 74014)
+    banco.salvar_fonte(con, pid, "premmia", True, {"administradoras": {"PREMMIA": ["PREMMIA"]}})
+    u = unidades.montar(con)[74014]
+    assert u.premmia_ativo is True
+    assert u.administradoras == {"PREMMIA": ("PREMMIA",)}
+
+
+def test_resolvedor_nao_cai_no_ambiente(con, keyring_falso, monkeypatch):
+    pid = banco.inserir_posto(con, "Doze", None, None, 74014)
+    monkeypatch.setenv(f"LC_{pid}_WEBPOSTO_CHAVE", "do-ambiente")
+    monkeypatch.setenv("PAGBANK_TOKEN_74014", "do-ambiente")
+    r = unidades.resolvedor(con)
+    assert r(f"LC_{pid}_WEBPOSTO_CHAVE") is None
+    assert r("PAGBANK_TOKEN_74014") is None
+
+
+def test_exportar_nao_tem_segredo(con, keyring_falso):
+    pid = banco.inserir_posto(con, "Doze", "Doze", None, 74014)
+    banco.salvar_fonte(con, pid, "premmia", True, {"administradoras": {}, "senha": "S-cfg"})
+    banco.salvar_fonte(con, pid, "pagbank_edi", True, {})
+    banco.salvar_fonte(con, pid, "webposto", True, {})
+    credenciais.salvar(f"{pid}/premmia/senha", "S3gr3d0!")
+    credenciais.salvar(f"{pid}/pagbank/token", "TOK-PB")
+    credenciais.salvar(f"{pid}/webposto/chave", "CHAVE-WP")
+    con.execute("INSERT INTO canal(tipo, config_json, ref_credencial) VALUES (?,?,?)",
+                ("telegram", json.dumps({"chat_id": "1", "token": "TOK-TG"}), "canal/1/token"))
+    credenciais.salvar("canal/1/token", "TOK-TG-KR")
+    con.commit()
+    saida = json.dumps(unidades.exportar_config(con))
+    for segredo in ("S3gr3d0!", "TOK-PB", "CHAVE-WP", "TOK-TG", "TOK-TG-KR", "S-cfg", "ref_credencial"):
+        assert segredo not in saida
+    assert '"chat_id": "1"' in saida
+
+
+def test_exportar_importar_roundtrip(con, tmp_path):
+    pid = banco.inserir_posto(con, "Doze", "Doze", None, 74014)
+    banco.salvar_fonte(con, pid, "webposto", True, {})
+    con.execute("INSERT INTO canal(tipo, config_json) VALUES (?,?)", ("telegram", '{"chat_id": "1"}'))
+    con.commit()
+    dados = unidades.exportar_config(con)
+    c2 = banco.conectar(tmp_path / "b.db")
+    assert unidades.importar_config(c2, dados) == 1
+    assert unidades.importar_config(c2, dados) == 0
+    assert len(banco.fontes_do_posto(c2, banco.listar_postos(c2)[0]["id"])) == 1
+    assert c2.execute("SELECT COUNT(*) FROM canal").fetchone()[0] == 1
+    c2.close()
+
+
+def test_importar_units_json_idempotente(con):
+    n = unidades.importar_units_json(con, UNITS)
+    assert n > 0
+    assert unidades.importar_units_json(con, UNITS) == 0
+    doze = next(p for p in banco.listar_postos(con) if p["empresa_codigo_webposto"] == 74014)
+    fontes = {f["tipo"]: f for f in banco.fontes_do_posto(con, doze["id"])}
+    assert set(fontes) == {"premmia", "pagbank_edi", "webposto"}
+    assert not any(f["ativo"] for f in fontes.values())
+    assert "PAGBANK" in json.loads(fontes["pagbank_edi"]["config_json"])["administradoras"]
+
+
+def test_resolvedor_e_provedor_funcionam_em_outra_thread(con, keyring_falso):
+    pid = banco.inserir_posto(con, "Doze", "Doze", None, 74014)
+    credenciais.salvar(f"{pid}/pagbank/token", "TOK")
+    unidades.ativar(con)
+    saida = {}
+
+    def trabalho():
+        saida["tok"] = segredos.obter_segredo("PAGBANK_TOKEN_74014")
+        saida["un"] = list(cfg.carregar_unidades())
+
+    t = threading.Thread(target=trabalho)
+    t.start()
+    t.join()
+    assert saida == {"tok": "TOK", "un": [74014]}
+
+
+def test_validar_codigo(con):
+    pid = banco.inserir_posto(con, "Doze", "Doze", None, 74014)
+    unidades.validar_codigo(con, None)
+    unidades.validar_codigo(con, 74014, posto_id=pid)  # o próprio posto
+    with pytest.raises(unidades.CodigoInvalido, match="Já existe um posto com esse código do webPosto."):
+        unidades.validar_codigo(con, 74014)
+    for ruim in (0, -1, -pid):
+        with pytest.raises(unidades.CodigoInvalido, match="Código do webPosto inválido."):
+            unidades.validar_codigo(con, ruim)
+
+
+def test_do_posto_monta_a_unidade_do_proprio_posto(con):
+    a = banco.inserir_posto(con, "A", "A", None, 74014)
+    b = banco.inserir_posto(con, "B", "B", None, 74014)  # legado: duplicado no banco
+    ub = unidades.do_posto(con, banco.obter_posto(con, b))
+    assert ub.nome == "B" and ub.chave_env == f"LC_{b}_WEBPOSTO_CHAVE"
+    assert unidades.codigo_em_conflito(con, banco.obter_posto(con, a))
+    c = banco.inserir_posto(con, "C", "C", None, 5)
+    assert not unidades.codigo_em_conflito(con, banco.obter_posto(con, c))
+
+
+def test_importar_units_json_recusa_codigo_invalido_ou_repetido(con, tmp_path):
+    arq = tmp_path / "u.json"
+    arq.write_text(json.dumps({"unidades": [{"nome": "X", "empresa_codigo": 0}]}), encoding="utf-8")
+    with pytest.raises(unidades.CodigoInvalido):
+        unidades.importar_units_json(con, arq)
+    arq.write_text(json.dumps({"unidades": [{"nome": "X", "empresa_codigo": 7},
+                                            {"nome": "Y", "empresa_codigo": 7}]}), encoding="utf-8")
+    with pytest.raises(unidades.CodigoInvalido):
+        unidades.importar_units_json(con, arq)
+    assert banco.listar_postos(con, so_ativos=False) == []
+
+
+def test_importar_config_recusa_codigo_de_outro_posto(con):
+    banco.inserir_posto(con, "Doze", "Doze", None, 74014)
+    with pytest.raises(unidades.CodigoInvalido, match="Já existe um posto"):
+        unidades.importar_config(con, {"postos": [{"nome": "Outro", "empresa_codigo_webposto": 74014}]})
+    with pytest.raises(unidades.CodigoInvalido, match="inválido"):
+        unidades.importar_config(con, {"postos": [{"nome": "Neg", "empresa_codigo_webposto": -3}]})
+    assert len(banco.listar_postos(con, so_ativos=False)) == 1
+
+
+def test_importar_config_recusa_apelido_equivalente(con):
+    banco.inserir_posto(con, "A", "Doze Filial", None, 1)
+    dados = {"postos": [{"nome": "B", "apelido": "Doze_Filial", "empresa_codigo_webposto": 2}]}
+    with pytest.raises(unidades.CodigoInvalido, match="apelido equivalente"):
+        unidades.importar_config(con, dados)
+    assert len(banco.listar_postos(con, so_ativos=False)) == 1
+    dois = {"postos": [{"nome": "B", "apelido": "X Y", "empresa_codigo_webposto": 2},
+                       {"nome": "C", "apelido": "X_Y", "empresa_codigo_webposto": 3}]}
+    with pytest.raises(unidades.CodigoInvalido):
+        unidades.importar_config(con, dois)
+    assert len(banco.listar_postos(con, so_ativos=False)) == 1
+
+
+def test_importar_units_recusa_apelido_equivalente(con, tmp_path):
+    banco.inserir_posto(con, "A", "Doze Filial", None, 1)
+    arq = tmp_path / "u.json"
+    arq.write_text(json.dumps({"unidades": [
+        {"nome": "B", "apelido": "Doze_Filial", "empresa_codigo": 2}]}), encoding="utf-8")
+    with pytest.raises(unidades.CodigoInvalido, match="apelido equivalente"):
+        unidades.importar_units_json(con, arq)
+    assert len(banco.listar_postos(con, so_ativos=False)) == 1
+
+
+def test_importar_config_tres_sem_apelido_ok(con):
+    dados = {"postos": [{"nome": f"N{i}", "empresa_codigo_webposto": 10 + i} for i in range(3)]}
+    assert unidades.importar_config(con, dados) == 3
+    n = [p["id"] for p in banco.listar_postos(con, so_ativos=False)]
+    assert len(n) == 3
+
+
+def test_importar_config_apelido_colide_com_id_previsto(con):
+    prox = relatorio_xlsx.proximo_id(con)
+    dados = {"postos": [{"nome": "A", "apelido": f"P{prox + 1}", "empresa_codigo_webposto": 11},
+                        {"nome": "B", "empresa_codigo_webposto": 12}]}
+    with pytest.raises(unidades.CodigoInvalido, match="apelido equivalente"):
+        unidades.importar_config(con, dados)
+    assert banco.listar_postos(con, so_ativos=False) == []
+
+
+def test_importar_salva_desativado_posto_de_outra_maquina(con, tmp_path):
+    from apps.match import registro_rede as rr
+    rede = tmp_path / "rede"
+    rede.mkdir()
+    banco.salvar_pasta_rede(con, str(rede))
+    rr.registrar(rede, "9", "OUTRA", "Nove")
+    antes = rr.dono(rede, "9")
+    dados = {"postos": [{"nome": "Nove", "empresa_codigo_webposto": 9},
+                        {"nome": "Dez", "empresa_codigo_webposto": 10}]}
+    desativados: list[str] = []
+    assert unidades.importar_config(con, dados, desativados=desativados) == 2
+    assert [p["nome"] for p in banco.listar_postos(con)] == ["Dez"]
+    nove = [p for p in banco.listar_postos(con, so_ativos=False) if p["nome"] == "Nove"]
+    assert len(nove) == 1 and not nove[0]["ativo"]
+    assert rr.dono(rede, "10").id_instalacao == banco.id_instalacao(con)
+    assert rr.dono(rede, "9") == antes
+    assert desativados == ["Nove: " + rr.mensagem_salvo_desativado(antes)]
+    codigos = [u["empresa_codigo"] for u in json.loads(UNITS.read_text(encoding="utf-8"))["unidades"]]
+    rr.registrar(rede, str(codigos[0]), "OUTRA", "X")
+    desativados = []
+    n = unidades.importar_units_json(con, UNITS, desativados=desativados)
+    assert n == len(codigos) and len(desativados) == 1
+    primeiro = [p for p in banco.listar_postos(con, so_ativos=False)
+                if p["empresa_codigo_webposto"] == codigos[0]]
+    assert len(primeiro) == 1 and not primeiro[0]["ativo"]
+    assert rr.dono(rede, str(codigos[0])).id_instalacao == "OUTRA"
+
+
+def test_importar_pasta_indisponivel_nao_grava(con, tmp_path):
+    from apps.match import registro_rede as rr
+    banco.salvar_pasta_rede(con, str(tmp_path / "offline"))
+    with pytest.raises(rr.PastaIndisponivel):
+        unidades.importar_config(con, {"postos": [{"nome": "Dez", "empresa_codigo_webposto": 10}]})
+    with pytest.raises(rr.PastaIndisponivel):
+        unidades.importar_units_json(con, UNITS)
+    assert banco.listar_postos(con, so_ativos=False) == []
+
+
+def _rede_on(con, tmp_path):
+    rede = tmp_path / "rede"
+    rede.mkdir(exist_ok=True)
+    banco.salvar_pasta_rede(con, str(rede))
+    return rede
+
+
+@pytest.mark.parametrize("fontes", [[{}], [{"tipo": "inexistente"}], [{"tipo": "premmia", "config": []}],
+                                    ["premmia"]])
+def test_importar_fonte_invalida_nao_registra_na_rede(con, tmp_path, fontes):
+    from apps.match import registro_rede as rr
+    rede = _rede_on(con, tmp_path)
+    dados = {"postos": [{"nome": "A", "empresa_codigo_webposto": 20},
+                        {"nome": "B", "empresa_codigo_webposto": 21, "fontes": fontes}]}
+    with pytest.raises((ValueError, KeyError, TypeError)):
+        unidades.importar_config(con, dados)
+    assert banco.listar_postos(con, so_ativos=False) == []
+    assert rr.dono(rede, "20") is None and rr.dono(rede, "21") is None
+
+
+def test_importar_units_adquirente_invalida_nao_registra(con, tmp_path):
+    from apps.match import registro_rede as rr
+    rede = _rede_on(con, tmp_path)
+    arq = tmp_path / "u.json"
+    arq.write_text(json.dumps({"unidades": [
+        {"empresa_codigo": 20, "nome": "A"},
+        {"empresa_codigo": 21, "nome": "B", "adquirentes": ["PAGBANK"]}]}), encoding="utf-8")
+    with pytest.raises((ValueError, KeyError, TypeError)):
+        unidades.importar_units_json(con, arq)
+    assert banco.listar_postos(con, so_ativos=False) == []
+    assert rr.dono(rede, "20") is None and rr.dono(rede, "21") is None
+
+
+def test_importar_falha_no_insert_libera_so_os_nao_gravados(con, tmp_path, monkeypatch):
+    import sqlite3
+
+    from apps.match import registro_rede as rr
+    rede = _rede_on(con, tmp_path)
+    original = banco.salvar_fonte
+
+    def salvar(c, pid, tipo, ativo, config):
+        if pid > 1:
+            raise sqlite3.OperationalError("disco cheio")
+        return original(c, pid, tipo, ativo, config)
+    monkeypatch.setattr(banco, "salvar_fonte", salvar)
+    dados = {"postos": [{"nome": "A", "empresa_codigo_webposto": 20, "fontes": [{"tipo": "webposto"}]},
+                        {"nome": "B", "empresa_codigo_webposto": 21, "fontes": [{"tipo": "webposto"}]},
+                        {"nome": "C", "empresa_codigo_webposto": 22}]}
+    with pytest.raises(sqlite3.Error):
+        unidades.importar_config(con, dados)
+    gravados = {p["empresa_codigo_webposto"] for p in banco.listar_postos(con, so_ativos=False)}
+    meu = banco.id_instalacao(con)
+    for codigo in (20, 21, 22):
+        d = rr.dono(rede, str(codigo))
+        if codigo in gravados:
+            assert d is not None and d.id_instalacao == meu
+        else:
+            assert d is None, codigo
+    assert 22 not in gravados
+
+
+def test_importar_rollback_nao_libera_chave_que_ja_era_desta_maquina(con, tmp_path, monkeypatch):
+    from apps.match import registro_rede as rr
+    rede = _rede_on(con, tmp_path)
+    meu = banco.id_instalacao(con)
+    banco.inserir_posto(con, "X", "X", "12.345.678/0001-90", None)
+    rr.registrar(rede, "12345678000190", meu, "X")
+    original = rr.registrar
+
+    def registrar(pasta, chave, id_instalacao, nome):
+        if chave == "40":
+            raise rr.PastaIndisponivel(rr.MSG_INDISPONIVEL)
+        return original(pasta, chave, id_instalacao, nome)
+    monkeypatch.setattr(rr, "registrar", registrar)
+    dados = {"postos": [{"nome": "Y", "cnpj": "12.345.678/0001-90"},
+                        {"nome": "Z", "empresa_codigo_webposto": 40}]}
+    with pytest.raises(rr.PastaIndisponivel):
+        unidades.importar_config(con, dados)
+    assert rr.dono(rede, "12345678000190").id_instalacao == meu
+    assert [p["nome"] for p in banco.listar_postos(con, so_ativos=False)] == ["X"]

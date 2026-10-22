@@ -710,7 +710,7 @@ def test_login_invisivel_novo_configuracao_e_fallback_unico_sem_credenciais(monk
     monkeypatch.setattr(premmia_portal,"aguardar",lambda *a,**k:None)
     monkeypatch.setattr(premmia_portal,"verificar_pagina",lambda *a:None)
     browser,page=premmia_portal.abrir_login(pw,unidade(),visivel=False)
-    assert pw.chromium.launch.call_args.kwargs == {"headless":False,"args":["--headless=new"],"slow_mo":0}
+    assert pw.chromium.launch.call_args.kwargs == {"headless":False,"args":["--headless=new"],"slow_mo":0,"channel":None}
     contexto=browser.new_context.call_args.kwargs
     assert "Headless" not in contexto["user_agent"]
     assert contexto["locale"]=="pt-BR" and contexto["timezone_id"]=="America/Recife"

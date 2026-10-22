@@ -1,0 +1,16 @@
+# Versões fixadas (pip freeze do .venv em 18/10/2026). Atualize todas juntas.
+fastapi==0.145.0
+uvicorn==0.54.0
+jinja2==3.1.6
+python-multipart==0.0.32
+apscheduler==3.11.3
+pystray==0.19.5
+pillow==13.0.0
+keyring==25.7.0
+windows-toasts==1.3.1
+openpyxl==3.1.5
+httpx==0.28.1
+playwright==1.58.0
+pydantic==2.14.1
+tzdata==2026.5
+pyinstaller==6.22.3

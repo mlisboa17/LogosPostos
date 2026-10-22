@@ -1,5 +1,17 @@
 # STATUS — LOGOS Auditoria (atualizado em 22/10/2026)
 
+## LOGOS MATCH v0.2.0 (20/10/2026) — PAUSADO no teste de instalação; retomar daqui
+Branch `feature/logos-match` (worktree `C:\Projetos\LOGOS\LogosPostos-match`), PR rascunho https://github.com/mlisboa17/LogosPostos/pull/2. 883 testes verdes; tudo commitado e enviado.
+- v0.2 entregue e revisada: planilha com versões (sem colisão de apelido), registro de execuções, tela "Coleta" ao vivo + histórico detalhado, bloqueio de posto entre máquinas pela **Pasta da rede** ("Assumir posto"; posto de outra máquina é salvo desativado), CLI `--liberar-postos`.
+- Instalador: `WebPosto_API\dist\LogosMatch-Setup-0.2.0.exe` (gerado 20/10 16:25; `dist/` não é versionado — regerar com `apps\match\build\build.ps1`; Inno Setup em `%LOCALAPPDATA%\Programs\Inno Setup 6`).
+- Neste PC: 0.1.0 foi instalado e atualizado para 0.2.0 (migração 1→4 ok, admin e 1 posto preservados, app rodando).
+- **Próximo passo:** diretor testar no painel (Coleta ao vivo, Histórico, baixar planilha 2× sem nova versão, configurar Pasta da rede em `OneDrive\LogosMatch-Rede`, "Coletar agora" da bandeja abre a tela Coleta); simular "outra máquina" com registro falso na pasta; depois desinstalar com "Apagar também os dados" e conferir limpeza (pasta de dados, Credential Manager, atalho Inicializar, registro na pasta da rede, aviso do `--liberar-postos`). Então tirar o PR do rascunho.
+- Roadmap registrado na spec (§10 e §13): telas reformuladas; cadastro via webPosto `V1/EMPRESAS` (interno); Gas4You (fidelidade) na v3; v2 = EDI Cielo/Rede, Mais Pagamentos, extratos bancários.
+
+## LOGOS MATCH v0.1.0 (18/10/2026) — app de bandeja entregue em código
+Branch feature/logos-match (worktree LogosPostos-match), `WebPosto_API/apps/match/`: coleta Premmia/PagBank/webPosto, conciliação por posto, painel local, canais (toast/Telegram/e-mail), flags `--redefinir-admin` e `--apagar-credenciais`, PyInstaller onedir (`apps/match/build/`, smoke OK) e script Inno Setup.
+**Pendente:** gerar o instalador .exe (falta o Inno Setup/`iscc` nesta máquina; rodar `apps/match/build/build.ps1`), verificação em máquina limpa (checklist no README do app), smoke manual da bandeja.
+
 Repositório canônico: C:\Projetos\LOGOS\LogosPostos · branch feature/cash-audit-fechamento
 Última entrega de código: Sprint 19 (A–D) · branch feature/cash-audit-fechamento, sem merge
 PR a abrir: https://github.com/mlisboa17/LogosPostos/pull/new/feature/cash-audit-fechamento

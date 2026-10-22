@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block titulo %}Log de acesso{% endblock %}
+{% block conteudo %}
+<h1>Log de acesso</h1>
+<p><a href="/usuarios">Voltar para Usuários</a></p>
+<table>
+  <thead><tr><th>Quando</th><th>Usuário</th><th>Ação</th><th>Detalhe</th></tr></thead>
+  <tbody>
+  {% for l in linhas %}
+    <tr><td>{{ l.momento|data_hora }}</td><td>{{ (l.nome ~ " (" ~ l.login ~ ")") if l.login else "—" }}</td><td>{{ l.acao }}</td><td>{{ l.detalhe or "" }}</td></tr>
+  {% else %}<tr><td colspan="4">Nada registrado.</td></tr>{% endfor %}
+  </tbody>
+</table>
+{% endblock %}

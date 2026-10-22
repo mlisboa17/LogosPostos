@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block titulo %}Canais{% endblock %}
+{% macro campos(tipo, cfg, postos_sel, segredo, segredo_salvo) %}
+  {% if tipo == "telegram" %}
+    <label>Conversas (chat id, separados por vírgula) <input name="chat_ids" value="{{ (cfg.chat_ids or [])|join(', ') }}"></label>
+  {% elif tipo == "email" %}
+    <label>Servidor SMTP <input name="servidor" value="{{ cfg.servidor or '' }}"></label>
+    <label>Porta <input name="porta" value="{{ cfg.porta or 587 }}" inputmode="numeric"></label>
+    <label>Usuário <input name="usuario" value="{{ cfg.usuario or '' }}"></label>
+    <label>Destinatários (separados por vírgula) <input name="destinatarios" value="{{ (cfg.destinatarios or [])|join(', ') }}"></label>
+  {% endif %}
+  {% if segredo %}
+    <label>{{ segredo[1] }} <input name="{{ segredo[0] }}" type="password" autocomplete="off" placeholder="{{ '•••• salvo — deixe em branco para manter' if segredo_salvo else 'não cadastrado' }}"></label>
+  {% endif %}
+  <fieldset><legend>Só estes postos (nenhum marcado = todos)</legend>
+    {% for p in todos_postos %}<label class="caixa"><input type="checkbox" name="postos" value="{{ p.id }}"{% if p.id in postos_sel %} checked{% endif %}> {{ p.apelido or p.nome }}</label>{% endfor %}
+  </fieldset>
+{% endmacro %}
+{% block conteudo %}
+<h1>Canais de envio</h1>
+{% for item in canais %}{% set c = item.canal %}
+<section class="cartao">
+  <h2>{{ {"telegram": "Telegram", "email": "E-mail", "toast": "Notificação do Windows"}[c.tipo] }} #{{ c.id }} <small>{{ "ativo" if c.ativo else "desativado" }}</small></h2>
+  <form method="post" action="/canais" class="linha">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="acao" value="editar"><input type="hidden" name="id" value="{{ c.id }}">
+    <label class="caixa"><input type="checkbox" name="ativo" value="1"{% if c.ativo %} checked{% endif %}> Ativo</label>
+    {{ campos(c.tipo, item.cfg, item.postos, item.segredo, item.segredo_salvo) }}
+    <button type="submit">Salvar</button>
+  </form>
+  <form method="post" action="/canais/{{ c.id }}/testar"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" class="secundario">Enviar teste</button></form>
+</section>
+{% endfor %}
+<section class="cartao">
+  <h2>Novo canal</h2>
+  {% for tipo, rotulo, segredo in [("telegram", "Telegram", ("token", "Token do robô")), ("email", "E-mail", ("senha", "Senha de app")), ("toast", "Notificação do Windows", none)] %}
+  <details><summary>{{ rotulo }}</summary>
+    <form method="post" action="/canais" class="linha">
+      <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="acao" value="novo"><input type="hidden" name="tipo" value="{{ tipo }}">
+      <input type="hidden" name="ativo" value="1">
+      {{ campos(tipo, {}, [], segredo, false) }}
+      <button type="submit">Adicionar</button>
+    </form>
+  </details>
+  {% endfor %}
+</section>
+{% endblock %}

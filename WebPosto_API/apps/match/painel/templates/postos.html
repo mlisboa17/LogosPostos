@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block titulo %}Postos{% endblock %}
+{% block conteudo %}
+<h1>Postos</h1>
+<table>
+  <thead><tr><th>Posto</th><th>Apelido</th><th>CNPJ</th><th>Código webPosto</th><th>Situação</th><th>Proteção</th><th></th></tr></thead>
+  <tbody>
+  {% for item in postos %}{% set p = item.posto %}
+    <tr>
+      <td>{{ p.nome }}</td><td>{{ p.apelido or "—" }}</td><td>{{ p.cnpj or "—" }}</td>
+      <td>{{ p.empresa_codigo_webposto if p.empresa_codigo_webposto is not none else "—" }}</td>
+      <td>{{ "Ativo" if p.ativo else "Desativado" }}</td>
+      <td>{{ item.protecao.texto }}</td>
+      <td class="acoes">
+        {% if item.pode_fontes %}<a href="/postos/{{ p.id }}/fontes">Fontes</a>{% endif %}
+        {% if pode_cadastrar %}
+        <form method="post" action="/postos"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="id" value="{{ p.id }}">
+          <input type="hidden" name="acao" value="{{ 'desativar' if p.ativo else 'ativar' }}">
+          <button type="submit" class="secundario">{{ "Desativar" if p.ativo else "Ativar" }}</button></form>
+        {% endif %}
+      </td>
+    </tr>
+    {% if item.protecao.outra and pode_assumir %}
+    <tr class="edicao"><td colspan="7">
+      <form method="post" action="/postos/{{ p.id }}/assumir" class="linha">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <label><input type="checkbox" name="confirmar" value="1" required> Confirmo que a outra máquina não coleta mais este posto</label>
+        <button type="submit" class="secundario">Assumir posto</button>
+      </form>
+    </td></tr>
+    {% endif %}
+    {% if pode_cadastrar %}
+    <tr class="edicao"><td colspan="7">
+      <details><summary>Editar {{ p.nome }}</summary>
+        <form method="post" action="/postos" class="linha">
+          <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="acao" value="editar"><input type="hidden" name="id" value="{{ p.id }}">
+          <label>Nome <input name="nome" value="{{ p.nome }}" required></label>
+          <label>Apelido <input name="apelido" value="{{ p.apelido or '' }}"></label>
+          <label>CNPJ <input name="cnpj" value="{{ p.cnpj or '' }}"></label>
+          <label>Código da empresa no webPosto <input name="empresa_codigo_webposto" value="{{ p.empresa_codigo_webposto if p.empresa_codigo_webposto is not none else '' }}"></label>
+          <button type="submit">Salvar</button>
+        </form>
+      </details>
+    </td></tr>
+    {% endif %}
+  {% else %}
+    <tr><td colspan="7">Nenhum posto cadastrado.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% if desativados %}
+<section class="cartao">
+  <h2>Salvos desativados</h2>
+  <ul>{% for linha in desativados %}<li>{{ linha }}</li>{% endfor %}</ul>
+</section>
+{% endif %}
+
+{% if pode_cadastrar %}
+<section class="cartao">
+  <h2>Novo posto</h2>
+  <p class="aviso alerta">{{ aviso }}</p>
+  {% if pasta_ligada %}<p class="dica">Pasta da rede ligada: informe o código do webPosto ou o CNPJ para proteger o posto.</p>{% endif %}
+  <form method="post" action="/postos" class="linha">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="acao" value="novo">
+    <label>Nome <input name="nome" required></label>
+    <label>Apelido <input name="apelido"></label>
+    <label>CNPJ <input name="cnpj"></label>
+    <label>Código da empresa no webPosto <input name="empresa_codigo_webposto"></label>
+    <button type="submit">Cadastrar</button>
+  </form>
+</section>
+<section class="cartao">
+  <h2>Configuração</h2>
+  <p><a href="/config/exportar">Baixar configuração (sem senhas)</a></p>
+  <form method="post" action="/config/importar" enctype="multipart/form-data" class="linha">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>Importar configuração <input type="file" name="arquivo" accept="application/json,.json" required></label>
+    <button type="submit">Importar</button>
+  </form>
+  {% if tem_units %}
+  <form method="post" action="/postos/importar-logos">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button type="submit" class="secundario">Importar postos do Logos (units.json)</button>
+  </form>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

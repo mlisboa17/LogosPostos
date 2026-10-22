@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block titulo %}Histórico{% endblock %}
+{% block conteudo %}
+<h1>Histórico</h1>
+<h2>Execuções</h2>
+{% for e in execucoes %}
+<section class="cartao">
+  <h2>Dia {{ e.ex.dia|data }} · {{ e.situacao }} <small>{{ e.origem }} · por {{ e.quem }}</small></h2>
+  <p class="dica">Início {{ e.ex.iniciada_em|data_hora }} · fim {{ e.ex.terminada_em|data_hora }} · duração {{ e.duracao or ("—" if e.interrompida else "em andamento") }}</p>
+  <table>
+    <thead><tr><th>Posto</th><th>Fonte</th><th>Situação final</th><th>Mensagem</th></tr></thead>
+    <tbody>
+    {% for i in e.itens %}
+      <tr><td>{{ i.posto }}</td><td>{{ i.fonte }}</td><td class="estado {{ i.classe }}">{{ i.estado }}</td><td>{{ i.mensagem }}</td></tr>
+    {% else %}<tr><td colspan="4">Nenhum posto nesta execução.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+  {% for p in e.planilhas %}
+  <p>Planilhas de {{ p.posto }}:
+    {% for n in p.versoes %}<a href="/planilha?posto_id={{ p.posto_id }}&amp;dia={{ p.dia }}&amp;versao={{ n }}">versão {{ n }}</a>{% if not loop.last %} · {% endif %}
+    {% else %}nenhuma gerada.{% endfor %}</p>
+  {% endfor %}
+  {% if e.envios is not none %}
+  <table>
+    <thead><tr><th>Envio</th><th>Situação</th><th>Erro</th></tr></thead>
+    <tbody>
+    {% for v in e.envios %}
+      <tr><td>{{ v.tipo }} #{{ v.canal_id }}</td><td>{{ "✅ ok" if v.situacao == "ok" else "❌ " ~ (v.situacao or "") }}</td><td>{{ v.erro_texto or "" }}</td></tr>
+    {% else %}<tr><td colspan="3">Nenhum envio nesta execução.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+{% else %}<p>Nenhuma execução registrada ainda.</p>{% endfor %}
+<h2>Últimas coletas por fonte</h2>
+<table>
+  <thead><tr><th>Quando</th><th>Posto</th><th>Fonte</th><th>Dia</th><th>Situação</th><th>Vendas</th><th>Total</th><th>Erro</th><th>Planilha</th></tr></thead>
+  <tbody>
+  {% for c in coletas %}
+    <tr><td>{{ c.iniciada_em|data_hora }}</td><td>{{ c.posto_apelido or c.posto_nome }}</td><td>{{ c.tipo|fonte }}</td>
+      <td>{{ c.dia|data }}</td><td>{{ {"ok": "✅ ok", "sem_movimento": "⚠ sem vendas", "erro": "❌ erro", "verificacao_humana": "❌ verificação humana"}.get(c.situacao, c.situacao) }}</td>
+      <td>{{ c.qtd }}</td><td>{{ c.total|dinheiro }}</td><td>{{ c.erro_texto or "" }}</td>
+      <td><a href="/planilha?posto_id={{ c.posto_id }}&amp;dia={{ c.dia }}">Baixar</a></td></tr>
+  {% else %}<tr><td colspan="9">Nenhuma coleta ainda.</td></tr>{% endfor %}
+  </tbody>
+</table>
+{% if envios is not none %}
+<h2>Últimos envios</h2>
+<table>
+  <thead><tr><th>Quando</th><th>Canal</th><th>Dia</th><th>Situação</th><th>Erro</th></tr></thead>
+  <tbody>
+  {% for e in envios %}
+    <tr><td>{{ e.enviado_em|data_hora }}</td><td>{{ e.tipo }} #{{ e.canal_id }}</td><td>{{ e.dia|data }}</td>
+      <td>{{ "✅ ok" if e.situacao == "ok" else "❌ " ~ (e.situacao or "") }}</td><td>{{ e.erro_texto or "" }}</td></tr>
+  {% else %}<tr><td colspan="5">Nenhum envio ainda.</td></tr>{% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}

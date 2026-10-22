@@ -25,6 +25,8 @@ from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
+from src.shared.segredos import obter_segredo
+
 from ..domain.cartoes import TransacaoAdquirente
 from ..domain.models import Unidade
 from ..domain.tempo import FUSO, agora, ontem
@@ -404,6 +406,7 @@ def abrir_login(playwright, unidade: Unidade, *, visivel: bool):
         browser = playwright.chromium.launch(
             headless=False, args=[] if modo_visivel else ["--headless=new"],
             slow_mo=300 if modo_visivel else 0,
+            channel=os.getenv("LOGOS_NAVEGADOR_CANAL") or None,
         )
         try:
             versao = browser.version
@@ -437,6 +440,12 @@ def abrir_login(playwright, unidade: Unidade, *, visivel: bool):
             raise
 
 
+def liberar_nova_tentativa(unidade: Unidade, diretorio: Path) -> None:
+    hoje = agora().date().isoformat()
+    (diretorio / "logins" / f"{unidade.empresa_codigo}_{hoje}.json").unlink(missing_ok=True)
+    (diretorio / "avisos" / f"{unidade.empresa_codigo}.json").unlink(missing_ok=True)
+
+
 def coletar_sync(
     unidade: Unidade,
     dias: list[date],
@@ -446,8 +455,8 @@ def coletar_sync(
 ) -> None:
     if not dias:
         return
-    usuario = os.getenv(unidade.premmia_usuario_env or "", "")
-    senha = os.getenv(unidade.premmia_senha_env or "", "")
+    usuario = obter_segredo(unidade.premmia_usuario_env or "")
+    senha = obter_segredo(unidade.premmia_senha_env or "")
     if not usuario or not senha:
         erro = PremmiaVerificacaoHumana()
         erro.etapa = "validar credenciais"

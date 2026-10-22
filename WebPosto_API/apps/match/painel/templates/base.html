@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block titulo %}Logos Match{% endblock %} · Logos Match</title>
+<link rel="stylesheet" href="/static/estilo.css">
+{% block cabeca %}{% endblock %}
+</head>
+<body>
+{% if menu %}
+<header class="topo">
+  <strong class="marca">Logos Match</strong>
+  <nav>
+    {% for url, rotulo in menu %}<a href="{{ url }}"{% if url == atual %} aria-current="page"{% endif %}>{{ rotulo }}</a>{% endfor %}
+  </nav>
+  <form method="post" action="/sair" class="sair">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <span>{{ usuario_nome }}</span> <button type="submit">Sair</button>
+  </form>
+</header>
+{% endif %}
+<main>
+  {% if mensagem %}<p class="aviso ok" role="status">{{ mensagem }}</p>{% endif %}
+  {% if erro %}<p class="aviso erro" role="alert">{{ erro }}</p>{% endif %}
+  {% block conteudo %}{% endblock %}
+</main>
+</body>
+</html>
