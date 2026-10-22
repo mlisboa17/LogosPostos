@@ -5,6 +5,18 @@ Repositório canônico: C:\Projetos\LOGOS\LogosPostos · branch feature/cash-aud
 PR a abrir: https://github.com/mlisboa17/LogosPostos/pull/new/feature/cash-audit-fechamento
 Histórico de sprints: um prompt por sprint em docs/prompts/ (SPRINT_05 ... SPRINT_12, PREMMIA_00, TELEGRAM_00)
 
+# TECH-DEBT-03 — Limpeza Autorizada e Quarentena Premmia — 22/10/2026
+
+- Proprietário autorizou a remoção dos dois arquivos históricos `*-mlisboa17.py` e dos quatro scripts `scratch_*.py`.
+- `probe_premmia_portal.py` foi movido para `WebPosto_API/tools/premmia/quarantine/` e não foi executado.
+- A quarentena proíbe integração automática e exige autorização específica para eventual uso futuro.
+- Compilação global de `WebPosto_API/src`: aprovada após a remoção dos arquivos corrompidos.
+- Master data + autenticação + cash reconciliation: **737 passed**; zero tentativas reais de portal.
+- Para a conta `27173`, o proprietário exige primeiro conferência visual da agência `2365-5` no webPosto.
+- Reclassificação da conta e piloto Casa Caiada continuam não autorizados e `BLOCKED`.
+- Push da branch autorizado, sem merge.
+- Evidência: [TECH_DEBT_03_CLEANUP_CHECKPOINT.md](docs/checkpoints/TECH_DEBT_03_CLEANUP_CHECKPOINT.md).
+
 # TECH-DEBT-02 — Modernização Pydantic e JWT — 22/10/2026
 
 - Migrados validadores de clientes para `@field_validator` do Pydantic v2.
