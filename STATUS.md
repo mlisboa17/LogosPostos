@@ -11,8 +11,9 @@ Histórico de sprints: um prompt por sprint em docs/prompts/ (SPRINT_05 ... SPRI
 - Migradas configurações para `ConfigDict` e `SettingsConfigDict`.
 - Timestamps JWT agora usam UTC consciente de fuso (`datetime.now(timezone.utc)`).
 - Validação focada: **16 passed**.
-- Cash reconciliation completo: **672 passed**, com redução de **151 para 92 warnings**.
-- Os avisos restantes decorrem da chave JWT curta usada nos testes; segredos e configurações produtivas não foram alterados.
+- Cash reconciliation completo: **672 passed**, inicialmente com redução de **151 para 92 warnings**.
+- Após isolar uma chave JWT exclusiva de testes: autenticação + cash reconciliation **681 passed, zero warnings**.
+- Segredos, `.env` e configurações produtivas não foram lidos nem alterados.
 - Conta `27173`, piloto Casa Caiada e cadeia Mais permanecem `BLOCKED`.
 - Zero chamadas externas, escritas ERP, tokens de piloto, push ou merge.
 - Evidências: [TECH_DEBT_02_PYDANTIC_JWT_MODERNIZATION.md](docs/validation/TECH_DEBT_02_PYDANTIC_JWT_MODERNIZATION.md) e [TECH_DEBT_02_CHECKPOINT.md](docs/checkpoints/TECH_DEBT_02_CHECKPOINT.md).

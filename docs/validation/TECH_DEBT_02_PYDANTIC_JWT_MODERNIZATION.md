@@ -15,11 +15,11 @@ Modernização offline e compatível com Pydantic v2, sem alteração de regras 
 ## Validação
 
 - Autenticação e serviço de clientes: `16 passed`.
-- Cash reconciliation completo: `672 passed`, `92 warnings`.
+- Autenticação + cash reconciliation após isolamento da chave JWT de testes: `681 passed`, zero warnings.
 - Isolamento Premmia: zero tentativas reais de navegador/portal.
 - Redução dos avisos da suíte cash reconciliation: `151 → 92`.
 
-Os 92 avisos restantes são `InsecureKeyLengthWarning` associados à chave JWT curta usada no ambiente de testes. Nenhuma chave, segredo ou configuração de produção foi alterada nesta etapa.
+O fixture global agora injeta uma chave JWT exclusiva de testes com comprimento adequado. Nenhuma chave, segredo, `.env` ou configuração de produção foi lida ou alterada nesta etapa.
 
 ## Travas preservadas
 

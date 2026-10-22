@@ -30,6 +30,18 @@ def tmp_path(request):
 
 
 @pytest.fixture(autouse=True)
+def _jwt_secret_exclusivo_de_teste(monkeypatch):
+    """Evita usar o segredo padrão curto sem acessar ou alterar credenciais reais."""
+    from src.infrastructure.config.settings import settings
+
+    monkeypatch.setattr(
+        settings,
+        "secret_key",
+        "logos-test-only-jwt-secret-32-bytes-minimum",
+    )
+
+
+@pytest.fixture(autouse=True)
 def bloquear_navegadores_e_portal_premmia(monkeypatch, tmp_path):
     import httpx
     from playwright.sync_api import BrowserType as SyncBrowserType
