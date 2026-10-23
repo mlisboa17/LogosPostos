@@ -4,7 +4,7 @@
   "created_on": "2026-10-23",
   "erp_request_executed": false,
   "erp_write_authorized": false,
-  "status": "BLOCKED_ACCOUNTING_REVIEW",
+  "status": "READY_FOR_TECHNICAL_REVIEW_NO_ERP_AUTHORIZATION",
   "account_control": {
     "empresa_codigo": 5555,
     "conta_codigo": 27173,
@@ -17,32 +17,31 @@
     "path": "/INTEGRACAO/V1/MOVIMENTOS_CONTA",
     "send": false,
     "payload": {
-      "descricao": "PRÓ-LABORE MÁRCIO (Posto Real Ltda)",
+      "descricao": "PRÓ-LABORE — MÁRCIO",
       "data": "2026-10-10",
       "valor": 626.00,
       "conta": 27173,
       "documento": "COMPROVANTE_BB_20261010",
-      "centroCusto": 7295,
+      "centroCusto": null,
       "planoConta": 29021,
       "filial": 5555,
       "contaMovimentoTipo": "DEBITO",
-      "tipoPessoa": "OUTROS",
+      "tipoPessoa": "NAO_IDENTIFICADO",
       "pessoa": null
     }
   },
   "support": {
     "bank_account": "Banco do Brasil 001 / agência 2365-5 / conta 56816-3",
-    "bank_recipient": "Posto Real Ltda",
+    "bank_recipient_evidence_only": "Posto Real Ltda — preservado apenas na evidência bancária, não integra o lançamento",
     "economic_beneficiary_reported": "Márcio",
     "classification_reported": "PRO LABORE",
     "plan_code": 29021,
-    "cost_center_code": 7295,
+    "cost_center_code": null,
     "prior_duplicate_review": "Nenhum título ou movimento correspondente nas evidências locais anteriormente auditadas; requer nova checagem somente leitura antes de eventual escrita real."
   },
   "blocking_reasons": [
     "Débito da conta 27173 permanece desabilitado no Master Data.",
     "Conta 27173 permanece fora da allowlist de escrita da empresa 5555.",
-    "Transferência para pessoa jurídica foi classificada como pró-labore de pessoa física; requer validação contábil/fiscal.",
     "Ausência de autorização específica para escrita ERP e para execução do piloto.",
     "Duplicidade deve ser reconfirmada em consulta atual antes de qualquer escrita futura."
   ]

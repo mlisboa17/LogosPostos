@@ -24,29 +24,31 @@ Auditoria criada: `audit_id 235`, ação `ATUALIZACAO`, origem `AUTORIZACAO_EXPR
 ## Simulação completa do lançamento
 
 Artefato versionado: [`MASTER_DATA_07_PILOT_SIMULATION.json`](MASTER_DATA_07_PILOT_SIMULATION.json).  
-SHA-256: `FF1B396B5C08AB6E1CD192CE7FDA08B371E7897C60384D762736D1822425B8B3`.
+SHA-256 da versão corrigida: `4E9E9A8F071AE7A510C29A53918E49CF200578C0FDEC4CF1F44334C013AE8A0C`.
 
 ```json
 {
-  "descricao": "PRÓ-LABORE MÁRCIO (Posto Real Ltda)",
+  "descricao": "PRÓ-LABORE — MÁRCIO",
   "data": "2026-10-10",
   "valor": 626.00,
   "conta": 27173,
   "documento": "COMPROVANTE_BB_20261010",
-  "centroCusto": 7295,
+  "centroCusto": null,
   "planoConta": 29021,
   "filial": 5555,
   "contaMovimentoTipo": "DEBITO",
-  "tipoPessoa": "OUTROS",
+  "tipoPessoa": "NAO_IDENTIFICADO",
   "pessoa": null
 }
 ```
 
 Este payload é uma proposta de `POST /INTEGRACAO/V1/MOVIMENTOS_CONTA`; não foi transmitido.
 
-## Revisão financeira obrigatória
+## Decisão posterior do proprietário
 
-O recebedor bancário preservado é `Posto Real Ltda` (pessoa jurídica), enquanto a finalidade informada é `PRÓ-LABORE — MÁRCIO` (pessoa física/sócio). A simulação conserva a classificação indicada, mas permanece bloqueada até validação da contabilidade sobre o tratamento correto, inclusive eventual mútuo/adiantamento entre empresas e incidências fiscais.
+Em 23/10/2026, o proprietário determinou que a operação deve ser lançada exclusivamente na AP Casa Caiada como `PRÓ-LABORE — MÁRCIO`, na forma de movimento de saída de conta e sem fornecedor. O nome `Posto Real Ltda` permanece somente como evidência do recebedor no comprovante bancário e não integra a descrição, pessoa ou fornecedor do lançamento.
+
+O contrato OpenAPI `ParametrosIncluirMovimentoConta` exige apenas `descricao`; `centroCusto`, `planoConta` e `pessoa` aceitam nulo. Como nenhum centro administrativo confirmado está cadastrado e o centro `7295 — PISTA` é incompatível com pró-labore, a proposta mantém `centroCusto: null` em vez de inventar um código. O plano `29021 — PRO LABORE` permanece preenchido.
 
 A verificação de duplicidade existente é histórica e local. Antes de qualquer autorização futura de escrita, será necessária nova consulta somente leitura ao ERP para confirmar que o lançamento ainda não existe.
 

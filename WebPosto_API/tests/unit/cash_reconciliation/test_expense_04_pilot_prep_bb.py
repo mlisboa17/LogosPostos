@@ -254,16 +254,16 @@ def test_10_pendencia_especifica_pj_vs_pro_labore():
 def test_11_payload_preparado_despesa_626_casa_caiada():
     """Valida o payload do OpenAPI V1 para a despesa de R$ 626,00."""
     payload_626 = {
-        "descricao": "PRÓ-LABORE MÁRCIO (Posto Real Ltda)",
+        "descricao": "PRÓ-LABORE — MÁRCIO",
         "data": "2026-10-10",
         "valor": 626.00,
         "conta": 27173,  # Identificada; permanece bloqueada para escrita real
         "documento": "COMPROVANTE_BB_20261010",
-        "centroCusto": 7295,  # PISTA
+        "centroCusto": None,  # Contrato permite nulo; não inventar centro administrativo
         "planoConta": 29021,  # PRO LABORE
         "filial": 5555,
         "contaMovimentoTipo": "DEBITO",
-        "tipoPessoa": "OUTROS",
+        "tipoPessoa": "NAO_IDENTIFICADO",  # Movimento sem fornecedor
         "pessoa": None,
     }
 
@@ -272,4 +272,8 @@ def test_11_payload_preparado_despesa_626_casa_caiada():
     assert payload_626["data"] == "2026-10-10"
     assert payload_626["planoConta"] == 29021
     assert payload_626["conta"] == 27173
+    assert payload_626["centroCusto"] is None
+    assert payload_626["tipoPessoa"] == "NAO_IDENTIFICADO"
+    assert payload_626["pessoa"] is None
+    assert "Posto Real" not in payload_626["descricao"]
     assert payload_626["contaMovimentoTipo"] == "DEBITO"

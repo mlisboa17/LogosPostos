@@ -5,6 +5,16 @@ Repositório canônico: C:\Projetos\LOGOS\LogosPostos · branch feature/cash-aud
 PR a abrir: https://github.com/mlisboa17/LogosPostos/pull/new/feature/cash-audit-fechamento
 Histórico de sprints: um prompt por sprint em docs/prompts/ (SPRINT_05 ... SPRINT_12, PREMMIA_00, TELEGRAM_00)
 
+# ACCOUNTING-REVIEW-02 — Decisão do Proprietário sobre Pró-Labore — 23/10/2026
+
+- Proprietário determinou: lançar exclusivamente na `AP CASA CAIADA (5555)` como saída da conta `27173`, plano `29021 — PRO LABORE`, histórico `PRÓ-LABORE — MÁRCIO`.
+- Movimento não pertence ao Posto Real e não pede fornecedor.
+- `Posto Real Ltda` permanece apenas como evidência bancária histórica e foi removido dos campos do lançamento proposto.
+- Contrato OpenAPI permite `centroCusto: null` e `pessoa: null`; nenhum centro administrativo foi inventado.
+- Proposta usa `tipoPessoa: NAO_IDENTIFICADO`, sem fornecedor.
+- Débito permanece desabilitado, conta fora da allowlist, zero chamadas e zero escritas ERP.
+- Evidência: [ACCOUNTING_REVIEW_02_OWNER_DECISION.md](docs/checkpoints/ACCOUNTING_REVIEW_02_OWNER_DECISION.md).
+
 # ACCOUNTING-REVIEW-01 — Auditoria de Pendência Contábil e Matriz de Alternativas — 23/10/2026
 
 - Auditoria cadastral SQLite concluída em modo somente leitura: conta `27173` confirmada como `CONTA_CORRENTE`, empresa `5555`, banco `001`, agência `2365-5`, conta `56816-3`, confiabilidade `CONFIRMADO` e `permite_debito_despesa = 0`.
