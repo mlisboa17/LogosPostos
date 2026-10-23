@@ -15,6 +15,7 @@ Histórico de sprints: um prompt por sprint em docs/prompts/ (SPRINT_05 ... SPRI
 - `158764` é folha oficial e candidata exata para o lançamento de Pró-labore Márcio; nenhuma nova escrita foi autorizada ou executada.
 - Endpoint contábil respondeu HTTP 200 com zero registros; o gerencial atende o fluxo de movimentos.
 - Catálogo SHA-256: `BDF68D4F690249A70B69424C0B9FA237C09704FE8D6EF258E37DABC1D0CD8C57`.
+- Simulação offline atualizada SHA-256: `8D69F426D8425B939F21E1DC1F68DBB811B06ED5CDB1798B0E12AF6E61538A48`.
 - Evidências: [PLANOS_CONTA_MASTER_01.md](docs/validation/PLANOS_CONTA_MASTER_01.md) e [PLANOS_CONTA_MASTER_01_CHECKPOINT.md](docs/checkpoints/PLANOS_CONTA_MASTER_01_CHECKPOINT.md).
 
 # ERP-WRITE-01 — Tentativa Rejeitada por Plano Pai — 23/10/2026

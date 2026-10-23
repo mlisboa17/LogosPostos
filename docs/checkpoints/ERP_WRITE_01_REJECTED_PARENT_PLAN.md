@@ -39,5 +39,5 @@ Não houve repetição automática.
 
 O catálogo local conhece apenas `29021 — PRO LABORE` e não contém filho comprovado. Nenhum código substituto foi inferido.
 
-SHA-256 da simulação atualizada: `3177B6A81864139561319B71735BA6B76704CCDDCDB8F2B9D5B6CA3444D8BF04`.
+SHA-256 da simulação (snapshot histórico da recusa): `3177B6A81864139561319B71735BA6B76704CCDDCDB8F2B9D5B6CA3444D8BF04`.
 
