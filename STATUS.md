@@ -1,6 +1,15 @@
-# STATUS — LOGOS Auditoria (atualizado em 17/10/2026)
+# STATUS — LOGOS Auditoria (atualizado em 23/10/2026)
 
-## LOGOS MATCH v0.2.0 (20/10/2026) — PAUSADO no teste de instalação; retomar daqui
+## LOGOS MATCH v0.3.0 (23/10/2026) — módulo Notas Fiscais, Fase 1 entregue em código; retomar daqui
+Branch `feature/logos-match` (worktree `C:\Projetos\LOGOS\LogosPostos-match`). Spec `docs/superpowers/specs/2026-10-23-logos-match-notas-fiscais-design.md`, plano `docs/superpowers/plans/2026-10-23-logos-match-notas-fiscais-fase1.md`. 962 testes verdes (match + fiscal_docs + cash_reconciliation).
+- NF-e recebidas vêm do webPosto (só GET: `NOTAS_MANIFESTACAO`, `NOTAS_ENTRADA/XML/{chave}`, `NOTAS_ENTRADA`), captura 07:00 + retentativa de hora em hora; acervo em `<pasta da rede>\fiscal\<CNPJ>`.
+- Pacote mensal por escritório de contabilidade (dia 5, 08:00): zip com XMLs, PDFs separados/unificados e planilha resumo (combustível + transporte + CT-e citado); retenção com "Enviar mesmo assim"; complementar para nota atrasada.
+- Telas: Notas fiscais (filtros), Empresas, Escritórios, Pacotes, Importar (XML/ZIP NF-e e NFS-e nacional); perfil Contabilidade.
+- Instalador: `WebPosto_API\dist\LogosMatch-Setup-0.3.0.exe` (gerado 23/10 20:32).
+- **Próximo passo (com o diretor):** instalar 0.3.0, cadastrar empresas Doze Filial II (52.308.604/0002-84, posto 74014) e Casa Caiada (04.284.939/0001-86, posto 5555) e um escritório de teste com o e-mail do diretor; "Capturar agora"; conferir NF-e de setembro/2026 e comparar a contagem com `NOTAS_MANIFESTACAO`; baixar o pacote de setembro.
+- **Fase 2 (plano próprio):** `donos.json` + LOGOS respeitando o dono; CT-e (SEFAZ) e NFS-e (ADN) com certificado A1 por CNPJ; reserva SEFAZ NF-e com ciência.
+
+## LOGOS MATCH v0.2.0 (20/10/2026) — teste de instalação ainda pendente
 Branch `feature/logos-match` (worktree `C:\Projetos\LOGOS\LogosPostos-match`), PR rascunho https://github.com/mlisboa17/LogosPostos/pull/2. 883 testes verdes; tudo commitado e enviado.
 - v0.2 entregue e revisada: planilha com versões (sem colisão de apelido), registro de execuções, tela "Coleta" ao vivo + histórico detalhado, bloqueio de posto entre máquinas pela **Pasta da rede** ("Assumir posto"; posto de outra máquina é salvo desativado), CLI `--liberar-postos`.
 - Instalador: `WebPosto_API\dist\LogosMatch-Setup-0.2.0.exe` (gerado 20/10 16:25; `dist/` não é versionado — regerar com `apps\match\build\build.ps1`; Inno Setup em `%LOCALAPPDATA%\Programs\Inno Setup 6`).

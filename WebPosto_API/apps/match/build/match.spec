@@ -12,10 +12,14 @@ CR = RAIZ / "src" / "modules" / "cash_reconciliation"
 
 hidden = []
 for pacote in ("apps.match", "src.modules.cash_reconciliation", "src.modules.webposto_integration",
+                "src.modules.fiscal_docs",
                "src.shared", "uvicorn", "apscheduler", "keyring.backends"):
     hidden += collect_submodules(pacote)
 pw_datas, pw_bins, pw_hidden = collect_all("playwright")  # driver node.exe + cli.js; sem Chromium
 hidden += pw_hidden
+# DANFE/DANFSe: inclui municipios_ibge.csv e o logo da NFS-e
+bfr_datas, bfr_bins, bfr_hidden = collect_all("brazilfiscalreport")
+hidden += bfr_hidden + collect_submodules("fpdf") + collect_submodules("pypdf")
 hidden += ["windows_toasts", "pystray._win32", "keyring.backends.Windows"]
 
 datas = [
@@ -28,8 +32,8 @@ datas = [
 a = Analysis(
     [str(MATCH / "__main__.py")],
     pathex=[str(RAIZ)],
-    binaries=pw_bins,
-    datas=datas + pw_datas,
+    binaries=pw_bins + bfr_bins,
+    datas=datas + pw_datas + bfr_datas,
     hiddenimports=hidden,
     hookspath=[],
     runtime_hooks=[],

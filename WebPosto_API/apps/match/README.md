@@ -49,6 +49,26 @@ máquina são desativados e listados com o motivo. "Desligar" volta a valer só 
   desta instalação (`LogosMatchCLI.exe --liberar-postos` faz o mesmo à mão).
 - Desligar ou trocar a Pasta da rede não remove os registros desta máquina; use 'Assumir posto' na outra máquina se precisar.
 
+## Notas fiscais (v0.3)
+
+Captura as NF-e recebidas por cada empresa e manda o pacote do mês para a contabilidade.
+
+1. **Empresas**: cadastre CNPJ, razão social e o posto do Logos Match ligado a ela. As NF-e vêm do
+   webPosto (somente leitura) pela chave do webPosto desse posto. Todo dia às 07:00 o Match busca as notas;
+   de hora em hora (08:30–20:30) tenta de novo as que ainda não têm XML.
+2. **Escritórios**: nome, e-mails, empresas atendidas, dia do envio (padrão 5), modo (*enviar* ou *só gerar*)
+   e PDFs (separados, um arquivo só ou os dois). Usa o servidor do canal de e-mail cadastrado em **Canais**.
+3. No dia do envio, às 08:00 (ou quando o Match abrir depois disso), sai o pacote do mês anterior:
+   `<CNPJ>_<AAAA-MM>.zip` com `xml/`, `pdf/` e `Resumo_<apelido>_<mm-aaaa>.xlsx`. Acima de 20 MB vai em partes.
+   Se faltar algo (erro de captura, nota sem XML há mais de 48 h, empresa sem chave), o pacote fica **retido**
+   em **Pacotes** com o motivo e o botão "Enviar mesmo assim". Nota que chega depois do envio vai num pacote
+   complementar.
+4. **Importar**: XML ou ZIP de NF-e/NFS-e do padrão nacional (ex.: notas de serviço baixadas na prefeitura).
+5. Perfil **Contabilidade**: vê só Notas fiscais e Pacotes das empresas dos seus postos.
+
+Os XMLs ficam em `<pasta da rede>\fiscal\<CNPJ>\` (ou `%LOCALAPPDATA%\LogosMatch\fiscal\` sem pasta da rede).
+Ainda não captura sozinho: CT-e de frete e NFS-e pelo sistema nacional (próxima versão, com certificado A1).
+
 ## Onde ficam dados e segredos
 - Dados e logs: `%LOCALAPPDATA%\LogosMatch` (banco SQLite, `logs\match.log`; mude com `LOGOS_MATCH_DIR`).
 - Segredos (senhas, tokens, chaves): Credential Manager do Windows, serviço `LogosMatch`.

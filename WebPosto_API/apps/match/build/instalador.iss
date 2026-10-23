@@ -1,6 +1,6 @@
 ; Inno Setup - Logos Match. Compilar via build.ps1 (passa /DVersao=x.y.z).
 #ifndef Versao
-  #define Versao "0.2.0"
+  #define Versao "0.3.0"
 #endif
 #define Exe "LogosMatch.exe"
 #define ExeCli "LogosMatchCLI.exe"
