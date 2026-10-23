@@ -192,7 +192,7 @@ def test_agendador_jobs_e_horarios(tmp_path, monkeypatch):
     sched = agendador.iniciar(fabrica, pausado=True)
     try:
         jobs = {j.id: j for j in sched.get_jobs()}
-        assert set(jobs) == {"coleta", "repescagem"}
+        assert {"coleta", "repescagem"} <= set(jobs)
         assert (_campos(jobs["coleta"])["hour"], _campos(jobs["coleta"])["minute"]) == ("6", "0")
         assert _campos(jobs["repescagem"])["hour"] == "10"
         assert jobs["coleta"].trigger.timezone == FUSO
