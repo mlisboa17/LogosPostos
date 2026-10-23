@@ -24,7 +24,7 @@ Auditoria criada: `audit_id 235`, ação `ATUALIZACAO`, origem `AUTORIZACAO_EXPR
 ## Simulação completa do lançamento
 
 Artefato versionado: [`MASTER_DATA_07_PILOT_SIMULATION.json`](MASTER_DATA_07_PILOT_SIMULATION.json).  
-SHA-256 da versão corrigida: `4E9E9A8F071AE7A510C29A53918E49CF200578C0FDEC4CF1F44334C013AE8A0C`.
+SHA-256 após registro da tentativa rejeitada: `3177B6A81864139561319B71735BA6B76704CCDDCDB8F2B9D5B6CA3444D8BF04`.
 
 ```json
 {

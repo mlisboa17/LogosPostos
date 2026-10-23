@@ -4,7 +4,7 @@
   "created_on": "2026-10-23",
   "erp_request_executed": false,
   "erp_write_authorized": false,
-  "status": "READY_FOR_TECHNICAL_REVIEW_NO_ERP_AUTHORIZATION",
+  "status": "BLOCKED_ERP_REJECTED_PARENT_PLAN",
   "account_control": {
     "empresa_codigo": 5555,
     "conta_codigo": 27173,
@@ -42,7 +42,14 @@
   "blocking_reasons": [
     "Débito da conta 27173 permanece desabilitado no Master Data.",
     "Conta 27173 permanece fora da allowlist de escrita da empresa 5555.",
-    "Ausência de autorização específica para escrita ERP e para execução do piloto.",
+    "O webPosto rejeitou o plano 29021 porque PRO LABORE é uma conta pai; é obrigatório identificar uma conta filha válida.",
     "Duplicidade deve ser reconfirmada em consulta atual antes de qualquer escrita futura."
-  ]
+  ],
+  "last_attempt": {
+    "date": "2026-10-23",
+    "result": "HTTP_400_REJECTED_NO_MOVEMENT_CREATED",
+    "reason": "Plano de Conta Gerencial PRO LABORE - 2.02 é pai e deve ser substituído por uma conta filha.",
+    "post_verification_matches": 0,
+    "retry_performed": false
+  }
 }

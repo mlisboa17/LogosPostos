@@ -5,6 +5,16 @@ Repositório canônico: C:\Projetos\LOGOS\LogosPostos · branch feature/cash-aud
 PR a abrir: https://github.com/mlisboa17/LogosPostos/pull/new/feature/cash-audit-fechamento
 Histórico de sprints: um prompt por sprint em docs/prompts/ (SPRINT_05 ... SPRINT_12, PREMMIA_00, TELEGRAM_00)
 
+# ERP-WRITE-01 — Tentativa Rejeitada por Plano Pai — 23/10/2026
+
+- Proprietário autorizou uma única saída na Casa Caiada: conta `27173`, R$ 626,00, 10/10/2026, `PRÓ-LABORE — MÁRCIO`, plano `29021`, centro `7295`, sem fornecedor.
+- Pré-checagem ERP e idempotência local: zero duplicatas.
+- Uma única tentativa de POST foi recusada pelo webPosto com HTTP 400: `29021 — PRO LABORE` é conta pai e o ERP exige conta filha.
+- Nenhum movimento foi criado; confirmação posterior retornou zero correspondências.
+- Sem retry. Token consumido. Liberação efêmera removida e allowlist restaurada para `{17837}`.
+- Catálogo local não contém plano filho comprovado; permanece bloqueado até consulta/indicação oficial.
+- Evidência: [ERP_WRITE_01_REJECTED_PARENT_PLAN.md](docs/checkpoints/ERP_WRITE_01_REJECTED_PARENT_PLAN.md).
+
 # ACCOUNTING-REVIEW-02 — Decisão do Proprietário sobre Pró-Labore — 23/10/2026
 
 - Proprietário determinou: lançar exclusivamente na `AP CASA CAIADA (5555)` como saída da conta `27173`, plano `29021 — PRO LABORE`, histórico `PRÓ-LABORE — MÁRCIO`.
