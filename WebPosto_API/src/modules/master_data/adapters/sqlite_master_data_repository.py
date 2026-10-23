@@ -29,6 +29,7 @@ from ..domain.models import (
     PapelEntidade,
     TipoContaFinanceira,
 )
+from .migrations.migration_001_planos_conta_hierarquia import migrar
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +65,10 @@ class SqliteMasterDataRepository:
             yield conexao
             conexao.execute("COMMIT;")
         except Exception:
-            conexao.execute("ROLLBACK;")
+            try:
+                conexao.execute("ROLLBACK;")
+            except Exception:
+                pass
             raise
         finally:
             conexao.close()
@@ -180,6 +184,7 @@ class SqliteMasterDataRepository:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_fornec_cnpj ON master_fornecedores(cnpj_cpf);")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_fornec_cod ON master_fornecedores(fornecedor_codigo);")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_ent ON master_data_audit_log(tipo_entidade, identificador);")
+            migrar(conn)
 
     # ==========================================
     # AUDITORIA
@@ -485,6 +490,34 @@ class SqliteMasterDataRepository:
     # PLANO DE CONTAS
     # ==========================================
 
+    def _row_para_plano(self, row: sqlite3.Row) -> MasterPlanoConta:
+        keys = row.keys()
+        sincronizado_em = (
+            datetime.fromisoformat(row["sincronizado_em"])
+            if "sincronizado_em" in keys and row["sincronizado_em"]
+            else None
+        )
+        return MasterPlanoConta(
+            plano_conta_codigo=row["plano_conta_codigo"],
+            descricao=row["descricao"],
+            hierarquia=row["hierarquia"] if "hierarquia" in keys else None,
+            pai_codigo=row["pai_codigo"] if "pai_codigo" in keys else None,
+            pai_hierarquia=row["pai_hierarquia"] if "pai_hierarquia" in keys else None,
+            nivel=row["nivel"] if "nivel" in keys and row["nivel"] is not None else 0,
+            natureza=row["natureza"],
+            grupo=row["grupo"],
+            ativo=bool(row["ativo"]),
+            permite_despesa=bool(row["permite_despesa"]),
+            eh_folha=bool(row["eh_folha"]) if "eh_folha" in keys and row["eh_folha"] is not None else True,
+            candidato_lancavel=bool(row["candidato_lancavel"]) if "candidato_lancavel" in keys and row["candidato_lancavel"] is not None else True,
+            observado_ultima_sincronizacao=bool(row["observado_ultima_sincronizacao"]) if "observado_ultima_sincronizacao" in keys and row["observado_ultima_sincronizacao"] is not None else True,
+            confiabilidade=ConfiabilidadeCadastro(row["confiabilidade"]),
+            origem_dado=row["origem_dado"],
+            hash_origem=row["hash_origem"] if "hash_origem" in keys else None,
+            sincronizado_em=sincronizado_em,
+            atualizado_em=datetime.fromisoformat(row["atualizado_em"]),
+        )
+
     def upsert_plano_conta(self, plano: MasterPlanoConta, *, origem_auditoria: str = "sync") -> None:
         with self._transacao() as conn:
             anterior_row = conn.execute(
@@ -493,98 +526,192 @@ class SqliteMasterDataRepository:
             anterior_json = json.dumps(dict(anterior_row)) if anterior_row else None
             acao = "ATUALIZACAO" if anterior_row else "INSERCAO"
 
+            mudou = True
+            if anterior_row:
+                ant_plano = self._row_para_plano(anterior_row)
+                if (
+                    ant_plano.descricao == plano.descricao
+                    and ant_plano.hierarquia == plano.hierarquia
+                    and ant_plano.pai_codigo == plano.pai_codigo
+                    and ant_plano.pai_hierarquia == plano.pai_hierarquia
+                    and ant_plano.nivel == plano.nivel
+                    and ant_plano.natureza == plano.natureza
+                    and ant_plano.grupo == plano.grupo
+                    and ant_plano.ativo == plano.ativo
+                    and ant_plano.permite_despesa == plano.permite_despesa
+                    and ant_plano.eh_folha == plano.eh_folha
+                    and ant_plano.candidato_lancavel == plano.candidato_lancavel
+                    and ant_plano.observado_ultima_sincronizacao == plano.observado_ultima_sincronizacao
+                ):
+                    mudou = False
+
             conn.execute(
                 """
                 INSERT INTO master_planos_conta (
-                    plano_conta_codigo, descricao, natureza, grupo,
-                    ativo, permite_despesa, confiabilidade, origem_dado, atualizado_em
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    plano_conta_codigo, descricao, hierarquia, pai_codigo, pai_hierarquia, nivel,
+                    natureza, grupo, ativo, permite_despesa, eh_folha, candidato_lancavel,
+                    observado_ultima_sincronizacao, confiabilidade, origem_dado, hash_origem,
+                    sincronizado_em, atualizado_em
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(plano_conta_codigo) DO UPDATE SET
                     descricao = excluded.descricao,
+                    hierarquia = excluded.hierarquia,
+                    pai_codigo = excluded.pai_codigo,
+                    pai_hierarquia = excluded.pai_hierarquia,
+                    nivel = excluded.nivel,
                     natureza = excluded.natureza,
                     grupo = excluded.grupo,
                     ativo = excluded.ativo,
                     permite_despesa = excluded.permite_despesa,
+                    eh_folha = excluded.eh_folha,
+                    candidato_lancavel = excluded.candidato_lancavel,
+                    observado_ultima_sincronizacao = excluded.observado_ultima_sincronizacao,
                     confiabilidade = excluded.confiabilidade,
                     origem_dado = excluded.origem_dado,
+                    hash_origem = excluded.hash_origem,
+                    sincronizado_em = excluded.sincronizado_em,
                     atualizado_em = excluded.atualizado_em;
                 """,
                 (
                     plano.plano_conta_codigo,
                     plano.descricao,
+                    plano.hierarquia,
+                    plano.pai_codigo,
+                    plano.pai_hierarquia,
+                    plano.nivel,
                     plano.natureza,
                     plano.grupo,
                     1 if plano.ativo else 0,
                     1 if plano.permite_despesa else 0,
+                    1 if plano.eh_folha else 0,
+                    1 if plano.candidato_lancavel else 0,
+                    1 if plano.observado_ultima_sincronizacao else 0,
                     plano.confiabilidade.value,
                     plano.origem_dado,
+                    plano.hash_origem,
+                    plano.sincronizado_em.isoformat() if plano.sincronizado_em else None,
                     plano.atualizado_em.isoformat(),
                 ),
             )
 
-            conn.execute(
-                """
-                INSERT INTO master_data_audit_log (
-                    tipo_entidade, identificador, empresa_codigo, acao,
-                    dados_anteriores_json, dados_novos_json, origem, timestamp
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
-                """,
-                (
-                    "PLANO_CONTA",
-                    str(plano.plano_conta_codigo),
-                    None,
-                    acao,
-                    anterior_json,
-                    plano.model_dump_json(),
-                    origem_auditoria,
-                    datetime.now(timezone.utc).isoformat(),
-                ),
-            )
+            if mudou:
+                conn.execute(
+                    """
+                    INSERT INTO master_data_audit_log (
+                        tipo_entidade, identificador, empresa_codigo, acao,
+                        dados_anteriores_json, dados_novos_json, origem, timestamp
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+                    """,
+                    (
+                        "PLANO_CONTA",
+                        str(plano.plano_conta_codigo),
+                        None,
+                        acao,
+                        anterior_json,
+                        plano.model_dump_json(),
+                        origem_auditoria,
+                        datetime.now(timezone.utc).isoformat(),
+                    ),
+                )
 
     def upsert_planos_conta_bulk(
-        self, planos: list[MasterPlanoConta], *, origem_auditoria: str = "sync_bulk"
+        self,
+        planos: list[MasterPlanoConta],
+        *,
+        origem_auditoria: str = "sync_bulk",
+        conn: Optional[sqlite3.Connection] = None,
     ) -> int:
         """Upsert em lote de múltiplos planos de conta em uma única transação atômica."""
         if not planos:
             return 0
+        if conn is not None:
+            return self._executar_upsert_planos_bulk(conn, planos, origem_auditoria)
+        with self._transacao() as c:
+            return self._executar_upsert_planos_bulk(c, planos, origem_auditoria)
+
+    def _executar_upsert_planos_bulk(
+        self,
+        conn: sqlite3.Connection,
+        planos: list[MasterPlanoConta],
+        origem_auditoria: str,
+    ) -> int:
         agora_iso = datetime.now(timezone.utc).isoformat()
-        with self._transacao() as conn:
-            for plano in planos:
-                anterior_row = conn.execute(
-                    "SELECT * FROM master_planos_conta WHERE plano_conta_codigo = ?", (plano.plano_conta_codigo,)
-                ).fetchone()
-                anterior_json = json.dumps(dict(anterior_row)) if anterior_row else None
-                acao = "ATUALIZACAO" if anterior_row else "INSERCAO"
+        for plano in planos:
+            anterior_row = conn.execute(
+                "SELECT * FROM master_planos_conta WHERE plano_conta_codigo = ?", (plano.plano_conta_codigo,)
+            ).fetchone()
+            anterior_json = json.dumps(dict(anterior_row)) if anterior_row else None
+            acao = "ATUALIZACAO" if anterior_row else "INSERCAO"
 
-                conn.execute(
-                    """
-                    INSERT INTO master_planos_conta (
-                        plano_conta_codigo, descricao, natureza, grupo,
-                        ativo, permite_despesa, confiabilidade, origem_dado, atualizado_em
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(plano_conta_codigo) DO UPDATE SET
-                        descricao = excluded.descricao,
-                        natureza = excluded.natureza,
-                        grupo = excluded.grupo,
-                        ativo = excluded.ativo,
-                        permite_despesa = excluded.permite_despesa,
-                        confiabilidade = excluded.confiabilidade,
-                        origem_dado = excluded.origem_dado,
-                        atualizado_em = excluded.atualizado_em;
-                    """,
-                    (
-                        plano.plano_conta_codigo,
-                        plano.descricao,
-                        plano.natureza,
-                        plano.grupo,
-                        1 if plano.ativo else 0,
-                        1 if plano.permite_despesa else 0,
-                        plano.confiabilidade.value,
-                        plano.origem_dado,
-                        plano.atualizado_em.isoformat(),
-                    ),
-                )
+            mudou = True
+            if anterior_row:
+                ant_plano = self._row_para_plano(anterior_row)
+                if (
+                    ant_plano.descricao == plano.descricao
+                    and ant_plano.hierarquia == plano.hierarquia
+                    and ant_plano.pai_codigo == plano.pai_codigo
+                    and ant_plano.pai_hierarquia == plano.pai_hierarquia
+                    and ant_plano.nivel == plano.nivel
+                    and ant_plano.natureza == plano.natureza
+                    and ant_plano.grupo == plano.grupo
+                    and ant_plano.ativo == plano.ativo
+                    and ant_plano.permite_despesa == plano.permite_despesa
+                    and ant_plano.eh_folha == plano.eh_folha
+                    and ant_plano.candidato_lancavel == plano.candidato_lancavel
+                    and ant_plano.observado_ultima_sincronizacao == plano.observado_ultima_sincronizacao
+                ):
+                    mudou = False
 
+            conn.execute(
+                """
+                INSERT INTO master_planos_conta (
+                    plano_conta_codigo, descricao, hierarquia, pai_codigo, pai_hierarquia, nivel,
+                    natureza, grupo, ativo, permite_despesa, eh_folha, candidato_lancavel,
+                    observado_ultima_sincronizacao, confiabilidade, origem_dado, hash_origem,
+                    sincronizado_em, atualizado_em
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(plano_conta_codigo) DO UPDATE SET
+                    descricao = excluded.descricao,
+                    hierarquia = excluded.hierarquia,
+                    pai_codigo = excluded.pai_codigo,
+                    pai_hierarquia = excluded.pai_hierarquia,
+                    nivel = excluded.nivel,
+                    natureza = excluded.natureza,
+                    grupo = excluded.grupo,
+                    ativo = excluded.ativo,
+                    permite_despesa = excluded.permite_despesa,
+                    eh_folha = excluded.eh_folha,
+                    candidato_lancavel = excluded.candidato_lancavel,
+                    observado_ultima_sincronizacao = excluded.observado_ultima_sincronizacao,
+                    confiabilidade = excluded.confiabilidade,
+                    origem_dado = excluded.origem_dado,
+                    hash_origem = excluded.hash_origem,
+                    sincronizado_em = excluded.sincronizado_em,
+                    atualizado_em = excluded.atualizado_em;
+                """,
+                (
+                    plano.plano_conta_codigo,
+                    plano.descricao,
+                    plano.hierarquia,
+                    plano.pai_codigo,
+                    plano.pai_hierarquia,
+                    plano.nivel,
+                    plano.natureza,
+                    plano.grupo,
+                    1 if plano.ativo else 0,
+                    1 if plano.permite_despesa else 0,
+                    1 if plano.eh_folha else 0,
+                    1 if plano.candidato_lancavel else 0,
+                    1 if plano.observado_ultima_sincronizacao else 0,
+                    plano.confiabilidade.value,
+                    plano.origem_dado,
+                    plano.hash_origem,
+                    plano.sincronizado_em.isoformat() if plano.sincronizado_em else None,
+                    plano.atualizado_em.isoformat(),
+                ),
+            )
+
+            if mudou:
                 conn.execute(
                     """
                     INSERT INTO master_data_audit_log (
@@ -605,6 +732,152 @@ class SqliteMasterDataRepository:
                 )
         return len(planos)
 
+    def marcar_planos_nao_observados(
+        self,
+        codigos_observados: set[int],
+        timestamp_iso: str,
+        hash_origem: Optional[str] = None,
+        *,
+        origem_auditoria: str = "sincronizacao_webposto_v1",
+        conn: Optional[sqlite3.Connection] = None,
+    ) -> int:
+        """Marca planos locais ausentes no retorno oficial como não observados e não lançáveis.
+
+        NUNCA exclui registros locais. Preserva integridade e trilha de auditoria.
+        """
+        if not codigos_observados:
+            return 0
+        if conn is not None:
+            return self._executar_marcar_planos_nao_observados(
+                conn, codigos_observados, timestamp_iso, hash_origem, origem_auditoria
+            )
+        with self._transacao() as c:
+            return self._executar_marcar_planos_nao_observados(
+                c, codigos_observados, timestamp_iso, hash_origem, origem_auditoria
+            )
+
+    def _executar_marcar_planos_nao_observados(
+        self,
+        conn: sqlite3.Connection,
+        codigos_observados: set[int],
+        timestamp_iso: str,
+        hash_origem: Optional[str],
+        origem_auditoria: str,
+    ) -> int:
+        todos = conn.execute("SELECT * FROM master_planos_conta").fetchall()
+        afetados = 0
+        for row in todos:
+            cod = int(row["plano_conta_codigo"])
+            if cod not in codigos_observados:
+                ja_nao_observado = (
+                    "observado_ultima_sincronizacao" in row.keys()
+                    and row["observado_ultima_sincronizacao"] == 0
+                    and row["candidato_lancavel"] == 0
+                )
+                if ja_nao_observado:
+                    continue
+                anterior_json = json.dumps(dict(row))
+                conn.execute(
+                    """
+                    UPDATE master_planos_conta
+                    SET observado_ultima_sincronizacao = 0,
+                        candidato_lancavel = 0,
+                        hash_origem = COALESCE(?, hash_origem),
+                        atualizado_em = ?
+                    WHERE plano_conta_codigo = ?;
+                    """,
+                    (hash_origem, timestamp_iso, cod),
+                )
+                novo_row = conn.execute(
+                    "SELECT * FROM master_planos_conta WHERE plano_conta_codigo = ?", (cod,)
+                ).fetchone()
+                conn.execute(
+                    """
+                    INSERT INTO master_data_audit_log (
+                        tipo_entidade, identificador, empresa_codigo, acao,
+                        dados_anteriores_json, dados_novos_json, origem, timestamp
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+                    """,
+                    (
+                        "PLANO_CONTA",
+                        str(cod),
+                        None,
+                        "ATUALIZACAO",
+                        anterior_json,
+                        json.dumps(dict(novo_row)) if novo_row else None,
+                        origem_auditoria,
+                        timestamp_iso,
+                    ),
+                )
+                afetados += 1
+        return afetados
+
+    def registrar_sincronizacao_log(
+        self,
+        log_entry: dict[str, Any],
+        conn: Optional[sqlite3.Connection] = None,
+    ) -> int:
+        if conn is not None:
+            return self._executar_registrar_sincronizacao_log(conn, log_entry)
+        with self._transacao() as c:
+            return self._executar_registrar_sincronizacao_log(c, log_entry)
+
+    def _executar_registrar_sincronizacao_log(
+        self,
+        conn: sqlite3.Connection,
+        log_entry: dict[str, Any],
+    ) -> int:
+        cur = conn.execute(
+            """
+            INSERT INTO master_sincronizacao_log (
+                tipo_entidade, iniciado_em, finalizado_em, sucesso, modo, origem,
+                total_oficial, total_anterior, total_inseridos, total_atualizados,
+                total_inalterados, total_nao_observados, hash_catalogo, detalhes_json, erro
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            """,
+            (
+                log_entry.get("tipo_entidade", "PLANOS_CONTA"),
+                log_entry["iniciado_em"],
+                log_entry.get("finalizado_em"),
+                1 if log_entry.get("sucesso") else 0,
+                log_entry["modo"],
+                log_entry["origem"],
+                log_entry.get("total_oficial", 0),
+                log_entry.get("total_anterior", 0),
+                log_entry.get("total_inseridos", 0),
+                log_entry.get("total_atualizados", 0),
+                log_entry.get("total_inalterados", 0),
+                log_entry.get("total_nao_observados", 0),
+                log_entry.get("hash_catalogo"),
+                json.dumps(log_entry.get("detalhes_json", {})),
+                log_entry.get("erro"),
+            ),
+        )
+        return cur.lastrowid
+
+    def obter_ultima_sincronizacao(self, tipo_entidade: str = "PLANOS_CONTA") -> Optional[dict[str, Any]]:
+        conexao = self._conectar()
+        try:
+            row = conexao.execute(
+                """
+                SELECT * FROM master_sincronizacao_log
+                WHERE tipo_entidade = ? AND sucesso = 1
+                ORDER BY id DESC LIMIT 1;
+                """,
+                (tipo_entidade,),
+            ).fetchone()
+            if not row:
+                return None
+            res = dict(row)
+            if res.get("detalhes_json"):
+                try:
+                    res["detalhes_json"] = json.loads(res["detalhes_json"])
+                except Exception:
+                    pass
+            return res
+        finally:
+            conexao.close()
+
     def obter_plano_conta(self, plano_codigo: int) -> Optional[MasterPlanoConta]:
         conexao = self._conectar()
         try:
@@ -613,17 +886,7 @@ class SqliteMasterDataRepository:
             ).fetchone()
             if not row:
                 return None
-            return MasterPlanoConta(
-                plano_conta_codigo=row["plano_conta_codigo"],
-                descricao=row["descricao"],
-                natureza=row["natureza"],
-                grupo=row["grupo"],
-                ativo=bool(row["ativo"]),
-                permite_despesa=bool(row["permite_despesa"]),
-                confiabilidade=ConfiabilidadeCadastro(row["confiabilidade"]),
-                origem_dado=row["origem_dado"],
-                atualizado_em=datetime.fromisoformat(row["atualizado_em"]),
-            )
+            return self._row_para_plano(row)
         finally:
             conexao.close()
 
@@ -631,20 +894,7 @@ class SqliteMasterDataRepository:
         conexao = self._conectar()
         try:
             rows = conexao.execute("SELECT * FROM master_planos_conta ORDER BY plano_conta_codigo").fetchall()
-            return [
-                MasterPlanoConta(
-                    plano_conta_codigo=row["plano_conta_codigo"],
-                    descricao=row["descricao"],
-                    natureza=row["natureza"],
-                    grupo=row["grupo"],
-                    ativo=bool(row["ativo"]),
-                    permite_despesa=bool(row["permite_despesa"]),
-                    confiabilidade=ConfiabilidadeCadastro(row["confiabilidade"]),
-                    origem_dado=row["origem_dado"],
-                    atualizado_em=datetime.fromisoformat(row["atualizado_em"]),
-                )
-                for row in rows
-            ]
+            return [self._row_para_plano(row) for row in rows]
         finally:
             conexao.close()
 

@@ -442,15 +442,8 @@ def validar_aprovacao_para_escrita(
                         f"Vínculo bancário não comprovado para a conta {item.conta_financeira_codigo} no Master Data."
                     )
 
-        if item.sugestao_plano_codigo:
-            res_plano = master_data_service.resolver_plano_contas(item.sugestao_plano_codigo)
-            if not res_plano.sucesso:
-                raise BarreiraDespesaErro(
-                    f"Plano de contas inválido no Master Data: {res_plano.mensagem}"
-                )
-
         if item.sugestao_centro_codigo:
-            tipo_desp = "PRO_LABORE" if item.sugestao_plano_codigo == 29021 else "OPERACIONAL"
+            tipo_desp = "PRO_LABORE" if item.sugestao_plano_codigo in (29021, 158764) else "OPERACIONAL"
             res_cc = master_data_service.resolver_centro_custo(
                 item.sugestao_centro_codigo,
                 empresa_codigo=cod_empresa,
@@ -459,6 +452,17 @@ def validar_aprovacao_para_escrita(
             if not res_cc.sucesso:
                 raise BarreiraDespesaErro(
                     f"Centro de custo incompatível no Master Data: {res_cc.mensagem}"
+                )
+
+        if item.sugestao_plano_codigo:
+            res_plano = (
+                master_data_service.validar_plano_para_despesa(item.sugestao_plano_codigo)
+                if hasattr(master_data_service, "validar_plano_para_despesa")
+                else master_data_service.resolver_plano_contas(item.sugestao_plano_codigo, exige_folha=True)
+            )
+            if not res_plano.sucesso:
+                raise BarreiraDespesaErro(
+                    f"Plano de contas inválido no Master Data: {res_plano.mensagem}"
                 )
 
 

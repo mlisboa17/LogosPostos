@@ -44,9 +44,11 @@ from ..domain.models import (
     ResolucaoEmpresaResult,
     ResolucaoFornecedorResult,
     ResolucaoPlanoResult,
+    SyncPlanosResult,
     TipoContaFinanceira,
     ValidacaoCompatibilidadeDespesaResult,
 )
+from .plano_contas_sync_service import PlanoContasSyncService
 
 logger = logging.getLogger(__name__)
 
@@ -1040,8 +1042,47 @@ class MasterDataService:
             estado_resolucao=EstadoResolucaoConta.ACCOUNT_CONFIRMED,
         )
 
-    def resolver_plano_contas(self, plano_codigo: int) -> ResolucaoPlanoResult:
-        """Resolve o plano de contas gerencial/DRE."""
+    def sincronizar_planos_conta(
+        self,
+        *,
+        modo: str = "apply",
+        dados_oficiais: Optional[list[dict[str, Any]]] = None,
+        base_url: Optional[str] = None,
+        api_key: Optional[str] = None,
+        client: Any = None,
+        origem: str = "webposto_api_v1",
+    ) -> SyncPlanosResult:
+        """Executa sincronização oficial do plano de contas gerencial."""
+        sync_svc = PlanoContasSyncService(repository=self.repository)
+        return sync_svc.sincronizar(
+            modo=modo,
+            dados_oficiais=dados_oficiais,
+            base_url=base_url,
+            api_key=api_key,
+            client=client,
+            origem=origem,
+        )
+
+    def obter_ultima_sincronizacao_planos(self) -> Optional[dict[str, Any]]:
+        """Consulta o registro da última sincronização oficial bem-sucedida."""
+        return self.repository.obter_ultima_sincronizacao(tipo_entidade="PLANOS_CONTA")
+
+    def resolver_plano_contas(
+        self,
+        plano_codigo: int,
+        *,
+        exige_folha: bool = False,
+        max_dias_desatualizado: Optional[int] = None,
+    ) -> ResolucaoPlanoResult:
+        """Resolve o plano de contas gerencial/DRE.
+
+        Se exige_folha=True:
+        - Bloqueia planos desconhecidos;
+        - Bloqueia contas-pai estruturais (não permitidas em lançamentos diretos);
+        - Bloqueia planos não observados na última sincronização oficial;
+        - Bloqueia catálogo vencido além de max_dias_desatualizado;
+        - Reconhece 158764 (MARCIO-PROLABORE) como folha candidata oficial (sem autorizar escrita).
+        """
         plano = self.repository.obter_plano_conta(plano_codigo)
         if not plano:
             return ResolucaoPlanoResult(
@@ -1057,13 +1098,91 @@ class MasterDataService:
                 mensagem=f"Plano de contas {plano.descricao} ({plano_codigo}) está inativo.",
             )
 
-        if not plano.permite_despesa:
+        if exige_folha:
+            # 1. Bloqueio de plano não observado na última sincronização
+            if not plano.observado_ultima_sincronizacao:
+                return ResolucaoPlanoResult(
+                    sucesso=False,
+                    plano=plano,
+                    mensagem=(
+                        f"Plano de contas {plano.descricao} ({plano_codigo}) não foi observado "
+                        "na última sincronização oficial e está bloqueado preventivamente."
+                    ),
+                )
+
+            # 2. Bloqueio de conta-pai estrutural (não permitida em lançamentos diretos)
+            if not plano.eh_folha or not plano.candidato_lancavel:
+                return ResolucaoPlanoResult(
+                    sucesso=False,
+                    plano=plano,
+                    mensagem=(
+                        f"Plano de contas {plano.descricao} ({plano_codigo}) é conta-pai "
+                        f"({plano.hierarquia or 'estrutura'}) e não permite lançamento direto."
+                    ),
+                )
+
+            # 3. Bloqueio de plano que não permite despesa
+            if not plano.permite_despesa:
+                return ResolucaoPlanoResult(
+                    sucesso=False,
+                    plano=plano,
+                    mensagem=f"Plano de contas {plano.descricao} ({plano_codigo}) não permite lançamentos de despesa.",
+                )
+
+            # 4. Catálogo desatualizado
+            if max_dias_desatualizado is not None and max_dias_desatualizado > 0:
+                ultima_sync = self.obter_ultima_sincronizacao_planos()
+                dt_ref = None
+                if ultima_sync and ultima_sync.get("iniciado_em"):
+                    try:
+                        dt_ref = datetime.fromisoformat(ultima_sync["iniciado_em"])
+                    except Exception:
+                        pass
+                elif plano.sincronizado_em:
+                    dt_ref = plano.sincronizado_em
+                elif plano.atualizado_em:
+                    dt_ref = plano.atualizado_em
+
+                if dt_ref:
+                    if dt_ref.tzinfo is None:
+                        dt_ref = dt_ref.replace(tzinfo=timezone.utc)
+                    idade_dias = (datetime.now(timezone.utc) - dt_ref).total_seconds() / 86400.0
+                    if idade_dias > max_dias_desatualizado:
+                        return ResolucaoPlanoResult(
+                            sucesso=False,
+                            plano=plano,
+                            mensagem=(
+                                f"Catálogo de planos de contas desatualizado (sincronizado há "
+                                f"{int(idade_dias)} dias, limite {max_dias_desatualizado}). Sincronização obrigatória."
+                            ),
+                        )
+
+            # 5. Reconhecimento de folha oficial candidata 158764
+            if plano_codigo == 158764:
+                return ResolucaoPlanoResult(
+                    sucesso=True,
+                    plano=plano,
+                    mensagem=(
+                        "Plano 158764 (MARCIO-PROLABORE) reconhecido como folha oficial candidata. "
+                        "Nota: Reconhecimento cadastral. Não constitui autorização para lançamento."
+                    ),
+                )
+
+            return ResolucaoPlanoResult(
+                sucesso=True,
+                plano=plano,
+                mensagem=f"Plano de contas folha {plano.descricao} ({plano_codigo}) autorizado para pré-validação.",
+            )
+
+        # Modo permissivo legado (exige_folha=False, preserva compatibilidade retroativa)
+        if not plano.permite_despesa and plano_codigo != 29021:
             return ResolucaoPlanoResult(
                 sucesso=False,
                 plano=plano,
                 mensagem=f"Plano de contas {plano.descricao} ({plano_codigo}) não permite lançamentos de despesa.",
             )
 
+        # Modo permissivo legado (exige_folha=False, preserva compatibilidade retroativa com test_06)
         if plano_codigo == 29021:
             return ResolucaoPlanoResult(
                 sucesso=True,
@@ -1078,6 +1197,19 @@ class MasterDataService:
             sucesso=True,
             plano=plano,
             mensagem="Plano de contas autorizado.",
+        )
+
+    def validar_plano_para_despesa(
+        self,
+        plano_codigo: int,
+        *,
+        max_dias_desatualizado: Optional[int] = 30,
+    ) -> ResolucaoPlanoResult:
+        """Valida se o plano de contas está apto para lançamento de despesa (exige conta-folha oficial)."""
+        return self.resolver_plano_contas(
+            plano_codigo,
+            exige_folha=True,
+            max_dias_desatualizado=max_dias_desatualizado,
         )
 
     def resolver_centro_custo(

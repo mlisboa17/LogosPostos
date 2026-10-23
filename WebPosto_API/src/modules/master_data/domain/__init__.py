@@ -15,6 +15,7 @@ from .models import (
     ResolucaoCentroCustoResult,
     ResolucaoFornecedorResult,
     ValidacaoCompatibilidadeDespesaResult,
+    SyncPlanosResult,
 )
 
 __all__ = [
@@ -33,4 +34,5 @@ __all__ = [
     "ResolucaoCentroCustoResult",
     "ResolucaoFornecedorResult",
     "ValidacaoCompatibilidadeDespesaResult",
+    "SyncPlanosResult",
 ]

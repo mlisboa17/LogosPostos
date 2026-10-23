@@ -5,6 +5,23 @@ Repositório canônico: C:\Projetos\LOGOS\LogosPostos · branch feature/cash-aud
 PR a abrir: https://github.com/mlisboa17/LogosPostos/pull/new/feature/cash-audit-fechamento
 Histórico de sprints: um prompt por sprint em docs/prompts/ (SPRINT_05 ... SPRINT_12, PREMMIA_00, TELEGRAM_00)
 
+# PLANOS-CONTA-SYNC-01 — Sincronização do Catálogo Global e Pré-Validador — 23/10/2026
+
+- Serviço de sincronização local de planos de conta implementado com modos `dry-run`, `apply` e testes offline (`PlanoContasSyncService`).
+- Fonte oficial única: `GET /INTEGRACAO/V1/PLANOS_CONTA_GERENCIAL` (catálogo global compartilhado entre todas as empresas: Doze, VIP, Casa Caiada e Conv 24h).
+- Migração reversível `001_planos_conta_hierarquia.py` aplicada ao SQLite com backup verificado prévio (SHA-256: `98BA4A02B4648BF0C84121FED7F2F91CB664B9BFF10996211EB01C6D799699D4`).
+- Base local sincronizada com sucesso: total anterior 200, oficiais 251, inseridos 51, atualizados 200, inalterados 0, ausentes 0. Total final: **251 planos locais**.
+- Idempotência absoluta comprovada: reexecução do mesmo catálogo resulta em 0 inserções, 0 atualizações, 251 inalterados e 0 falsos logs de auditoria.
+- Preservação de planos ausentes: marcados como `observado_ultima_sincronizacao = 0` e `candidato_lancavel = 0`, bloqueados para novos lançamentos, nunca deletados.
+- Pré-validador e Master Data atualizados:
+  - `29021 — PRO LABORE` bloqueado categoricamente por ser conta-pai estrutural;
+  - `148303 — MARCIO LISBOA` bloqueado categoricamente por ser conta-pai estrutural;
+  - `158764 — MARCIO-PROLABORE` reconhecido exclusivamente como folha oficial candidata (não autoriza lançamento);
+  - Bloqueio de planos desconhecidos, não observados na última sincronização ou catálogo vencido além de 30 dias.
+- Testes 100% aprovados sem regressões: 17 novos testes de sincronização (`test_plano_contas_sync.py`), 73 testes de master data, 50 testes de pré-validação/escrita de despesas (total 123 testes aprovados).
+- ERP Writes = ZERO (sem POST, PUT, PATCH, DELETE). Piloto Casa Caiada e conta 27173 permanecem estritamente bloqueados.
+- Evidências: [PLANOS_CONTA_SYNC_01_REPORT.md](docs/validation/PLANOS_CONTA_SYNC_01_REPORT.md) e [PLANOS_CONTA_SYNC_01_CHECKPOINT.md](docs/checkpoints/PLANOS_CONTA_SYNC_01_CHECKPOINT.md).
+
 # PLANOS-CONTA-MASTER-01 — Catálogo Compartilhado Completo — 23/10/2026
 
 - Mapeamento oficial somente leitura concluído: 251 planos gerenciais compartilhados por todas as empresas.

@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Optional
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class ConfiabilidadeCadastro(str, Enum):
@@ -94,13 +94,32 @@ class MasterPlanoConta(BaseModel):
 
     plano_conta_codigo: int
     descricao: str
+    hierarquia: Optional[str] = None
+    pai_codigo: Optional[int] = None
+    pai_hierarquia: Optional[str] = None
+    nivel: int = 0
     natureza: str = "DESPESA"  # DESPESA, CUSTO, RECEITA, etc.
     grupo: Optional[str] = None
     ativo: bool = True
     permite_despesa: bool = True
+    eh_folha: bool = True
+    candidato_lancavel: bool = True
+    observado_ultima_sincronizacao: bool = True
     confiabilidade: ConfiabilidadeCadastro = ConfiabilidadeCadastro.CONFIRMADO
     origem_dado: str = "account_category_mapping.json"
+    hash_origem: Optional[str] = None
+    sincronizado_em: Optional[datetime] = None
     atualizado_em: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    @model_validator(mode="after")
+    def _validar_invariantes_hierarquia(self) -> MasterPlanoConta:
+        # Se for conta-pai, candidato_lancavel DEVE ser terminantemente False
+        if not self.eh_folha and self.candidato_lancavel:
+            object.__setattr__(self, "candidato_lancavel", False)
+        # Se não foi observado na última sincronização, bloqueia para lançamento
+        if not self.observado_ultima_sincronizacao and self.candidato_lancavel:
+            object.__setattr__(self, "candidato_lancavel", False)
+        return self
 
 
 class MasterCentroCusto(BaseModel):
@@ -212,3 +231,24 @@ class ValidacaoCompatibilidadeDespesaResult(BaseModel):
     valido: bool
     motivos_bloqueio: list[str] = Field(default_factory=list)
     detalhes: dict[str, Any] = Field(default_factory=dict)
+
+
+class SyncPlanosResult(BaseModel):
+    """Resultado da execução de sincronização do plano de contas gerencial."""
+    model_config = ConfigDict(frozen=True)
+
+    sucesso: bool
+    modo: str  # "DRY_RUN" ou "APPLY"
+    origem: str
+    iniciado_em: str
+    finalizado_em: str
+    total_oficial: int = 0
+    total_anterior: int = 0
+    total_inseridos: int = 0
+    total_atualizados: int = 0
+    total_inalterados: int = 0
+    total_nao_observados: int = 0
+    hash_catalogo: Optional[str] = None
+    mensagem: str = ""
+    detalhes: dict[str, Any] = Field(default_factory=dict)
+    erro: Optional[str] = None
