@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<nfeProc xmlns="http://www.portalfiscal.inf.br/nfe" versao="4.00">
+<NFe><infNFe Id="NFe26261033333333000191550020000000771000000771" versao="4.00">
+<ide><mod>55</mod><serie>2</serie><nNF>77</nNF><dhEmi>2026-10-10T10:00:00-03:00</dhEmi></ide>
+<emit><CNPJ>33333333000191</CNPJ><xNome>FORNECEDOR PRODUTOS LTDA</xNome></emit>
+<dest><CNPJ>52308604000284</CNPJ></dest>
+<det nItem="1"><prod><cProd>A1</cProd><xProd>AGUA MINERAL 500ML</xProd><NCM>22011000</NCM><CFOP>5405</CFOP>
+<uCom>UN</uCom><qCom>48</qCom><vUnCom>1.50</vUnCom><vProd>72.00</vProd></prod>
+<imposto><ICMS><ICMS60><orig>0</orig><CST>60</CST></ICMS60></ICMS></imposto></det>
+<total><ICMSTot><vICMS>0.00</vICMS><vST>5.10</vST><vFrete>0.00</vFrete><vIPI>1.20</vIPI><vNF>78.30</vNF></ICMSTot></total>
+<transp><modFrete>9</modFrete></transp>
+</infNFe></NFe>
+<protNFe versao="4.00"><infProt><cStat>100</cStat></infProt></protNFe>
+</nfeProc>

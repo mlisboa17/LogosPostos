@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<nfeProc xmlns="http://www.portalfiscal.inf.br/nfe" versao="4.00">
+<NFe><infNFe Id="NFe26261011111111000191550010000123451000012345" versao="4.00">
+<ide><cUF>26</cUF><natOp>VENDA</natOp><mod>55</mod><serie>1</serie><nNF>12345</nNF>
+<dhEmi>2026-10-31T23:30:00-03:00</dhEmi><dhSaiEnt>2026-11-01T06:00:00-03:00</dhSaiEnt><tpNF>1</tpNF></ide>
+<emit><CNPJ>11111111000191</CNPJ><xNome>DISTRIBUIDORA TESTE LTDA</xNome></emit>
+<dest><CNPJ>52308604000284</CNPJ><xNome>POSTO TESTE</xNome></dest>
+<det nItem="1"><prod><cProd>GC</cProd><xProd>GASOLINA C COMUM</xProd><NCM>27101259</NCM><CFOP>5656</CFOP>
+<uCom>L</uCom><qCom>5000.0000</qCom><vUnCom>5.1234567890</vUnCom><vProd>25617.28</vProd>
+<comb><cProdANP>320102001</cProdANP><descANP>GASOLINA C COMUM</descANP><UFCons>PE</UFCons></comb></prod>
+<imposto><ICMS><ICMS61><orig>0</orig><CST>61</CST><qBCMonoRet>5000.0000</qBCMonoRet><adRemICMSRet>1.4700</adRemICMSRet><vICMSMonoRet>7350.00</vICMSMonoRet></ICMS61></ICMS></imposto></det>
+<det nItem="2"><prod><cProd>S10</cProd><xProd>OLEO DIESEL B S10</xProd><NCM>27101921</NCM><CFOP>5656</CFOP>
+<uCom>L</uCom><qCom>3000.0000</qCom><vUnCom>6.0000000000</vUnCom><vProd>18000.00</vProd>
+<comb><cProdANP>820101034</cProdANP><descANP>OLEO DIESEL B S10</descANP><UFCons>PE</UFCons></comb></prod>
+<imposto><ICMS><ICMS02><orig>0</orig><CST>02</CST><qBCMono>3000.0000</qBCMono><adRemICMS>1.1200</adRemICMS><vICMSMono>3360.00</vICMSMono></ICMS02></ICMS></imposto></det>
+<total><ICMSTot><vBC>0.00</vBC><vICMS>0.00</vICMS><vST>0.00</vST><vProd>43617.28</vProd><vFrete>0.00</vFrete><vIPI>0.00</vIPI><vNF>43617.28</vNF></ICMSTot></total>
+<transp><modFrete>1</modFrete><transporta><CNPJ>22222222000191</CNPJ><xNome>TRANSPORTES TESTE LTDA</xNome><UF>PE</UF></transporta>
+<veicTransp><placa>ABC1D23</placa><UF>PE</UF></veicTransp><vol><qVol>2</qVol><pesoB>6200.000</pesoB></vol></transp>
+</infNFe></NFe>
+<protNFe versao="4.00"><infProt><chNFe>26261011111111000191550010000123451000012345</chNFe><cStat>100</cStat><xMotivo>Autorizado o uso da NF-e</xMotivo></infProt></protNFe>
+</nfeProc>
