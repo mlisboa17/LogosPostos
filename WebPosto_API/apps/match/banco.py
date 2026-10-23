@@ -99,7 +99,71 @@ _SCHEMA_V4 = """
 ALTER TABLE instalacao ADD COLUMN pasta_rede TEXT;
 """
 
-_MIGRACOES = [(1, _SCHEMA_V1), (2, _SCHEMA_V2), (3, _SCHEMA_V3), (4, _SCHEMA_V4)]
+# v5: módulo Notas Fiscais + perfil contabilidade. O CHECK de usuario.perfil só muda recriando a
+# tabela; FKs desligadas durante a troca (executescript roda fora de transação).
+_SCHEMA_V5 = """
+PRAGMA foreign_keys=OFF;
+CREATE TABLE usuario_novo (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT NOT NULL, login TEXT NOT NULL UNIQUE,
+    senha_hash TEXT NOT NULL,
+    perfil TEXT NOT NULL CHECK (perfil IN ('administrador','gerente','conferente','contabilidade')),
+    ativo INTEGER NOT NULL DEFAULT 1, criado_em TEXT NOT NULL, ultimo_acesso_em TEXT,
+    tentativas_falhas INTEGER NOT NULL DEFAULT 0, bloqueado_ate TEXT);
+INSERT INTO usuario_novo SELECT id, nome, login, senha_hash, perfil, ativo, criado_em,
+    ultimo_acesso_em, tentativas_falhas, bloqueado_ate FROM usuario;
+DROP TABLE usuario;
+ALTER TABLE usuario_novo RENAME TO usuario;
+PRAGMA foreign_keys=ON;
+CREATE TABLE empresa (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, cnpj TEXT NOT NULL UNIQUE, razao_social TEXT NOT NULL,
+    apelido TEXT, municipio TEXT, uf TEXT, posto_id INTEGER REFERENCES posto(id),
+    ativo INTEGER NOT NULL DEFAULT 1, criado_em TEXT NOT NULL);
+CREATE TABLE escritorio (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT NOT NULL, emails_json TEXT NOT NULL DEFAULT '[]',
+    dia_envio INTEGER NOT NULL DEFAULT 5 CHECK (dia_envio BETWEEN 1 AND 28),
+    modo TEXT NOT NULL DEFAULT 'enviar' CHECK (modo IN ('enviar','so_gerar')),
+    pdf TEXT NOT NULL DEFAULT 'ambos' CHECK (pdf IN ('separados','unificado','ambos')),
+    ativo INTEGER NOT NULL DEFAULT 1);
+CREATE TABLE escritorio_empresa (
+    escritorio_id INTEGER NOT NULL REFERENCES escritorio(id),
+    empresa_id INTEGER NOT NULL REFERENCES empresa(id),
+    PRIMARY KEY (escritorio_id, empresa_id));
+CREATE TABLE documento (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, empresa_id INTEGER NOT NULL REFERENCES empresa(id),
+    tipo TEXT NOT NULL CHECK (tipo IN ('nfe','nfse','cte')), chave TEXT NOT NULL UNIQUE,
+    numero TEXT, serie TEXT, emissao_em TEXT NOT NULL, competencia TEXT NOT NULL,
+    emitente_cnpj TEXT, emitente_nome TEXT, destinatario_cnpj TEXT, valor_total TEXT NOT NULL,
+    impostos_json TEXT NOT NULL DEFAULT '{}',
+    situacao TEXT NOT NULL CHECK (situacao IN ('autorizada','cancelada','so_resumo')),
+    origem TEXT NOT NULL CHECK (origem IN ('webposto','sefaz','adn','importado')),
+    combustivel INTEGER NOT NULL DEFAULT 0, descricao_servico TEXT,
+    xml_path TEXT, xml_hash TEXT, capturado_em TEXT NOT NULL, cte_numero TEXT, frete_json TEXT);
+CREATE INDEX documento_empresa_comp ON documento(empresa_id, competencia);
+CREATE TABLE documento_item (
+    documento_id INTEGER NOT NULL REFERENCES documento(id), n_item INTEGER NOT NULL,
+    codigo TEXT, descricao TEXT, ncm TEXT, cfop TEXT, cprod_anp TEXT, quantidade TEXT, unidade TEXT,
+    valor_unitario TEXT, valor_total TEXT, icms_mono TEXT,
+    PRIMARY KEY (documento_id, n_item));
+CREATE TABLE documento_transporte (
+    documento_id INTEGER PRIMARY KEY REFERENCES documento(id), mod_frete TEXT, mod_frete_texto TEXT,
+    transportadora_cnpj TEXT, transportadora_nome TEXT, placa TEXT, uf_placa TEXT,
+    volumes TEXT, peso_bruto TEXT);
+CREATE TABLE captura (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, empresa_id INTEGER NOT NULL REFERENCES empresa(id),
+    fonte TEXT NOT NULL, iniciada_em TEXT NOT NULL, terminada_em TEXT,
+    situacao TEXT NOT NULL CHECK (situacao IN ('ok','erro','sem_chave')),
+    qtd_novas INTEGER NOT NULL DEFAULT 0, qtd_pendentes INTEGER NOT NULL DEFAULT 0, erro_texto TEXT);
+CREATE TABLE leitura_webposto (
+    empresa_id INTEGER PRIMARY KEY REFERENCES empresa(id), ultima_data_lida TEXT);
+CREATE TABLE pacote (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, empresa_id INTEGER NOT NULL REFERENCES empresa(id),
+    competencia TEXT NOT NULL, complementar INTEGER NOT NULL DEFAULT 0, gerado_em TEXT NOT NULL,
+    arquivos_json TEXT NOT NULL DEFAULT '[]',
+    situacao TEXT NOT NULL CHECK (situacao IN ('gerado','retido','aprovado','enviado','erro')),
+    motivo_retencao TEXT, enviado_em TEXT, aprovado_por INTEGER REFERENCES usuario(id));
+"""
+
+_MIGRACOES = [(1, _SCHEMA_V1), (2, _SCHEMA_V2), (3, _SCHEMA_V3), (4, _SCHEMA_V4), (5, _SCHEMA_V5)]
 
 
 def _agora() -> str:

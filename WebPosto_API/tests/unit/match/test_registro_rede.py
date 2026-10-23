@@ -126,7 +126,7 @@ def test_migracao_4(con, tmp_path):
     assert banco.pasta_rede(con) == Path(tmp_path / "rede")
     banco.salvar_pasta_rede(con, None)
     assert banco.pasta_rede(con) is None
-    assert con.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 4
+    assert con.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 5
 
 
 @pytest.mark.parametrize("chave", ["", "..", "74014/../x", "7401a", "-1", "74014.json"])

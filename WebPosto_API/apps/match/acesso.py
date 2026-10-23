@@ -30,6 +30,7 @@ class Perfil(str, Enum):
     ADMINISTRADOR = "administrador"
     GERENTE = "gerente"
     CONFERENTE = "conferente"
+    CONTABILIDADE = "contabilidade"
 
 
 class Acao(str, Enum):
