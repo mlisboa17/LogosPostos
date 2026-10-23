@@ -5,6 +5,21 @@ Repositório canônico: C:\Projetos\LOGOS\LogosPostos · branch feature/cash-aud
 PR a abrir: https://github.com/mlisboa17/LogosPostos/pull/new/feature/cash-audit-fechamento
 Histórico de sprints: um prompt por sprint em docs/prompts/ (SPRINT_05 ... SPRINT_12, PREMMIA_00, TELEGRAM_00)
 
+# EXPENSE-REVIEW-QUEUE-01 — Fila Local de Revisão e Aprendizagem — 23/10/2026
+
+- Fila local auditável implementada para classificações incertas (`ClassificationReviewService` e `SqliteClassificationReviewRepository`), desacoplando extração e triagem de lançamentos no ERP.
+- Estados canônicos: `PENDENTE_REVISAO`, `CLASSIFICADO`, `BLOQUEADO`, `CANCELADO`.
+- Persistência e auditoria integradas ao SQLite Master Data (`master_data.sqlite3`), com backup verificado pré-migração (SHA-256: `09168F8EC7DF198FCA38808F1A21FD6CF477FFD762FBED1FD2EB3EA62B62AE74`).
+- Migração reversível `002_fila_revisao_classificacao.py` aplicada com sucesso (4 tabelas e 6 índices de integridade).
+- Regra de ouro da IA: confiança nunca supera uma trava. Travas cadastrais (ex: conta não autorizada, duplicidade, divergência, dados ausentes) resultam estritamente em `BLOQUEADO`, mesmo com confiança máxima (1.0).
+- Conta oficial `198966` (`2.04.10 - SAÍDAS PENDENTES DE CLASSIFICAÇÃO`) mantida com `candidato_lancavel = 0` e `permite_despesa = 0`. Bloqueada para lançamentos reais e rejeitada categoricamente caso indicada como plano definitivo humano.
+- Aprendizagem contínua supervisionada: correção humana gera exemplo confirmado (não regra automática). Regras candidatas exigem no mínimo 3 casos confirmados E aprovação humana formal antes de promoção.
+- Prevenção de concorrência e conflitos: versionamento otimista (`versao`) e locks de escrita com `BEGIN IMMEDIATE` impedem alterações simultâneas.
+- Segurança de dados: sanitização automática preventiva de credenciais, chaves de API, senhas e números de cartão em referências de evidências.
+- ERP WRITES = ZERO: nenhuma requisição mutacional ao webPosto (0 POST, 0 PUT, 0 PATCH, 0 DELETE). Lançamento de R$ 626,00, token e conta 27173 permanecem rigorosamente bloqueados.
+- Testes 100% aprovados: 14 testes unitários da fila + 124 testes da suíte global (total 138 testes passando sem falhas).
+- Evidência: [EXPENSE_REVIEW_QUEUE_01_CHECKPOINT.md](docs/checkpoints/EXPENSE_REVIEW_QUEUE_01_CHECKPOINT.md).
+
 # PLANOS-CONTA-SYNC-02 — Sincronização da Nova Conta Oficial 198966 — 23/10/2026
 
 - Consulta somente leitura GET `/INTEGRACAO/V1/PLANOS_CONTA_GERENCIAL` identificou exatamente 1 correspondência para `2.04.10 / SAÍDAS PENDENTES DE CLASSIFICAÇÃO`: código oficial `198966`.

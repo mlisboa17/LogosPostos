@@ -29,7 +29,8 @@ from ..domain.models import (
     PapelEntidade,
     TipoContaFinanceira,
 )
-from .migrations.migration_001_planos_conta_hierarquia import migrar
+from .migrations.migration_001_planos_conta_hierarquia import migrar as migrar_001
+from .migrations.migration_002_fila_revisao_classificacao import migrar as migrar_002
 
 logger = logging.getLogger(__name__)
 
@@ -184,7 +185,8 @@ class SqliteMasterDataRepository:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_fornec_cnpj ON master_fornecedores(cnpj_cpf);")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_fornec_cod ON master_fornecedores(fornecedor_codigo);")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_ent ON master_data_audit_log(tipo_entidade, identificador);")
-            migrar(conn)
+            migrar_001(conn)
+            migrar_002(conn)
 
     # ==========================================
     # AUDITORIA
