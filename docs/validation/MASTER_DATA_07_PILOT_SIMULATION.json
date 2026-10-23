@@ -51,5 +51,14 @@
     "reason": "Plano de Conta Gerencial PRO LABORE - 2.02 é pai e deve ser substituído por uma conta filha.",
     "post_verification_matches": 0,
     "retry_performed": false
+  },
+  "recommended_correction_not_authorized": {
+    "previous_parent_plan": 29021,
+    "owner_parent_plan": 148303,
+    "candidate_leaf_plan": 158764,
+    "candidate_leaf_description": "MARCIO-PROLABORE",
+    "official_hierarchy": "2.02.05.005",
+    "source": "GET /INTEGRACAO/V1/PLANOS_CONTA_GERENCIAL",
+    "new_write_authorized": false
   }
 }

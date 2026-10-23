@@ -5,6 +5,18 @@ Repositório canônico: C:\Projetos\LOGOS\LogosPostos · branch feature/cash-aud
 PR a abrir: https://github.com/mlisboa17/LogosPostos/pull/new/feature/cash-audit-fechamento
 Histórico de sprints: um prompt por sprint em docs/prompts/ (SPRINT_05 ... SPRINT_12, PREMMIA_00, TELEGRAM_00)
 
+# PLANOS-CONTA-MASTER-01 — Catálogo Compartilhado Completo — 23/10/2026
+
+- Mapeamento oficial somente leitura concluído: 251 planos gerenciais compartilhados por todas as empresas.
+- Estrutura reconstruída: 28 contas pai e 223 folhas estruturais candidatas a lançamento.
+- Catálogo local anterior possuía 200 códigos; 51 oficiais estavam ausentes.
+- Regra consolidada: contas pai não podem ser usadas diretamente em `MOVIMENTOS_CONTA`.
+- Hierarquia correta do caso: `29021 PRO LABORE` → `148303 MARCIO LISBOA` → `158764 MARCIO-PROLABORE`.
+- `158764` é folha oficial e candidata exata para o lançamento de Pró-labore Márcio; nenhuma nova escrita foi autorizada ou executada.
+- Endpoint contábil respondeu HTTP 200 com zero registros; o gerencial atende o fluxo de movimentos.
+- Catálogo SHA-256: `BDF68D4F690249A70B69424C0B9FA237C09704FE8D6EF258E37DABC1D0CD8C57`.
+- Evidências: [PLANOS_CONTA_MASTER_01.md](docs/validation/PLANOS_CONTA_MASTER_01.md) e [PLANOS_CONTA_MASTER_01_CHECKPOINT.md](docs/checkpoints/PLANOS_CONTA_MASTER_01_CHECKPOINT.md).
+
 # ERP-WRITE-01 — Tentativa Rejeitada por Plano Pai — 23/10/2026
 
 - Proprietário autorizou uma única saída na Casa Caiada: conta `27173`, R$ 626,00, 10/10/2026, `PRÓ-LABORE — MÁRCIO`, plano `29021`, centro `7295`, sem fornecedor.
