@@ -40,12 +40,16 @@ class Acao(str, Enum):
     CADASTRAR_POSTO = "cadastrar_posto"
     CONFIGURAR = "configurar"
     GERIR_USUARIOS = "gerir_usuarios"
+    VER_FISCAL = "ver_fiscal"          # notas fiscais e pacotes das empresas dos seus postos
+    APROVAR_PACOTE = "aprovar_pacote"  # enviar pacote retido / reenviar
+    GERIR_FISCAL = "gerir_fiscal"      # empresas e escritórios (só administrador)
 
 
-# Acoes que gerente/conferente podem fazer, apenas nos seus postos. O resto e so do admin.
+# Acoes que os demais perfis podem fazer, apenas nos seus postos. O resto e so do admin.
 _POR_POSTO = {
-    Perfil.GERENTE.value: {Acao.VER, Acao.COLETAR, Acao.TROCAR_CREDENCIAL},
+    Perfil.GERENTE.value: {Acao.VER, Acao.COLETAR, Acao.TROCAR_CREDENCIAL, Acao.VER_FISCAL},
     Perfil.CONFERENTE.value: {Acao.VER, Acao.COLETAR},
+    Perfil.CONTABILIDADE.value: {Acao.VER_FISCAL, Acao.APROVAR_PACOTE},
 }
 
 
@@ -78,6 +82,19 @@ def postos_visiveis(con, usuario) -> list[int]:
     return [r[0] for r in con.execute(
         "SELECT posto_id FROM usuario_posto WHERE usuario_id=? ORDER BY posto_id",
         (usuario["id"],))]
+
+
+def empresas_visiveis(con, usuario) -> list[int]:
+    """Empresas fiscais que o usuário enxerga: todas (admin) ou as ligadas aos seus postos."""
+    if usuario is None or not usuario["ativo"]:
+        return []
+    if usuario["perfil"] == Perfil.ADMINISTRADOR.value:
+        return [r[0] for r in con.execute("SELECT id FROM empresa ORDER BY id")]
+    if Acao.VER_FISCAL not in _POR_POSTO.get(usuario["perfil"], set()):
+        return []
+    return [r[0] for r in con.execute(
+        "SELECT e.id FROM empresa e JOIN usuario_posto up ON up.posto_id = e.posto_id"
+        " WHERE up.usuario_id=? ORDER BY e.id", (usuario["id"],))]
 
 
 def pode_agora(con, usuario_id: int, acao: Acao, posto_id: int | None = None) -> bool:

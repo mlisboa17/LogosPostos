@@ -203,3 +203,35 @@ def test_redefinir_admin_bloqueado_e_nome(con):
     acesso.redefinir_admin(con, "outra-senha-2")
     u = acesso.autenticar(con, "admin", "outra-senha-2", T0)
     assert u is not None and u["nome"] == "Administrador"
+
+
+MATRIZ_FISCAL = [
+    (Perfil.CONTABILIDADE, Acao.VER_FISCAL, True, True), (Perfil.CONTABILIDADE, Acao.VER_FISCAL, False, False),
+    (Perfil.CONTABILIDADE, Acao.APROVAR_PACOTE, True, True),
+    (Perfil.CONTABILIDADE, Acao.APROVAR_PACOTE, False, False),
+    (Perfil.CONTABILIDADE, Acao.VER, True, False), (Perfil.CONTABILIDADE, Acao.COLETAR, True, False),
+    (Perfil.CONTABILIDADE, Acao.TROCAR_CREDENCIAL, True, False),
+    (Perfil.CONTABILIDADE, Acao.CONFIGURAR, True, False), (Perfil.CONTABILIDADE, Acao.GERIR_FISCAL, True, False),
+    (Perfil.GERENTE, Acao.VER_FISCAL, True, True), (Perfil.GERENTE, Acao.VER_FISCAL, False, False),
+    (Perfil.GERENTE, Acao.APROVAR_PACOTE, True, False), (Perfil.GERENTE, Acao.GERIR_FISCAL, True, False),
+    (Perfil.CONFERENTE, Acao.VER_FISCAL, True, False),
+]
+
+
+@pytest.mark.parametrize("perfil,acao,proprio,esperado", MATRIZ_FISCAL)
+def test_matriz_fiscal(con, perfil, acao, proprio, esperado):
+    u = _user(con, perfil, [P1])
+    assert pode(u, acao, P1 if proprio else P2) is esperado
+
+
+def test_empresas_visiveis(con):
+    from apps.match.fiscal import repositorio as repo
+    e1 = repo.salvar_empresa(con, "11111111000191", "Um", "um", None, "PE", P1)
+    e2 = repo.salvar_empresa(con, "22222222000191", "Dois", "dois", None, "PE", P2)
+    e3 = repo.salvar_empresa(con, "33333333000191", "Sem posto", "tres", None, "PE", None)
+    admin = _user(con, Perfil.ADMINISTRADOR, [], login="adm")
+    conta = _user(con, Perfil.CONTABILIDADE, [P1], login="conta")
+    conf = _user(con, Perfil.CONFERENTE, [P1], login="conf")
+    assert acesso.empresas_visiveis(con, admin) == [e1, e2, e3]
+    assert acesso.empresas_visiveis(con, conta) == [e1]
+    assert acesso.empresas_visiveis(con, conf) == []
