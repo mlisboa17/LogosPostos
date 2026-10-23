@@ -1,9 +1,22 @@
-# STATUS — LOGOS Auditoria (atualizado em 22/10/2026)
+# STATUS — LOGOS Auditoria (atualizado em 23/10/2026)
 
 Repositório canônico: C:\Projetos\LOGOS\LogosPostos · branch feature/cash-audit-fechamento
 Última entrega de código: Sprint 19 (A–D) · branch feature/cash-audit-fechamento, sem merge
 PR a abrir: https://github.com/mlisboa17/LogosPostos/pull/new/feature/cash-audit-fechamento
 Histórico de sprints: um prompt por sprint em docs/prompts/ (SPRINT_05 ... SPRINT_12, PREMMIA_00, TELEGRAM_00)
+
+# MASTER-DATA-06 — Conferência Visual da Conta 27173 — 23/10/2026
+
+- Três capturas do Cadastro de Conta do webPosto foram confrontadas com as evidências oficiais já registradas.
+- Confirmados visualmente: Banco do Brasil `001`, conta `56816-3`, conta ativa e bancária, cedente/CNPJ compatível e vínculo exclusivo visível com `AP CASA CAIADA`.
+- A agência aparece como `2365`; o dígito `5` não é exibido na tela e continua sustentado pelos documentos bancários locais.
+- Os códigos ERP `27173` e empresa `5555` não aparecem nas telas; são sustentados pelo retorno oficial sanitizado anteriormente registrado.
+- As imagens não foram copiadas para o Git porque mostram saldo financeiro; hashes SHA-256 foram registrados para integridade.
+- **ACCOUNT 27173:** `BLOCKED / READY_FOR_HUMAN_DECISION`.
+- **CASA CAIADA PILOT:** `BLOCKED`.
+- Conferência SQLite somente leitura: conta ainda `TRANSITORIA`, sem empresa persistida e com débito desabilitado.
+- Zero reclassificação, lançamento, chamadas externas ou escritas ERP.
+- Evidências: [MASTER_DATA_06_VISUAL_ACCOUNT_27173.md](docs/validation/MASTER_DATA_06_VISUAL_ACCOUNT_27173.md) e [MASTER_DATA_06_CHECKPOINT.md](docs/checkpoints/MASTER_DATA_06_CHECKPOINT.md).
 
 # TECH-DEBT-03 — Limpeza Autorizada e Quarentena Premmia — 22/10/2026
 
