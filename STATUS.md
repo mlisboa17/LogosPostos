@@ -5,6 +5,21 @@ Repositório canônico: C:\Projetos\LOGOS\LogosPostos · branch feature/cash-aud
 PR a abrir: https://github.com/mlisboa17/LogosPostos/pull/new/feature/cash-audit-fechamento
 Histórico de sprints: um prompt por sprint em docs/prompts/ (SPRINT_05 ... SPRINT_12, PREMMIA_00, TELEGRAM_00)
 
+# ACCOUNTING-REVIEW-01 — Auditoria de Pendência Contábil e Matriz de Alternativas — 23/10/2026
+
+- Auditoria cadastral SQLite concluída em modo somente leitura: conta `27173` confirmada como `CONTA_CORRENTE`, empresa `5555`, banco `001`, agência `2365-5`, conta `56816-3`, confiabilidade `CONFIRMADO` e `permite_debito_despesa = 0`.
+- Auditoria append-only confirmada: `audit_id 235`, origem `AUTORIZACAO_EXPRESSA_PROPRIETARIO_MASTER_DATA_07`.
+- Barreira de código confirmada: conta `27173` permanece fora de `CONTAS_AUTORIZADAS_POR_UNIDADE[5555]` (apenas `{17837}`).
+- Simulação offline do piloto de R$ 626,00 validada sintaticamente e por hash SHA-256 (`FF1B396B...`).
+- 141 testes offline executados e aprovados (**141 passed**): Master Data, preparação de piloto, precheck, adaptador de escrita e Telegram.
+- Diagnóstico contábil detalhado:
+  - Divergência de personalidade jurídica: saída bancária em favor de PJ (`Posto Real Ltda`, CNPJ `08.106.946/0001-09`) confrontada com finalidade informada de pró-labore de PF (`Márcio`).
+  - Incompatibilidade de centro de custo: plano `29021 — PRO LABORE` é terminantemente bloqueado pelo LOGOS com centro de custo operacional `7295 — PISTA` (`master_data_service.py` L1106).
+  - Matriz de 4 alternativas objetivas produzida: 1) Pró-labore; 2) Adiantamento a sócio; 3) Mútuo interempresas; 4) Outra classificação contábil (ressarcimento/lucros).
+- Piloto mantido estritamente como `BLOCKED_ACCOUNTING_REVIEW`.
+- Zero chamadas externas ao ERP, zero escrita e zero alteração de travas.
+- Evidência: [ACCOUNTING_REVIEW_01_CHECKPOINT.md](docs/checkpoints/ACCOUNTING_REVIEW_01_CHECKPOINT.md).
+
 # MASTER-DATA-07 — Reclassificação Local e Simulação Offline — 23/10/2026
 
 - Reclassificação autorizada executada somente no SQLite local: conta `27173` agora é `CONTA_CORRENTE` da empresa `5555`.
