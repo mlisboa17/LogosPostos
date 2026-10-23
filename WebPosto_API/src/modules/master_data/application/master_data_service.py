@@ -1111,7 +1111,7 @@ class MasterDataService:
                 )
 
             # 2. Bloqueio de conta-pai estrutural (não permitida em lançamentos diretos)
-            if not plano.eh_folha or not plano.candidato_lancavel:
+            if not plano.eh_folha:
                 return ResolucaoPlanoResult(
                     sucesso=False,
                     plano=plano,
@@ -1121,7 +1121,18 @@ class MasterDataService:
                     ),
                 )
 
-            # 3. Bloqueio de plano que não permite despesa
+            # 3. Bloqueio de conta folha com candidato_lancavel bloqueado (ex: transição/revisão pendente)
+            if not plano.candidato_lancavel:
+                return ResolucaoPlanoResult(
+                    sucesso=False,
+                    plano=plano,
+                    mensagem=(
+                        f"Plano de contas {plano.descricao} ({plano_codigo}) é conta de classificação pendente "
+                        "e está com lançamento bloqueado até a implementação da fila de revisão."
+                    ),
+                )
+
+            # 4. Bloqueio de plano que não permite despesa
             if not plano.permite_despesa:
                 return ResolucaoPlanoResult(
                     sucesso=False,

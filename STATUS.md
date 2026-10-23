@@ -5,6 +5,17 @@ Repositório canônico: C:\Projetos\LOGOS\LogosPostos · branch feature/cash-aud
 PR a abrir: https://github.com/mlisboa17/LogosPostos/pull/new/feature/cash-audit-fechamento
 Histórico de sprints: um prompt por sprint em docs/prompts/ (SPRINT_05 ... SPRINT_12, PREMMIA_00, TELEGRAM_00)
 
+# PLANOS-CONTA-SYNC-02 — Sincronização da Nova Conta Oficial 198966 — 23/10/2026
+
+- Consulta somente leitura GET `/INTEGRACAO/V1/PLANOS_CONTA_GERENCIAL` identificou exatamente 1 correspondência para `2.04.10 / SAÍDAS PENDENTES DE CLASSIFICAÇÃO`: código oficial `198966`.
+- Total oficial no webPosto evoluiu de 251 para **252** planos.
+- Backup verificável pré-apply gerado: `master_data.pre_sync_198966.20261023T214500Z.sqlite3.bak` (SHA-256: `DF19DB7A2B4D9FFA3FA35784CEDEFC035DAF458C1811C95E0497ACEEA9096D10`).
+- Sincronização aplicada localmente com sucesso: 1 inserido (`198966`), 0 atualizados, 251 inalterados. Total final local: **252 planos**.
+- Idempotência comprovada via re-apply imediato: 0 inseridos, 0 atualizados, 252 inalterados.
+- Governança de segurança: `198966` confirmada como `eh_folha = 1`, `ativo = 1`, `observado_ultima_sincronizacao = 1`, com `candidato_lancavel = 0` (bloqueado para lançamentos reais até a implementação da fila de revisão).
+- Barreiras inalteradas: conta 27173 bloqueada para débito, allowlist `{17837}`, R$ 626,00 não lançado, ERP WRITES = ZERO.
+- Evidência: [PLANOS_CONTA_SYNC_02_CHECKPOINT.md](docs/checkpoints/PLANOS_CONTA_SYNC_02_CHECKPOINT.md).
+
 # PLANOS-CONTA-SYNC-01 — Sincronização do Catálogo Global e Pré-Validador — 23/10/2026
 
 - Serviço de sincronização local de planos de conta implementado com modos `dry-run`, `apply` e testes offline (`PlanoContasSyncService`).

@@ -477,3 +477,39 @@ def test_17_dry_run_nao_altera_banco(repo_isolado):
     # Nenhuma linha foi inserida em master_planos_conta
     planos_db = repo_isolado.listar_planos_conta()
     assert len(planos_db) == 0
+
+
+# 18. Conta 198966 (SAÍDAS PENDENTES DE CLASSIFICAÇÃO): folha, ativa, observada, porém bloqueada para lançamento real
+def test_18_saidas_pendentes_classificacao_bloqueada_para_lancamento(service_isolado):
+    sync_svc = PlanoContasSyncService(repository=service_isolado.repository)
+    lote = _carregar_catalogo_oficial() + [
+        {
+            "planoContaCodigo": 198966,
+            "descricao": "SAÍDAS PENDENTES DE CLASSIFICAÇÃO",
+            "hierarquia": "2.04.10",
+            "natureza": "D",
+            "tipo": "Nenhum",
+            "ativo": True,
+        }
+    ]
+    res_sync = sync_svc.sincronizar(modo="apply", dados_oficiais=lote)
+    assert res_sync.sucesso is True
+    assert 198966 in res_sync.detalhes["inseridosCodigos"]
+
+    p = service_isolado.repository.obter_plano_conta(198966)
+    assert p is not None
+    assert p.hierarquia == "2.04.10"
+    assert p.descricao == "SAÍDAS PENDENTES DE CLASSIFICAÇÃO"
+    assert p.ativo is True
+    assert p.eh_folha is True
+    assert p.observado_ultima_sincronizacao is True
+    assert p.candidato_lancavel is False  # Estritamente bloqueado para lançamento real
+
+    res_val = service_isolado.validar_plano_para_despesa(198966)
+    assert res_val.sucesso is False
+    assert "classificação pendente" in res_val.mensagem or "fila de revisão" in res_val.mensagem
+
+    item = _criar_item_despesa(198966)
+    with pytest.raises(BarreiraDespesaErro) as exc:
+        validar_aprovacao_para_escrita(item, master_data_service=service_isolado)
+    assert "classificação pendente" in str(exc.value) or "fila de revisão" in str(exc.value)

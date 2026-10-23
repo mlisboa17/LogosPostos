@@ -84,7 +84,15 @@ class PlanoContasSyncService:
 
             # É folha se nenhuma outra hierarquia começar com `{hierarquia}.`
             folha = bool(hierarquia) and not any(h.startswith(prefix) for h in hierarquias if h != hierarquia)
-            candidato_lancavel = bool(folha)
+
+            # Contas de classificação pendente/transitória têm candidato_lancavel bloqueado até a implementação da fila de revisão
+            desc_upper = str(item.get("descricao") or "").strip().upper()
+            bloqueado_transitorio = (
+                hierarquia == "2.04.10"
+                or "PENDENTES DE CLASSIFICAÇÃO" in desc_upper
+                or "PENDENTES DE CLASSIFICACAO" in desc_upper
+            )
+            candidato_lancavel = bool(folha and not bloqueado_transitorio)
 
             saida.append({
                 "planoContaCodigo": codigo,

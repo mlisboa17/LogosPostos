@@ -107,6 +107,8 @@ def main() -> None:
     resultado = service.sincronizar_planos_conta(
         modo=modo,
         dados_oficiais=dados_oficiais,
+        base_url=base_url if not dados_oficiais else None,
+        api_key=api_key if not dados_oficiais else None,
         origem=origem,
     )
 
