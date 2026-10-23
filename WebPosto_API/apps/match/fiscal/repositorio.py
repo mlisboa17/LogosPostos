@@ -126,10 +126,17 @@ def gravar_documento(con, empresa_id: int, doc: DocumentoFiscal, xml_path: Path,
         _gravar_detalhes(con, atual["id"], doc)
         con.commit()
         return True
-    if entrada is not None and atual["cte_numero"] is None and cte is not None:
-        con.execute("UPDATE documento SET cte_numero=?, frete_json=? WHERE id=?", (cte, frete, atual["id"]))
-        con.commit()
+    if entrada is not None:
+        atualizar_frete(con, doc.chave, entrada)
     return False
+
+
+def atualizar_frete(con, chave: str, entrada: EntradaWebposto) -> None:
+    """Grava frete/CT-e informados pelo webPosto se ainda não estavam no documento."""
+    cte, frete = _frete(entrada)
+    con.execute("UPDATE documento SET cte_numero=COALESCE(cte_numero, ?), frete_json=COALESCE(frete_json, ?)"
+                " WHERE chave=?", (cte, frete, chave))
+    con.commit()
 
 
 def registrar_so_resumo(con, empresa_id: int, nota: NotaListada) -> bool:

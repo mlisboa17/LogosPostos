@@ -28,3 +28,20 @@ def planilhas() -> Path:
 
 def logs() -> Path:
     return _criar(raiz() / "logs")
+
+
+def fiscal(con) -> Path:
+    """Acervo fiscal: `<pasta da rede>/fiscal` se configurada e acessível; senão local."""
+    from apps.match import banco  # evita import circular (banco importa caminhos)
+    pasta = banco.pasta_rede(con)
+    if pasta is not None:
+        try:
+            if Path(pasta).is_dir():
+                return _criar(Path(pasta) / "fiscal")
+        except OSError:
+            pass
+    return _criar(raiz() / "fiscal")
+
+
+def pacotes() -> Path:
+    return _criar(raiz() / "pacotes")
