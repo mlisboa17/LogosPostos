@@ -123,7 +123,7 @@ CREATE TABLE escritorio (
     dia_envio INTEGER NOT NULL DEFAULT 5 CHECK (dia_envio BETWEEN 1 AND 28),
     modo TEXT NOT NULL DEFAULT 'enviar' CHECK (modo IN ('enviar','so_gerar')),
     pdf TEXT NOT NULL DEFAULT 'ambos' CHECK (pdf IN ('separados','unificado','ambos')),
-    ativo INTEGER NOT NULL DEFAULT 1);
+    ativo INTEGER NOT NULL DEFAULT 1, criado_em TEXT);
 CREATE TABLE escritorio_empresa (
     escritorio_id INTEGER NOT NULL REFERENCES escritorio(id),
     empresa_id INTEGER NOT NULL REFERENCES empresa(id),
@@ -159,8 +159,12 @@ CREATE TABLE pacote (
     id INTEGER PRIMARY KEY AUTOINCREMENT, empresa_id INTEGER NOT NULL REFERENCES empresa(id),
     competencia TEXT NOT NULL, complementar INTEGER NOT NULL DEFAULT 0, gerado_em TEXT NOT NULL,
     arquivos_json TEXT NOT NULL DEFAULT '[]',
-    situacao TEXT NOT NULL CHECK (situacao IN ('gerado','retido','aprovado','enviado','erro')),
-    motivo_retencao TEXT, enviado_em TEXT, aprovado_por INTEGER REFERENCES usuario(id));
+    situacao TEXT NOT NULL CHECK (situacao IN ('gerado','retido','aprovado','enviando','enviado','erro')),
+    motivo_retencao TEXT, enviado_em TEXT, aprovado_por INTEGER REFERENCES usuario(id),
+    partes_enviadas INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE pacote_documento (
+    pacote_id INTEGER NOT NULL REFERENCES pacote(id), documento_id INTEGER NOT NULL REFERENCES documento(id),
+    PRIMARY KEY (pacote_id, documento_id));
 """
 
 _MIGRACOES = [(1, _SCHEMA_V1), (2, _SCHEMA_V2), (3, _SCHEMA_V3), (4, _SCHEMA_V4), (5, _SCHEMA_V5)]

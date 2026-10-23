@@ -15,7 +15,6 @@ from apps.match import banco, caminhos, coletas, explicar, unidades
 from apps.match.banco import _agora
 from apps.match.fiscal import repositorio as repo
 from src.modules.fiscal_docs import acervo, webposto_notas as wn
-from src.modules.fiscal_docs.modelos import XmlInvalido
 from src.modules.fiscal_docs.parser import ler
 
 logger = logging.getLogger(__name__)
@@ -41,6 +40,30 @@ def janela(con, empresa_id: int, hoje: date) -> tuple[date, date]:
         return ultima - _RECUO, hoje
     primeiro_deste_mes = hoje.replace(day=1)
     return (primeiro_deste_mes - timedelta(days=1)).replace(day=1), hoje
+
+
+_MAX_RESUMOS_ANTIGOS = 200
+
+
+async def _baixar_e_gravar(con, unidade, empresa, base, chave: str, entrada, client) -> bool:
+    """True se o XML veio e completou/criou o documento; False se o webPosto ainda não tem o XML."""
+    xml = await wn.baixar_xml(unidade, chave, client=client)
+    if xml is None:
+        return False
+    doc = ler(xml)
+    caminho = acervo.gravar(base, empresa["cnpj"], doc, xml, FONTE)
+    return repo.gravar_documento(con, empresa["id"], doc, caminho, hashlib.sha256(xml).hexdigest(), FONTE, entrada)
+
+
+def _ainda_resumo(con, chave: str) -> bool:
+    r = con.execute("SELECT situacao FROM documento WHERE chave=?", (chave,)).fetchone()
+    return r is not None and r[0] == "so_resumo"
+
+
+def _resumos_antigos(con, empresa_id: int, listadas: set[str]) -> list[str]:
+    return [r[0] for r in con.execute(
+        "SELECT chave FROM documento WHERE empresa_id=? AND situacao='so_resumo' ORDER BY emissao_em DESC LIMIT ?",
+        (empresa_id, _MAX_RESUMOS_ANTIGOS)) if r[0] not in listadas]
 
 
 def _texto(novas: int, pendentes: int) -> str:
@@ -72,20 +95,27 @@ async def capturar_empresa(con, empresa_id: int, hoje: date, *,
                     repo.atualizar_frete(con, nota.chave, entrada)
                 continue
             try:
-                xml = await wn.baixar_xml(unidade, nota.chave, client=client)
-                if xml is None:
-                    repo.registrar_so_resumo(con, empresa_id, nota)
-                    pendentes += 1
-                    continue
-                doc = ler(xml)
-                caminho = acervo.gravar(base, empresa["cnpj"], doc, xml, FONTE)
-                if repo.gravar_documento(con, empresa_id, doc, caminho,
-                                         hashlib.sha256(xml).hexdigest(), FONTE, entrada):
+                if await _baixar_e_gravar(con, unidade, empresa, base, nota.chave, entrada, client):
                     novas += 1
-            except (XmlInvalido, wn.WebPostoErro) as exc:
+                    continue
+            except wn.WebPostoErro as exc:
+                if exc.status_http in (401, 403):
+                    raise  # chave recusada: a empresa toda está sem acesso
                 logger.warning("Nota não capturada empresa=%s tipo=%s", empresa_id, type(exc).__name__)
-                repo.registrar_so_resumo(con, empresa_id, nota)
+            except Exception as exc:  # noqa: BLE001 - uma nota ruim nunca congela a empresa
+                logger.warning("Nota não capturada empresa=%s tipo=%s", empresa_id, type(exc).__name__)
+            if repo.registrar_so_resumo(con, empresa_id, nota) or _ainda_resumo(con, nota.chave):
                 pendentes += 1
+        listadas = {n.chave for n in notas}
+        for chave in _resumos_antigos(con, empresa_id, listadas):
+            try:  # fora da janela do webPosto: tenta direto pela chave
+                if await _baixar_e_gravar(con, unidade, empresa, base, chave, None, client):
+                    novas += 1
+            except wn.WebPostoErro as exc:
+                if exc.status_http in (401, 403):
+                    raise
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Nota antiga não capturada empresa=%s tipo=%s", empresa_id, type(exc).__name__)
     except Exception as exc:  # noqa: BLE001 - a captura de uma empresa nunca derruba as outras
         logger.warning("Captura fiscal falhou empresa=%s tipo=%s", empresa_id, type(exc).__name__)
         msg = explicar.erro_pt(exc)

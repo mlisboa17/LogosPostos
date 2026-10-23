@@ -132,3 +132,31 @@ def test_capturar_todas_pula_empresa_sem_posto_e_pendentes(con, tmp_path, monkey
     fabrica = lambda: banco.conectar(tmp_path / "t.db")
     assert [r.empresa_id for r in captura.capturar_todas(fabrica, HOJE)] == [eid]
     assert captura.capturar_todas(fabrica, HOJE, so_pendentes=True) == []
+
+
+def test_so_resumo_fora_da_janela_e_tentado_pela_chave(con):
+    from decimal import Decimal
+    from src.modules.fiscal_docs.webposto_notas import NotaListada
+    eid = _empresa(con)
+    velha = XML_PROD.replace(CH_PROD.encode(), CH_FALTA.encode())
+    repo.registrar_so_resumo(con, eid, NotaListada(chave=CH_FALTA, emitente_cnpj="3", emitente_nome="X",
+                                                   emissao=date(2026, 6, 1), valor=Decimal(1)))
+    repo.salvar_ultima_data_lida(con, eid, date(2026, 11, 2))
+    wp = WebpostoFalso()
+    wp.lista = []  # webPosto não lista mais a nota antiga
+    wp.xmls[CH_FALTA] = velha
+    r = _capturar(con, eid, wp)
+    assert r.novas == 1
+    assert con.execute("SELECT situacao FROM documento WHERE chave=?", (CH_FALTA,)).fetchone()[0] == "autorizada"
+
+
+def test_uma_nota_ruim_nao_congela_a_empresa(con):
+    eid = _empresa(con)
+    wp = WebpostoFalso()
+    wp.xmls[CH_PROD] = XML_PROD.replace(b'nItem="1"', b'nItem="x"')
+    wp.lista = wp.lista + [{"codigo": 9, "chaveDocumento": "8" * 44}]  # sem dataEmissao
+    r = _capturar(con, eid, wp)
+    assert r.situacao == "ok"
+    assert con.execute("SELECT situacao FROM documento WHERE chave=?", (CH_COMB,)).fetchone()[0] == "autorizada"
+    assert con.execute("SELECT situacao FROM documento WHERE chave=?", (CH_PROD,)).fetchone()[0] == "so_resumo"
+    assert repo.ultima_data_lida(con, eid) == HOJE

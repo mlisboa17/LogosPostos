@@ -54,8 +54,8 @@ def salvar_escritorio(con, nome, emails: list[str], dia_envio: int, modo: str, p
                       empresas: list[int], escritorio_id: int | None = None) -> int:
     dados = (nome, json.dumps(emails), dia_envio, modo, pdf)
     if escritorio_id is None:
-        escritorio_id = con.execute("INSERT INTO escritorio(nome, emails_json, dia_envio, modo, pdf)"
-                                    " VALUES (?,?,?,?,?)", dados).lastrowid
+        escritorio_id = con.execute("INSERT INTO escritorio(nome, emails_json, dia_envio, modo, pdf, criado_em)"
+                                    " VALUES (?,?,?,?,?,?)", (*dados, _agora())).lastrowid
     else:
         con.execute("UPDATE escritorio SET nome=?, emails_json=?, dia_envio=?, modo=?, pdf=? WHERE id=?",
                     (*dados, escritorio_id))
@@ -245,7 +245,8 @@ def salvar_ultima_data_lida(con, empresa_id: int, dia: date) -> None:
     con.commit()
 
 
-_CAMPOS_PACOTE = {"situacao", "motivo_retencao", "enviado_em", "aprovado_por", "arquivos_json"}
+_CAMPOS_PACOTE = {"situacao", "motivo_retencao", "enviado_em", "aprovado_por", "arquivos_json",
+                  "partes_enviadas", "gerado_em"}
 
 
 def salvar_pacote(con, empresa_id: int, competencia: str, situacao: str, arquivos: list[str],
@@ -279,3 +280,18 @@ def pacotes(con, empresa_ids: list[int], competencia: str | None = None) -> list
     if competencia:
         sql += " AND p.competencia=?"; args.append(competencia)
     return con.execute(sql + " ORDER BY p.competencia DESC, p.id DESC", args).fetchall()
+
+
+def vincular_documentos(con, pacote_id: int, documento_ids: list[int]) -> None:
+    con.execute("DELETE FROM pacote_documento WHERE pacote_id=?", (pacote_id,))
+    con.executemany("INSERT INTO pacote_documento VALUES (?,?)", [(pacote_id, d) for d in documento_ids])
+    con.commit()
+
+
+def documentos_ja_enviados(con, empresa_id: int, competencia: str, exceto: int | None = None) -> set[int]:
+    """Notas que já estão em algum pacote enviado, em envio ou entregue para baixar (menos `exceto`)."""
+    return {r[0] for r in con.execute(
+        "SELECT pd.documento_id FROM pacote_documento pd JOIN pacote p ON p.id = pd.pacote_id"
+        " WHERE p.empresa_id=? AND p.competencia=? AND p.id != ?"
+        " AND p.situacao IN ('enviado','enviando','erro','gerado')",
+        (empresa_id, competencia, exceto or -1))}

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import zlib
 import zipfile
-from datetime import datetime
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
@@ -16,20 +16,23 @@ _FOLGA = 512  # cabeçalhos do zip por arquivo
 ModoPdf = Literal["separados", "unificado", "ambos"]
 
 
-def _documentos(con, empresa_id: int, competencia: str, desde: datetime | None) -> list:
-    docs = [d for d in repo.documentos_da_competencia(con, empresa_id, competencia)
-            if d["situacao"] != "so_resumo" and d["xml_path"]]
-    if desde is not None:
-        docs = [d for d in docs if datetime.fromisoformat(d["capturado_em"]) > desde]
-    return docs
+@dataclass
+class Montagem:
+    partes: list[Path] = field(default_factory=list)
+    documentos: list[int] = field(default_factory=list)  # ids das notas dentro do pacote
+
+
+def _documentos(con, empresa_id: int, competencia: str, excluir: set[int]) -> list:
+    return [d for d in repo.documentos_da_competencia(con, empresa_id, competencia)
+            if d["situacao"] != "so_resumo" and d["xml_path"] and d["id"] not in excluir]
 
 
 def _nome_base(con, empresa, competencia: str, complementar: bool) -> str:
     base = f"{empresa['cnpj']}_{competencia}"
     if not complementar:
         return base
-    n = con.execute("SELECT COUNT(*) FROM pacote WHERE empresa_id=? AND competencia=? AND complementar=1",
-                    (empresa["id"], competencia)).fetchone()[0]
+    n = con.execute("SELECT COUNT(*) FROM pacote WHERE empresa_id=? AND competencia=? AND complementar=1"
+                    " AND arquivos_json != '[]'", (empresa["id"], competencia)).fetchone()[0]
     return f"{base}_complementar_{n + 1}"
 
 
@@ -64,11 +67,14 @@ def _dividir(entradas: list[tuple[str, bytes]]) -> list[list[tuple[str, bytes]]]
 
 
 def montar(con, empresa_id: int, competencia: str, pdf_modo: ModoPdf, destino: Path, *,
-           complementar: bool = False, desde: datetime | None = None) -> list[Path]:
-    """Gera o(s) zip(s) do pacote. Lista vazia quando não há documento com XML na competência."""
-    docs = _documentos(con, empresa_id, competencia, desde)
+           complementar: bool = False, excluir: set[int] | None = None) -> Montagem:
+    """Gera o(s) zip(s) do pacote com as notas com XML da competência, menos `excluir`.
+
+    Sem nota para mandar, devolve uma Montagem vazia.
+    """
+    docs = _documentos(con, empresa_id, competencia, excluir or set())
     if not docs:
-        return []
+        return Montagem()
     empresa = repo.obter_empresa(con, empresa_id)
     destino = Path(destino)
     destino.mkdir(parents=True, exist_ok=True)
@@ -83,4 +89,4 @@ def montar(con, empresa_id: int, competencia: str, pdf_modo: ModoPdf, destino: P
                 z.writestr(arq, dados)
         saida.append(caminho)
     (destino / "resumo.xlsx").unlink(missing_ok=True)
-    return saida
+    return Montagem(saida, [d["id"] for d in docs])

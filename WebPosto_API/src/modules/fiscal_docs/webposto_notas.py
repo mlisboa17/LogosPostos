@@ -6,17 +6,19 @@ A CHAVE nunca aparece em log nem em mensagem de erro.
 """
 from __future__ import annotations
 
+import logging
 import os
 from datetime import date
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 import httpx
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from src.modules.webposto_integration.http import BASE_URL_PADRAO, UnidadeIntegrada, WebPostoErro, paginar
 from src.shared.segredos import obter_segredo
 
+logger = logging.getLogger(__name__)
 ROTA_LISTA = "/INTEGRACAO/V1/NOTAS_MANIFESTACAO"
 ROTA_XML = "/INTEGRACAO/V1/NOTAS_ENTRADA/XML/{chave}"
 ROTA_ENTRADAS = "/INTEGRACAO/V1/NOTAS_ENTRADA"
@@ -66,18 +68,23 @@ def _periodo(unidade: UnidadeIntegrada, inicio: date, fim: date) -> dict[str, An
 async def listar_notas(unidade: UnidadeIntegrada, inicio: date, fim: date, *,
                        client: httpx.AsyncClient | None = None) -> list[NotaListada]:
     linhas = await paginar(unidade, ROTA_LISTA, _periodo(unidade, inicio, fim), client=client)
-    return [
-        NotaListada(
-            chave=_texto(r.get("chaveDocumento")),
-            emitente_cnpj=_texto(r.get("cnpjFornecedor")) or "",
-            emitente_nome=_texto(r.get("razaoSocialFornecedor")) or "",
-            emissao=_data(r.get("dataEmissao")),
-            valor=_dec(r.get("valor")) or Decimal("0"),
-            tipo_produto=_texto(r.get("tipoProduto")),
-            recebido=r.get("recebido"),
-        )
-        for r in linhas if _texto(r.get("chaveDocumento"))
-    ]
+    notas = []
+    for r in linhas:
+        if not _texto(r.get("chaveDocumento")):
+            continue
+        try:  # uma linha estranha não derruba a lista
+            notas.append(NotaListada(
+                chave=_texto(r.get("chaveDocumento")),
+                emitente_cnpj=_texto(r.get("cnpjFornecedor")) or "",
+                emitente_nome=_texto(r.get("razaoSocialFornecedor")) or "",
+                emissao=_data(r.get("dataEmissao")),
+                valor=_dec(r.get("valor")) or Decimal("0"),
+                tipo_produto=_texto(r.get("tipoProduto")),
+                recebido=r.get("recebido"),
+            ))
+        except (ValidationError, ValueError, TypeError, InvalidOperation):
+            logger.warning("Linha de NOTAS_MANIFESTACAO ignorada (formato inesperado)")
+    return notas
 
 
 async def baixar_xml(unidade: UnidadeIntegrada, chave: str, *,

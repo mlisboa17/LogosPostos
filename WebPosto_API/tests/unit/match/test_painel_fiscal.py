@@ -131,3 +131,19 @@ def test_cadastro_escritorio_valida_email(cli, cenario):
                                        "dia_envio": "5", "modo": "enviar", "pdf": "ambos",
                                        "empresas": [str(cenario["e1"])]})
     assert r.status_code == 303
+
+
+def test_aprovar_pacote_pela_tela(cli, cenario, con, monkeypatch):
+    from apps.match.canais import email_smtp
+    enviados = []
+    monkeypatch.setattr(email_smtp, "enviar_arquivos", lambda *a: enviados.append(a))
+    csrf = _logar(cli, "admin")
+    _importar(cli, csrf, cenario["e1"], "a.xml", (DADOS / "nfe_combustivel.xml").read_bytes())
+    repo.salvar_escritorio(con, "Contab", ["c@x.com"], 5, "enviar", "separados", [cenario["e1"]])
+    banco.inserir_canal(con, "email", {"servidor": "s", "usuario": "u@x"})
+    pid = repo.salvar_pacote(con, cenario["e1"], "2026-10", "retido", [], "motivo")
+    r = cli.post(f"/pacotes/{pid}/aprovar", data={"csrf": csrf})
+    assert r.status_code == 200, r.text[:300]
+    assert "Pacote enviado." in r.text and len(enviados) == 1
+    r = cli.post(f"/pacotes/{pid}/reenviar", data={"csrf": csrf})
+    assert r.status_code == 200 and len(enviados) == 2

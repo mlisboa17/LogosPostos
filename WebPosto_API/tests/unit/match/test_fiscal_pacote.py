@@ -48,22 +48,22 @@ def _nomes(z: Path) -> list[str]:
 def test_competencia_pelo_fuso_de_recife(con, tmp_path):
     eid = _empresa(con)
     doc = _gravar(con, eid, tmp_path, "nfe_combustivel.xml")  # 31/10 23:30 -03:00
-    [z] = pacote.montar(con, eid, "2026-10", "separados", tmp_path / "out")
+    [z] = pacote.montar(con, eid, "2026-10", "separados", tmp_path / "out").partes
     assert f"xml/{doc.chave}.xml" in _nomes(z)
-    assert pacote.montar(con, eid, "2026-11", "separados", tmp_path / "out2") == []
+    assert pacote.montar(con, eid, "2026-11", "separados", tmp_path / "out2").partes == []
 
 
 def test_modos_de_pdf(con, tmp_path):
     eid = _empresa(con)
     a = _gravar(con, eid, tmp_path, "nfe_combustivel.xml")
     b = _gravar(con, eid, tmp_path, "nfe_produto.xml")
-    [z] = pacote.montar(con, eid, "2026-10", "unificado", tmp_path / "u")
+    [z] = pacote.montar(con, eid, "2026-10", "unificado", tmp_path / "u").partes
     assert z.name == f"{CNPJ}_2026-10.zip"
     assert _nomes(z) == sorted([f"xml/{a.chave}.xml", f"xml/{b.chave}.xml",
                                 f"pdf/{CNPJ}_2026-10_notas.pdf", "Resumo_doze_10-2026.xlsx"])
-    [z] = pacote.montar(con, eid, "2026-10", "ambos", tmp_path / "a")
+    [z] = pacote.montar(con, eid, "2026-10", "ambos", tmp_path / "a").partes
     assert {f"pdf/{a.chave}.pdf", f"pdf/{b.chave}.pdf", f"pdf/{CNPJ}_2026-10_notas.pdf"} <= set(_nomes(z))
-    [z] = pacote.montar(con, eid, "2026-10", "separados", tmp_path / "s")
+    [z] = pacote.montar(con, eid, "2026-10", "separados", tmp_path / "s").partes
     assert f"pdf/{CNPJ}_2026-10_notas.pdf" not in _nomes(z)
 
 
@@ -72,7 +72,7 @@ def test_divide_em_partes(con, tmp_path, monkeypatch):
     _gravar(con, eid, tmp_path, "nfe_combustivel.xml")
     _gravar(con, eid, tmp_path, "nfe_produto.xml")
     monkeypatch.setattr(pacote, "LIMITE_BYTES", 8 * 1024)
-    partes = pacote.montar(con, eid, "2026-10", "ambos", tmp_path / "d")
+    partes = pacote.montar(con, eid, "2026-10", "ambos", tmp_path / "d").partes
     assert len(partes) > 1
     assert [p.name for p in partes] == [f"{CNPJ}_2026-10_parte{i}.zip" for i in range(1, len(partes) + 1)]
     assert "Resumo_doze_10-2026.xlsx" in _nomes(partes[0])
@@ -83,9 +83,11 @@ def test_divide_em_partes(con, tmp_path, monkeypatch):
 def test_complementar_so_com_novos(con, tmp_path):
     eid = _empresa(con)
     _gravar(con, eid, tmp_path, "nfe_combustivel.xml")
-    corte = datetime.now(timezone.utc)
+    ja = {con.execute("SELECT id FROM documento").fetchone()[0]}
     b = _gravar(con, eid, tmp_path, "nfe_produto.xml")
-    [z] = pacote.montar(con, eid, "2026-10", "separados", tmp_path / "c", complementar=True, desde=corte)
+    m = pacote.montar(con, eid, "2026-10", "separados", tmp_path / "c", complementar=True, excluir=ja)
+    [z] = m.partes
+    assert len(m.documentos) == 1
     assert z.name == f"{CNPJ}_2026-10_complementar_1.zip"
     assert [n for n in _nomes(z) if n.startswith("xml/")] == [f"xml/{b.chave}.xml"]
 

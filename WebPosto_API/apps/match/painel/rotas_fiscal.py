@@ -17,8 +17,8 @@ from starlette.concurrency import run_in_threadpool
 from apps.match import acesso, banco, caminhos
 from apps.match.acesso import Acao
 from apps.match.fiscal import captura, envio_mensal, repositorio as repo
-from apps.match.painel.rotas import (Ctx, Recusado, _ctx, _ctx_post, _em_segundo_plano, _int, _ints,
-                                     _ir, _pagina, _txt)
+from apps.match.painel.rotas import (Ctx, Recusado, _com_conexao, _ctx, _ctx_post, _em_segundo_plano, _int,
+                                     _ints, _ir, _pagina, _txt)
 from src.modules.cash_reconciliation.domain.tempo import hoje
 from src.modules.fiscal_docs import acervo, pdf
 from src.modules.fiscal_docs.modelos import XmlInvalido
@@ -31,7 +31,7 @@ MAX_ARQUIVOS = 2000
 _RE_EMAIL = re.compile(r"^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$")
 _TIPOS = {"": "Todos", "nfe": "NF-e", "nfse": "NFS-e", "cte": "CT-e"}
 _SITUACOES = {"": "Todas", "autorizada": "Autorizada", "cancelada": "Cancelada", "so_resumo": "Só resumo"}
-_SITUACAO_PACOTE = {"gerado": "📦 pronto para baixar", "retido": "⚠ retido", "aprovado": "✅ aprovado",
+_SITUACAO_PACOTE = {"gerado": "📦 pronto para baixar", "retido": "⚠ retido", "aprovado": "✅ aprovado", "enviando": "⏳ enviando",
                     "enviado": "✅ enviado", "erro": "❌ erro"}
 
 
@@ -244,8 +244,9 @@ async def _acao_pacote(ctx: Ctx, pacote_id: int, funcao, ok: str):
     empresa = repo.obter_empresa(ctx.con, p["empresa_id"])
     if empresa["posto_id"] is not None:
         ctx.exigir(Acao.APROVAR_PACOTE, empresa["posto_id"])
+    fabrica = ctx.request.app.state.con_factory  # sqlite3: conexão própria na thread do envio
     try:
-        r = await run_in_threadpool(funcao, ctx.con, pacote_id, ctx.uid)
+        r = await run_in_threadpool(_com_conexao, fabrica, lambda con: funcao(con, pacote_id, ctx.uid))
     except ValueError as exc:
         return _pagina_pacotes(ctx, 400, erro=str(exc))
     if r.get("situacao") in ("erro", "retido"):
