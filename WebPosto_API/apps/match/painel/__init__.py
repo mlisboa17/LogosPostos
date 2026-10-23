@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from apps.match.painel import rotas
+from apps.match.painel import rotas, rotas_fiscal
 
 HOSTS_LOCAIS = ("127.0.0.1", "localhost")
 
@@ -27,6 +27,7 @@ def criar_app(con_factory, sched=None) -> FastAPI:
     app.state.sessoes = rotas.Sessoes()
     app.mount("/static", StaticFiles(directory=str(rotas.PASTA / "static")), name="static")
     app.include_router(rotas.router)
+    app.include_router(rotas_fiscal.router)
     app.add_exception_handler(rotas.Redirecionar, rotas.tratar_redirecionar)
     app.add_exception_handler(rotas.Recusado, rotas.tratar_recusado)
 

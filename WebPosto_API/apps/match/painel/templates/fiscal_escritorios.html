@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block titulo %}Escritórios{% endblock %}
+{% block conteudo %}
+<h1>Escritórios de contabilidade</h1>
+<p class="dica">No dia de envio, às 08:00, o Logos Match monta o pacote do mês anterior de cada empresa e manda para os e-mails do escritório (usa o servidor do canal de e-mail cadastrado em Canais).</p>
+{% for l in escritorios %}
+<section class="cartao estreito">
+  <h2>{{ l.o.nome }}</h2>
+  <form method="post" action="/escritorios">
+    <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="escritorio_id" value="{{ l.o.id }}">
+    <label>Nome <input name="nome" value="{{ l.o.nome }}" required></label>
+    <label>E-mails (separados por vírgula) <input name="emails" value="{{ l.emails }}" required></label>
+    <label>Dia do envio (1 a 28) <input name="dia_envio" type="number" min="1" max="28" value="{{ l.o.dia_envio }}"></label>
+    <label>Modo <select name="modo"><option value="enviar"{% if l.o.modo == "enviar" %} selected{% endif %}>Enviar por e-mail</option><option value="so_gerar"{% if l.o.modo == "so_gerar" %} selected{% endif %}>Só gerar para baixar</option></select></label>
+    <label>PDFs <select name="pdf">{% for k, v in {"separados": "Separados", "unificado": "Um arquivo só", "ambos": "Os dois"}.items() %}<option value="{{ k }}"{% if l.o.pdf == k %} selected{% endif %}>{{ v }}</option>{% endfor %}</select></label>
+    <fieldset><legend>Empresas atendidas</legend>
+      {% for e in empresas %}<label class="caixa"><input type="checkbox" name="empresas" value="{{ e.id }}"{% if e.id in l.empresas %} checked{% endif %}> {{ e.razao_social }}</label>{% endfor %}
+    </fieldset>
+    <button type="submit">Salvar</button>
+  </form>
+</section>
+{% endfor %}
+<section class="cartao estreito">
+  <h2>Novo escritório</h2>
+  <form method="post" action="/escritorios">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>Nome <input name="nome" required></label>
+    <label>E-mails (separados por vírgula) <input name="emails" required></label>
+    <label>Dia do envio (1 a 28) <input name="dia_envio" type="number" min="1" max="28" value="5"></label>
+    <label>Modo <select name="modo"><option value="enviar">Enviar por e-mail</option><option value="so_gerar">Só gerar para baixar</option></select></label>
+    <label>PDFs <select name="pdf"><option value="ambos">Os dois</option><option value="separados">Separados</option><option value="unificado">Um arquivo só</option></select></label>
+    <fieldset><legend>Empresas atendidas</legend>
+      {% for e in empresas %}<label class="caixa"><input type="checkbox" name="empresas" value="{{ e.id }}"> {{ e.razao_social }}</label>{% else %}<span>Cadastre as empresas primeiro.</span>{% endfor %}
+    </fieldset>
+    <button type="submit">Salvar</button>
+  </form>
+</section>
+{% endblock %}

@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block titulo %}Importar notas{% endblock %}
+{% block conteudo %}
+<h1>Importar notas (XML ou ZIP)</h1>
+<p class="dica">Use para notas de serviço baixadas no portal da prefeitura ou qualquer XML que não veio sozinho. Hoje o Logos Match lê NF-e e NFS-e do padrão nacional. Nota repetida não é duplicada.</p>
+{% if recusados %}
+<section class="cartao"><h2>Arquivos não importados</h2><ul>{% for r in recusados %}<li>{{ r }}</li>{% endfor %}</ul></section>
+{% endif %}
+<section class="cartao estreito">
+  <form method="post" action="/importar" enctype="multipart/form-data">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>Empresa que recebeu as notas
+      <select name="empresa_id" required>{% for e in empresas %}<option value="{{ e.id }}">{{ e.razao_social }} · {{ e.cnpj }}</option>{% endfor %}</select></label>
+    <label>Arquivos (.xml ou .zip, até 50 MB) <input type="file" name="arquivos" accept=".xml,.zip" multiple required></label>
+    <button type="submit">Importar</button>
+  </form>
+</section>
+{% endblock %}

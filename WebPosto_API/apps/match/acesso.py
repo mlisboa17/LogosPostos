@@ -75,7 +75,8 @@ def pode(usuario, acao: Acao, posto_id: int | None = None) -> bool:
 
 
 def postos_visiveis(con, usuario) -> list[int]:
-    if usuario is None or not usuario["ativo"]:
+    """Postos das telas de conferência de caixa (contabilidade não vê nenhum)."""
+    if usuario is None or not usuario["ativo"] or usuario["perfil"] == Perfil.CONTABILIDADE.value:
         return []
     if usuario["perfil"] == Perfil.ADMINISTRADOR.value:
         return [r[0] for r in con.execute("SELECT id FROM posto ORDER BY id")]

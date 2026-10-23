@@ -223,8 +223,21 @@ def _ints(form, nome: str) -> list[int]:
     return [int(v) for v in form.getlist(nome) if isinstance(v, str) and v.strip().isdigit()]
 
 
+def _so_fiscal(ctx: Ctx) -> bool:
+    """Perfil contabilidade: enxerga só o módulo de notas fiscais."""
+    u = acesso.carregar_usuario(ctx.con, ctx.uid)
+    return u is not None and u["perfil"] == Perfil.CONTABILIDADE.value
+
+
 def _menu(ctx: Ctx) -> list[tuple[str, str]]:
-    itens = [("/", "Hoje"), ("/coleta", "Coleta")]
+    fiscal = []
+    if ctx.pode(Acao.VER_FISCAL):
+        fiscal += [("/notas", "Notas fiscais"), ("/pacotes", "Pacotes")]
+    if ctx.pode(Acao.GERIR_FISCAL):
+        fiscal += [("/empresas", "Empresas"), ("/escritorios", "Escritórios")]
+    if _so_fiscal(ctx):
+        return fiscal
+    itens = [("/", "Hoje"), ("/coleta", "Coleta")] + fiscal
     if ctx.pode(Acao.CADASTRAR_POSTO) or ctx.pode(Acao.TROCAR_CREDENCIAL):
         itens.append(("/postos", "Postos"))
     if ctx.pode(Acao.CONFIGURAR):
@@ -406,6 +419,8 @@ def _pagina_hoje(ctx: Ctx, status: int = 200, **dados):
 
 @router.get("/")
 async def hoje(ctx: Ctx = Depends(_ctx)):
+    if _so_fiscal(ctx):
+        return _ir("/notas")
     return _pagina_hoje(ctx)
 
 

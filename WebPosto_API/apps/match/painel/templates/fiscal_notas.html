@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block titulo %}Notas fiscais{% endblock %}
+{% block conteudo %}
+<h1>Notas fiscais recebidas</h1>
+<form method="get" action="/notas" class="cartao">
+  <div class="linha">
+    <label>Empresa
+      <select name="empresa_id">
+        <option value="">Todas</option>
+        {% for e in empresas %}<option value="{{ e.id }}"{% if f.empresa_id == e.id %} selected{% endif %}>{{ e.razao_social }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>De <input type="date" name="inicio" value="{{ f.inicio }}"></label>
+    <label>Até <input type="date" name="fim" value="{{ f.fim }}"></label>
+    <label>Fornecedor (nome ou CNPJ) <input name="fornecedor" value="{{ f.fornecedor }}"></label>
+  </div>
+  <div class="linha">
+    <label>Tipo <select name="tipo">{% for k, v in tipos.items() %}<option value="{{ k }}"{% if f.tipo == k %} selected{% endif %}>{{ v }}</option>{% endfor %}</select></label>
+    <label>Situação <select name="situacao">{% for k, v in situacoes.items() %}<option value="{{ k }}"{% if f.situacao == k %} selected{% endif %}>{{ v }}</option>{% endfor %}</select></label>
+    <label>Combustível <select name="combustivel">
+      <option value="">Todas</option><option value="sim"{% if f.combustivel == "sim" %} selected{% endif %}>Só combustível</option>
+      <option value="nao"{% if f.combustivel == "nao" %} selected{% endif %}>Sem combustível</option></select></label>
+    <label>Valor mínimo <input name="valor_min" value="{{ f.valor_min }}" inputmode="decimal"></label>
+    <label>Valor máximo <input name="valor_max" value="{{ f.valor_max }}" inputmode="decimal"></label>
+    <button type="submit">Filtrar</button>
+  </div>
+</form>
+<p><a href="/importar">Importar XML ou ZIP</a></p>
+<form method="get" action="/notas/xml">
+<p>{{ docs|length }} nota(s) · total {{ total|dinheiro }}</p>
+<table>
+  <thead><tr><th></th><th>Emissão</th><th>Empresa</th><th>Tipo</th><th>Número</th><th>Emitente</th><th>Valor</th><th>Situação</th><th>Frete / CT-e</th></tr></thead>
+  <tbody>
+  {% for d in docs %}
+    <tr>
+      <td>{% if d.xml_path %}<input type="checkbox" name="ids" value="{{ d.id }}" checked aria-label="Selecionar nota {{ d.numero }}">{% endif %}</td>
+      <td>{{ d.emissao_em|data }}</td><td>{{ d.empresa_apelido or d.empresa_nome }}</td>
+      <td>{{ {"nfe": "NF-e", "nfse": "NFS-e", "cte": "CT-e"}[d.tipo] }}{% if d.combustivel %} ⛽{% endif %}</td>
+      <td>{{ d.numero }}</td><td>{{ d.emitente_nome }}<br><small>{{ d.emitente_cnpj }}</small></td>
+      <td>{{ d.valor_total|dinheiro }}</td>
+      <td>{{ {"autorizada": "✅ Autorizada", "cancelada": "❌ Cancelada", "so_resumo": "⏳ Sem XML ainda"}[d.situacao] }}</td>
+      <td>{{ d.cte_numero or "" }}</td>
+    </tr>
+  {% else %}<tr><td colspan="9">Nenhuma nota neste filtro.</td></tr>{% endfor %}
+  </tbody>
+</table>
+{% if docs %}
+<div class="linha">
+  <button type="submit">Baixar XMLs selecionados</button>
+  <button type="submit" formaction="/notas/pdf" name="modo" value="separados">Baixar PDFs separados</button>
+  <button type="submit" formaction="/notas/pdf" name="modo" value="unificado">Baixar PDF único</button>
+</div>
+{% endif %}
+</form>
+{% if f.empresa_id %}
+<p><a href="/notas/planilha?empresa_id={{ f.empresa_id }}&amp;competencia={{ f.inicio[:7] }}">Planilha resumo de {{ f.inicio[5:7] }}/{{ f.inicio[:4] }}</a></p>
+{% endif %}
+{% endblock %}

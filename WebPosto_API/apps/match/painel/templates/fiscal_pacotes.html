@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block titulo %}Pacotes{% endblock %}
+{% block conteudo %}
+<h1>Pacotes da contabilidade</h1>
+<table>
+  <thead><tr><th>Competência</th><th>Empresa</th><th>Situação</th><th>Motivo</th><th>Enviado em</th><th>Arquivos</th><th></th></tr></thead>
+  <tbody>
+  {% for l in pacotes %}
+    <tr><td>{{ l.p.competencia[5:7] }}/{{ l.p.competencia[:4] }}{% if l.p.complementar %} <small>complementar</small>{% endif %}</td>
+      <td>{{ l.p.apelido or l.p.razao_social }}</td><td>{{ l.situacao }}</td><td>{{ l.p.motivo_retencao or "" }}</td>
+      <td>{{ l.p.enviado_em|data_hora if l.p.enviado_em else "—" }}</td>
+      <td>{% for i in range(1, l.partes + 1) %}<a href="/pacotes/{{ l.p.id }}/baixar?parte={{ i }}">{{ "Baixar" if l.partes == 1 else "parte " ~ i }}</a>{% if not loop.last %} · {% endif %}{% else %}—{% endfor %}</td>
+      <td>{% if pode_aprovar %}
+        {% if l.p.situacao in ("retido", "erro") %}<form method="post" action="/pacotes/{{ l.p.id }}/aprovar"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit">Enviar mesmo assim</button></form>
+        {% elif l.p.situacao == "enviado" %}<form method="post" action="/pacotes/{{ l.p.id }}/reenviar"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit">Reenviar</button></form>{% endif %}
+      {% endif %}</td></tr>
+  {% else %}<tr><td colspan="7">Nenhum pacote ainda. O primeiro sai no dia de envio de cada escritório.</td></tr>{% endfor %}
+  </tbody>
+</table>
+{% endblock %}

@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block titulo %}Empresas{% endblock %}
+{% block conteudo %}
+<h1>Empresas (notas fiscais)</h1>
+<p class="dica">As NF-e vêm do webPosto pela chave cadastrada no posto ligado à empresa. Notas de serviço (NFS-e) entram por Importar nesta versão.</p>
+<table>
+  <thead><tr><th>Empresa</th><th>CNPJ</th><th>Município</th><th>Posto</th><th>Última captura</th><th></th></tr></thead>
+  <tbody>
+  {% for l in empresas %}
+    <tr><td>{{ l.e.razao_social }}{% if l.e.apelido %} <small>({{ l.e.apelido }})</small>{% endif %}</td>
+      <td>{{ l.e.cnpj }}</td><td>{{ l.e.municipio or "" }}/{{ l.e.uf or "" }}</td>
+      <td>{% for p in postos %}{% if p.id == l.e.posto_id %}{{ p.apelido or p.nome }}{% endif %}{% endfor %}</td>
+      <td>{% if l.ultima %}{{ l.ultima.iniciada_em|data_hora }} · {{ {"ok": "✅", "erro": "❌", "sem_chave": "⚠ sem chave"}.get(l.ultima.situacao, l.ultima.situacao) }} {{ l.ultima.qtd_novas }} nova(s){% if l.ultima.qtd_pendentes %}, {{ l.ultima.qtd_pendentes }} sem XML{% endif %}{% if l.ultima.erro_texto %}<br><small>{{ l.ultima.erro_texto }}</small>{% endif %}{% else %}—{% endif %}</td>
+      <td><form method="post" action="/empresas/{{ l.e.id }}/capturar"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit">Capturar agora</button></form></td></tr>
+  {% else %}<tr><td colspan="6">Nenhuma empresa cadastrada.</td></tr>{% endfor %}
+  </tbody>
+</table>
+<section class="cartao estreito">
+  <h2>Cadastrar empresa</h2>
+  <form method="post" action="/empresas">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>CNPJ <input name="cnpj" required></label>
+    <label>Razão social <input name="razao_social" required></label>
+    <label>Apelido <input name="apelido"></label>
+    <label>Município <input name="municipio"></label>
+    <label>UF <input name="uf" value="PE" maxlength="2"></label>
+    <label>Posto do Logos Match (de onde vem a chave do webPosto)
+      <select name="posto_id"><option value="">Nenhum</option>
+        {% for p in postos %}<option value="{{ p.id }}">{{ p.apelido or p.nome }}{% if p.cnpj %} · {{ p.cnpj }}{% endif %}</option>{% endfor %}
+      </select></label>
+    <button type="submit">Salvar</button>
+  </form>
+</section>
+{% endblock %}
