@@ -360,9 +360,18 @@ def create_unified_app() -> FastAPI:
 
         app.include_router(cash_audit_router)
     except Exception as exc:
+        pass
+
+    try:
+        from src.interfaces.http.routes.classification_review_routes import router as classification_router
+
+        app.include_router(classification_router)
+    except Exception as exc:
         import logging
 
-        logging.getLogger(__name__).warning("Rotas cash-audit não carregadas: %s", exc)
+        logging.getLogger(__name__).warning(
+            "Rotas classification-review não carregadas: %s", exc
+        )
 
     try:
         from src.modules.commercial_performance.interfaces.http import router as commercial_router
@@ -688,6 +697,13 @@ def create_unified_app() -> FastAPI:
         p = ROOT / "static" / "produtos_crud.html"
         if not p.is_file():
             raise HTTPException(404, "static/produtos_crud.html não encontrado")
+        return FileResponse(p, media_type="text/html; charset=utf-8")
+
+    @app.get("/revisao", response_class=HTMLResponse, tags=["gateway", "revisao"])
+    async def pagina_revisao_classificacao():
+        p = ROOT / "static" / "revisao_classificacao.html"
+        if not p.is_file():
+            raise HTTPException(404, "static/revisao_classificacao.html não encontrado")
         return FileResponse(p, media_type="text/html; charset=utf-8")
 
     @app.get("/api/v1/proxy/{endpoint:path}", tags=["gateway"])

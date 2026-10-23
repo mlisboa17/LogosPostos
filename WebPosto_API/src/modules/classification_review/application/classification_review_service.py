@@ -171,6 +171,8 @@ class ClassificationReviewService:
                 "A conta 198966 é temporária de trânsito e não pode ser escolhida como plano definitivo de lançamento."
             )
 
+        self.validar_plano_folha_candidato(plano_definitivo_codigo)
+
         return self.repository.revisar_classificacao(
             pendencia_id=pendencia_id,
             versao_esperada=versao_esperada,
@@ -181,6 +183,63 @@ class ClassificationReviewService:
             revisor=revisor,
             justificativa=justificativa,
         )
+
+    def validar_plano_folha_candidato(self, plano_conta_codigo: int) -> None:
+        """Valida que o plano definitivo é folha, ativo, observado na última sincronização e candidato lançável."""
+        if plano_conta_codigo == CONTA_TEMPORARIA_CLASSIFICACAO:
+            raise ValueError(
+                "A conta 198966 é temporária de trânsito e não pode ser escolhida como plano definitivo de lançamento."
+            )
+        conn = self.repository._conectar()
+        try:
+            tem_tabela = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='master_planos_conta'"
+            ).fetchone()
+            if not tem_tabela:
+                return
+
+            row = conn.execute(
+                "SELECT * FROM master_planos_conta WHERE plano_conta_codigo = ?",
+                (plano_conta_codigo,),
+            ).fetchone()
+            if not row:
+                raise ValueError(f"Plano de contas {plano_conta_codigo} não encontrado no catálogo oficial.")
+            if not row["ativo"]:
+                raise ValueError(f"Plano de contas {plano_conta_codigo} está inativo no catálogo oficial.")
+            if not row["observado_ultima_sincronizacao"]:
+                raise ValueError(f"Plano de contas {plano_conta_codigo} não foi observado na última sincronização oficial.")
+            if not row["eh_folha"]:
+                raise ValueError(f"Plano de contas {plano_conta_codigo} é conta-pai estrutural; lançamentos exigem conta-folha.")
+            if not row["candidato_lancavel"]:
+                raise ValueError(f"Plano de contas {plano_conta_codigo} não é candidato lançável válido.")
+        finally:
+            conn.close()
+
+    def listar_planos_folha_validos(self) -> list[dict[str, Any]]:
+        """Retorna apenas planos ativos, observados, folhas e candidatos válidos (excluindo 198966)."""
+        conn = self.repository._conectar()
+        try:
+            tem_tabela = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='master_planos_conta'"
+            ).fetchone()
+            if not tem_tabela:
+                return []
+            rows = conn.execute(
+                """
+                SELECT plano_conta_codigo, descricao, hierarquia, grupo, natureza
+                FROM master_planos_conta
+                WHERE ativo = 1
+                  AND observado_ultima_sincronizacao = 1
+                  AND eh_folha = 1
+                  AND candidato_lancavel = 1
+                  AND plano_conta_codigo != ?
+                ORDER BY hierarquia, plano_conta_codigo;
+                """,
+                (CONTA_TEMPORARIA_CLASSIFICACAO,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            conn.close()
 
     def bloquear_pendencia(
         self,

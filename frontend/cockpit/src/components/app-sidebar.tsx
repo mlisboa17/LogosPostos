@@ -24,10 +24,12 @@ import {
   PackageIcon,
   Settings2Icon,
   ShoppingCartIcon,
+  CheckSquareIcon,
 } from "lucide-react";
 
 const navMain = [
   { title: "Painel", url: "/dashboard", icon: LayoutGridIcon },
+  { title: "Classificação", url: "/revisao", icon: CheckSquareIcon },
   { title: "Abastecimento", url: "/abastecimento", icon: FuelIcon },
   { title: "Vendas", url: "/vendas", icon: ShoppingCartIcon },
   { title: "Produtos", url: "/produtos", icon: PackageIcon },

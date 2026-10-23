@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Logos · Fila de Revisão de Classificação</title>
+    <link rel="stylesheet" href="/theme/omie.css">
+    <style>
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
+        .badge-pending { background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); }
+        .badge-classified { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); }
+        .badge-blocked { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); }
+        .badge-cancelled { background: rgba(148, 163, 184, 0.2); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.4); }
+        .kpi-card { background: #0f172a; border: 1px solid #1e293b; border-radius: 8px; padding: 16px; }
+        .kpi-title { font-size: 12px; color: #94a3b8; margin-bottom: 4px; }
+        .kpi-val { font-size: 24px; font-weight: 700; color: #f8fafc; }
+        .security-banner { background: rgba(8, 51, 68, 0.3); border: 1px solid rgba(14, 116, 144, 0.4); border-radius: 8px; padding: 12px 16px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
+        .panel-review { background: #0b1329; border: 1px solid #1e3a8a; border-radius: 8px; padding: 16px; margin-top: 20px; }
+    </style>
+</head>
+<body class="omie-app">
+    <div class="omie-page">
+        <header class="omie-page-header">
+            <div>
+                <h1>Fila de Revisão e Aprendizagem · Cockpit LOGOS</h1>
+                <p>Classificação humana supervisionada para saídas incertas · Aprendizagem contínua</p>
+            </div>
+            <nav class="omie-nav">
+                <a href="/dashboard">Cockpit</a>
+                <a href="/produtos">Produtos</a>
+                <a href="/revisao" class="is-active">Classificação</a>
+            </nav>
+        </header>
+
+        <!-- Banner de Segurança e Governança -->
+        <div class="security-banner">
+            <div>
+                <strong style="color: #38bdf8;">🛡️ ERP WRITES = ZERO</strong>
+                <span style="color: #94a3b8; font-size: 13px; margin-left: 8px;">
+                    Ambiente local auditável. Nenhuma requisição mutacional (POST/PUT/PATCH/DELETE) é enviada ao webPosto.
+                </span>
+            </div>
+            <div>
+                <span class="badge badge-blocked">Conta 198966 Bloqueada</span>
+                <span class="badge badge-blocked">Conta 27173 Débito Travado</span>
+            </div>
+        </div>
+
+        <!-- KPIs de Triagem e IA -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px;">
+            <div class="kpi-card">
+                <div class="kpi-title">Pendentes de Revisão</div>
+                <div class="kpi-val" id="kpiPendentes" style="color: #fbbf24;">—</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-title">Bloqueados por Travas</div>
+                <div class="kpi-val" id="kpiBloqueados" style="color: #f87171;">—</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-title">Classificados (Humano)</div>
+                <div class="kpi-val" id="kpiClassificados" style="color: #34d399;">—</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-title">Acurácia Sugestões IA</div>
+                <div class="kpi-val" id="kpiAcuracia" style="color: #38bdf8;">—</div>
+            </div>
+        </div>
+
+        <section class="omie-card">
+            <!-- Barra de Filtros -->
+            <div class="omie-filter-grid" style="margin-bottom: 16px;">
+                <label>
+                    <span>Status</span>
+                    <select id="filtroStatus" class="omie-input">
+                        <option value="TODOS" selected>Todos os status</option>
+                        <option value="PENDENTE_REVISAO">Pendentes</option>
+                        <option value="CLASSIFICADO">Classificados</option>
+                        <option value="BLOQUEADO">Bloqueados</option>
+                        <option value="CANCELADO">Cancelados</option>
+                    </select>
+                </label>
+                <label>
+                    <span>Empresa</span>
+                    <select id="filtroEmpresa" class="omie-input">
+                        <option value="" selected>Todas as empresas</option>
+                        <option value="5555">Casa Caiada (5555)</option>
+                        <option value="5556">Posto doze (5556)</option>
+                        <option value="5557">Posto VIP (5557)</option>
+                    </select>
+                </label>
+                <div class="omie-toolbar">
+                    <button type="button" id="btnRecarregar" class="omie-btn omie-btn--primary">Atualizar Fila</button>
+                </div>
+            </div>
+
+            <!-- Tabela de Pendências -->
+            <div class="table-scroll">
+                <table class="data-table data-table--lg">
+                    <thead>
+                        <tr>
+                            <th>ID / Data</th>
+                            <th>Empresa / Conta</th>
+                            <th>Descrição</th>
+                            <th>Sugestão IA</th>
+                            <th style="text-align: right;">Valor</th>
+                            <th style="text-align: center;">Status</th>
+                            <th>Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tabelaPendenciasCorpo">
+                        <tr>
+                            <td colspan="7" style="text-align: center; color: #64748b; padding: 24px;">Carregando fila...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Painel de Detalhes e Revisão Selecionada -->
+            <div id="painelRevisao" class="panel-review" style="display: none;">
+                <h3 style="color: #38bdf8; margin-top: 0; margin-bottom: 12px;" id="revTitulo">Revisão de Classificação</h3>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-bottom: 16px;">
+                    <div>
+                        <p style="color: #94a3b8; font-size: 12px; margin: 2px 0;">Detalhes da Movimentação:</p>
+                        <div id="revDetalhes" style="background: #020617; padding: 12px; border-radius: 6px; font-size: 13px; color: #f1f5f9;"></div>
+                    </div>
+                    <div>
+                        <p style="color: #94a3b8; font-size: 12px; margin: 2px 0;">Evidências Sanitizadas & Travas:</p>
+                        <div id="revEvidencias" style="background: #020617; padding: 12px; border-radius: 6px; font-size: 13px; color: #f1f5f9;"></div>
+                    </div>
+                </div>
+
+                <!-- Formulário de Decisão Humana -->
+                <div style="background: #091224; border: 1px solid #1e3a8a; border-radius: 6px; padding: 16px; margin-bottom: 16px;">
+                    <h4 style="color: #f8fafc; margin-top: 0; margin-bottom: 8px;">Definição de Plano Oficial (Somente Contas Folha Válidas)</h4>
+                    <p style="color: #94a3b8; font-size: 12px; margin-bottom: 12px;">
+                        * Somente contas ativas, observadas na última sincronização, folhas e candidatas lançáveis são permitidas. A conta temporária 198966 é estritamente rejeitada.
+                    </p>
+                    <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 12px; margin-bottom: 12px;">
+                        <label>
+                            <span style="font-size: 12px; color: #94a3b8;">Plano de Contas Oficial:</span>
+                            <select id="selectPlanoDefinitivo" class="omie-input" style="width: 100%;">
+                                <option value="">-- Selecione o plano oficial folha --</option>
+                            </select>
+                        </label>
+                        <label>
+                            <span style="font-size: 12px; color: #94a3b8;">Centro de Custo:</span>
+                            <input id="inputCentroCusto" class="omie-input" type="number" value="7295" style="width: 100%;">
+                        </label>
+                    </div>
+                    <label style="display: block; margin-bottom: 16px;">
+                        <span style="font-size: 12px; color: #94a3b8;">Justificativa da Revisão Humana:</span>
+                        <input id="inputJustificativa" class="omie-input" type="text" placeholder="Ex: Classificado conforme comprovação documental..." style="width: 100%;">
+                    </label>
+
+                    <div style="display: flex; gap: 8px;">
+                        <button type="button" id="btnConfirmarClassificacao" class="omie-btn omie-btn--primary">Confirmar Classificação (Local)</button>
+                        <button type="button" id="btnBloquear" class="omie-btn" style="background: #991b1b; color: white;">Bloquear</button>
+                        <button type="button" id="btnCancelar" class="omie-btn omie-btn--ghost">Cancelar</button>
+                    </div>
+                </div>
+
+                <!-- Trilha Auditável -->
+                <h4 style="color: #94a3b8; margin-top: 16px; margin-bottom: 8px;">Trilha Auditável de Mudanças</h4>
+                <div id="revHistorico" style="background: #020617; padding: 12px; border-radius: 6px; font-size: 12px; color: #cbd5e1; max-height: 150px; overflow-y: auto;">
+                    Nenhum histórico carregado.
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <script>
+        let pendenciasGlobais = [];
+        let itemSelecionado = null;
+        let planosValidos = [];
+
+        async function carregarTudo() {
+            try {
+                const status = document.getElementById('filtroStatus').value;
+                const empresa = document.getElementById('filtroEmpresa').value;
+                let url = '/api/v1/classification-review/pendencias?';
+                if (status && status !== 'TODOS') url += 'status=' + status + '&';
+                if (empresa) url += 'empresa_codigo=' + empresa + '&';
+
+                const [resItens, resMetricas, resPlanos] = await Promise.all([
+                    fetch(url).then(r => r.json()).catch(() => ({ itens: [] })),
+                    fetch('/api/v1/classification-review/metricas').then(r => r.json()).catch(() => null),
+                    fetch('/api/v1/classification-review/planos-validos').then(r => r.json()).catch(() => ({ planos: [] }))
+                ]);
+
+                pendenciasGlobais = resItens.itens || [];
+                planosValidos = resPlanos.planos || [];
+
+                // Atualizar KPIs
+                if (resMetricas) {
+                    document.getElementById('kpiPendentes').innerText = resMetricas.total_pendentes;
+                    document.getElementById('kpiBloqueados').innerText = resMetricas.total_bloqueados;
+                    document.getElementById('kpiClassificados').innerText = resMetricas.total_classificados;
+                    document.getElementById('kpiAcuracia').innerText = resMetricas.taxa_acerto_ia + '%';
+                }
+
+                // Preencher Select de Planos
+                const sel = document.getElementById('selectPlanoDefinitivo');
+                sel.innerHTML = '<option value="">-- Selecione o plano oficial folha --</option>';
+                planosValidos.forEach(p => {
+                    const opt = document.createElement('option');
+                    opt.value = p.plano_conta_codigo;
+                    opt.innerText = p.hierarquia + ' · ' + p.plano_conta_codigo + ' - ' + p.descricao;
+                    sel.appendChild(opt);
+                });
+
+                renderizarTabela();
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        function renderizarTabela() {
+            const corpo = document.getElementById('tabelaPendenciasCorpo');
+            if (pendenciasGlobais.length === 0) {
+                corpo.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #64748b; padding: 24px;">Nenhuma pendência na fila.</td></tr>';
+                return;
+            }
+
+            corpo.innerHTML = pendenciasGlobais.map(it => {
+                let badgeClass = 'badge-pending';
+                if (it.status === 'CLASSIFICADO') badgeClass = 'badge-classified';
+                if (it.status === 'BLOQUEADO') badgeClass = 'badge-blocked';
+                if (it.status === 'CANCELADO') badgeClass = 'badge-cancelled';
+
+                return `
+                    <tr style="cursor: pointer;" onclick="selecionarParaRevisao(${it.id})">
+                        <td><strong>#${it.id}</strong><br><span style="color: #64748b; font-size: 11px;">${it.data_movimento}</span></td>
+                        <td>Empresa: ${it.empresa_codigo}<br><span style="color: #64748b; font-size: 11px;">Conta: ${it.conta_financeira_codigo}</span></td>
+                        <td>${it.descricao}</td>
+                        <td>${it.sugestao_plano_descricao ? it.sugestao_plano_descricao + ' (' + Math.round(it.confianca_ia * 100) + '%)' : '—'}</td>
+                        <td style="text-align: right; color: #34d399; font-weight: 600;">${it.valor_formatado}</td>
+                        <td style="text-align: center;"><span class="badge ${badgeClass}">${it.status}</span></td>
+                        <td><button class="omie-btn omie-btn--ghost" style="font-size: 11px; padding: 2px 8px;">Revisar</button></td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        async function selecionarParaRevisao(id) {
+            itemSelecionado = pendenciasGlobais.find(it => it.id === id);
+            if (!itemSelecionado) return;
+
+            document.getElementById('painelRevisao').style.display = 'block';
+            document.getElementById('revTitulo').innerText = `Revisão da Pendência #${itemSelecionado.id} (v${itemSelecionado.versao}) · Status: ${itemSelecionado.status}`;
+
+            document.getElementById('revDetalhes').innerHTML = `
+                <div><strong>Empresa:</strong> ${itemSelecionado.empresa_codigo} | <strong>Conta:</strong> ${itemSelecionado.conta_financeira_codigo}</div>
+                <div><strong>Data:</strong> ${itemSelecionado.data_movimento} | <strong>Valor:</strong> ${itemSelecionado.valor_formatado}</div>
+                <div><strong>Descrição:</strong> ${itemSelecionado.descricao}</div>
+                <div><strong>Sugestão IA:</strong> ${itemSelecionado.sugestao_plano_codigo ? itemSelecionado.sugestao_plano_codigo + ' - ' + itemSelecionado.sugestao_plano_descricao : 'Nenhuma'} (${Math.round(itemSelecionado.confianca_ia * 100)}%)</div>
+            `;
+
+            let travasHtml = itemSelecionado.travas_encontradas.map(t => `<span class="badge badge-blocked">${t}</span>`).join(' ');
+            document.getElementById('revEvidencias').innerHTML = `
+                <div><strong>Evidência:</strong> <code>${itemSelecionado.referencia_evidencias || 'Nenhuma'}</code></div>
+                <div style="margin-top: 6px;"><strong>Travas:</strong> ${travasHtml || '<span style="color: #34d399;">Nenhuma trava ativa</span>'}</div>
+            `;
+
+            if (itemSelecionado.sugestao_plano_codigo && itemSelecionado.sugestao_plano_codigo !== 198966) {
+                document.getElementById('selectPlanoDefinitivo').value = itemSelecionado.sugestao_plano_codigo;
+            } else {
+                document.getElementById('selectPlanoDefinitivo').value = '';
+            }
+
+            // Carregar Histórico
+            const resHist = await fetch(`/api/v1/classification-review/pendencias/${id}/historico`).then(r => r.json()).catch(() => ({ eventos: [] }));
+            document.getElementById('revHistorico').innerHTML = (resHist.eventos || []).map(e => `
+                <div style="border-bottom: 1px solid #1e293b; padding: 4px 0;">
+                    <span style="color: #38bdf8; font-weight: 600;">${e.acao}</span> por <strong>${e.usuario_ou_sistema}</strong>
+                    ${e.status_anterior ? ` (${e.status_anterior} → ${e.status_novo})` : ''} em ${e.timestamp}
+                    ${e.justificativa ? `<br><em style="color: #94a3b8;">"${e.justificativa}"</em>` : ''}
+                </div>
+            `).join('') || 'Nenhum histórico registrado.';
+        }
+
+        document.getElementById('btnConfirmarClassificacao').addEventListener('click', async () => {
+            if (!itemSelecionado) return;
+            const plano = document.getElementById('selectPlanoDefinitivo').value;
+            if (!plano) {
+                alert('Selecione um plano de contas folha oficial válido.');
+                return;
+            }
+            if (Number(plano) === 198966) {
+                alert('A conta 198966 é temporária e não pode ser definida como plano definitivo.');
+                return;
+            }
+
+            const cc = document.getElementById('inputCentroCusto').value;
+            const just = document.getElementById('inputJustificativa').value;
+
+            const res = await fetch(`/api/v1/classification-review/pendencias/${itemSelecionado.id}/classificar`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    versao: itemSelecionado.versao,
+                    plano_definitivo_codigo: Number(plano),
+                    centro_custo_definitivo_codigo: Number(cc) || null,
+                    justificativa: just
+                })
+            });
+
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                alert(err.detail || 'Erro ao classificar');
+                return;
+            }
+
+            alert('Classificação registrada com sucesso na base local.');
+            carregarTudo();
+            selecionarParaRevisao(itemSelecionado.id);
+        });
+
+        document.getElementById('btnBloquear').addEventListener('click', async () => {
+            if (!itemSelecionado) return;
+            const motivo = prompt('Motivo do bloqueio:');
+            if (!motivo) return;
+
+            const res = await fetch(`/api/v1/classification-review/pendencias/${itemSelecionado.id}/bloquear`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ versao: itemSelecionado.versao, motivo: motivo })
+            });
+            if (res.ok) { carregarTudo(); selecionarParaRevisao(itemSelecionado.id); }
+        });
+
+        document.getElementById('btnCancelar').addEventListener('click', async () => {
+            if (!itemSelecionado) return;
+            const motivo = prompt('Motivo do cancelamento:');
+            if (!motivo) return;
+
+            const res = await fetch(`/api/v1/classification-review/pendencias/${itemSelecionado.id}/cancelar`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ versao: itemSelecionado.versao, motivo: motivo })
+            });
+            if (res.ok) { carregarTudo(); selecionarParaRevisao(itemSelecionado.id); }
+        });
+
+        document.getElementById('btnRecarregar').addEventListener('click', carregarTudo);
+        document.getElementById('filtroStatus').addEventListener('change', carregarTudo);
+        document.getElementById('filtroEmpresa').addEventListener('change', carregarTudo);
+
+        carregarTudo();
+    </script>
+</body>
+</html>

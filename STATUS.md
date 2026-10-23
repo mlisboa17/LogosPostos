@@ -5,6 +5,30 @@ Repositório canônico: C:\Projetos\LOGOS\LogosPostos · branch feature/cash-aud
 PR a abrir: https://github.com/mlisboa17/LogosPostos/pull/new/feature/cash-audit-fechamento
 Histórico de sprints: um prompt por sprint em docs/prompts/ (SPRINT_05 ... SPRINT_12, PREMMIA_00, TELEGRAM_00)
 
+# COCKPIT-REVIEW-QUEUE-01 — Interface e Endpoints da Fila de Revisão — 23/10/2026
+
+- Endpoints locais autenticados implementados em `/api/v1/classification-review/`:
+  - `GET /pendencias`: listagem com paginação e filtros (status, empresa, conta, data, busca textual);
+  - `GET /pendencias/{id}` e `GET /pendencias/{id}/historico`: detalhes completos, auditoria imutável e evidências sanitizadas;
+  - `POST /pendencias/{id}/classificar`: classificação humana exigindo estritamente plano folha válido e rejeitando 198966;
+  - `POST /pendencias/{id}/bloquear` e `POST /pendencias/{id}/cancelar`: contenção e cancelamento com justificativa auditada;
+  - `GET /casos-semelhantes`: busca histórica por similaridade de descrição/empresa;
+  - `GET /metricas`: acurácia, taxa de automação e distribuição de pendências;
+  - `GET /planos-validos`: catálogo exclusivo de contas-folha ativas observadas na última sincronização (`candidato_lancavel=1`, excluindo `198966`);
+  - `GET /regras-candidatas`: monitoramento de regras candidatas (>=3 casos confirmados), mantendo-as estritamente elegíveis para revisão, sem ativação de automação nem lançamentos no ERP.
+- Tela de revisão no Cockpit disponibilizada:
+  - Frontend Next.js em `frontend/cockpit/src/app/revisao/page.tsx` com `classification-review-live.tsx` e entrada no menu de navegação;
+  - View HTML estática servida em `/revisao` diretamente pelo backend FastAPI para operação leve/independente.
+  - Exibição completa: empresa, conta financeira, data, valor, descrição, evidências sanitizadas, sugestões/confiança da IA, travas ativas, histórico cronológico e seleção de plano definitivo.
+- Governança e Controles de Integridade:
+  - Proteção contra concorrência e replay via versionamento otimista (`versao`) e HTTP 409 em caso de conflito;
+  - Rejeição categórica do plano temporário `198966` como plano definitivo (HTTP 400);
+  - Invalidação automática de aprovações/propostas anteriores a cada retificação humana;
+  - Dados fictícios restritos aos testes automatizados (0 pendências falsas inseridas no banco operacional `master_data.sqlite3`).
+- ERP WRITES = ZERO: nenhuma chamada POST/PUT/PATCH/DELETE externa ao webPosto. Não foram gerados tokens nem autorizados lançamentos. Conta 27173 e allowlist `{17837}` rigorosamente inalteradas.
+- Testes 100% aprovados: 13 novos testes de API (`test_classification_review_api.py`) + 14 testes da fila (`test_fila_revisao_classificacao.py`) + 124 testes da suíte global (total 151 testes passando).
+- Evidência: [COCKPIT_REVIEW_QUEUE_01_CHECKPOINT.md](docs/checkpoints/COCKPIT_REVIEW_QUEUE_01_CHECKPOINT.md).
+
 # EXPENSE-REVIEW-QUEUE-01 — Fila Local de Revisão e Aprendizagem — 23/10/2026
 
 - Fila local auditável implementada para classificações incertas (`ClassificationReviewService` e `SqliteClassificationReviewRepository`), desacoplando extração e triagem de lançamentos no ERP.
