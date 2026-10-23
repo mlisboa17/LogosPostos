@@ -5,6 +5,18 @@ Repositório canônico: C:\Projetos\LOGOS\LogosPostos · branch feature/cash-aud
 PR a abrir: https://github.com/mlisboa17/LogosPostos/pull/new/feature/cash-audit-fechamento
 Histórico de sprints: um prompt por sprint em docs/prompts/ (SPRINT_05 ... SPRINT_12, PREMMIA_00, TELEGRAM_00)
 
+# MASTER-DATA-07 — Reclassificação Local e Simulação Offline — 23/10/2026
+
+- Reclassificação autorizada executada somente no SQLite local: conta `27173` agora é `CONTA_CORRENTE` da empresa `5555`.
+- Banco `001`, agência `2365-5`, conta `56816-3`, confiabilidade `CONFIRMADO`.
+- Débito real permanece desabilitado (`permite_debito_despesa = 0`).
+- Conta `27173` não foi adicionada à allowlist de escrita.
+- Trilha append-only registrada como `audit_id 235`; backup local criado antes da alteração.
+- Simulação offline do piloto de R$ 626,00 preparada com o código `27173`; nenhum payload foi transmitido.
+- Piloto permanece `BLOCKED_ACCOUNTING_REVIEW` pela divergência entre recebedor PJ (`Posto Real Ltda`) e finalidade de pró-labore PF (`Márcio`), além da exigência de reconfirmar duplicidade antes de eventual escrita.
+- Zero chamadas externas, zero escrita ERP e zero alteração de travas `.env`.
+- Evidências: [MASTER_DATA_07_LOCAL_RECLASSIFICATION_AND_PILOT_SIMULATION.md](docs/validation/MASTER_DATA_07_LOCAL_RECLASSIFICATION_AND_PILOT_SIMULATION.md) e [MASTER_DATA_07_CHECKPOINT.md](docs/checkpoints/MASTER_DATA_07_CHECKPOINT.md).
+
 # MASTER-DATA-06 — Conferência Visual da Conta 27173 — 23/10/2026
 
 - Três capturas do Cadastro de Conta do webPosto foram confrontadas com as evidências oficiais já registradas.

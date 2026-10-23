@@ -9,7 +9,7 @@ Cobre:
 5. Comprovação do pagamento via evidência de extrato bancário (débito, FITID, lote, doc);
 6. Verificação de ausência de duplicidade no ERP (sem títulos ou movimentos preexistentes);
 7. Validação estrutural do payload de POST /INTEGRACAO/V1/MOVIMENTOS_CONTA conforme OpenAPI;
-8. Bloqueio da preparação de escrita (BLOCKED) enquanto o cdConta ERP oficial do BB não for vinculado.
+8. Bloqueio da escrita enquanto a conta 27173 permanecer fora da allowlist e com débito desabilitado.
 """
 
 from __future__ import annotations
@@ -126,19 +126,16 @@ def test_05_validacao_schema_payload_movimento_conta():
     assert len(payload_preparado["descricao"]) > 0
 
 
-def test_06_bloqueio_preparacao_sem_cd_conta_oficial():
-    """Garante que a escrita permanece BLOCKED enquanto o cdConta oficial do BB não estiver mapeado."""
-    # No estado atual, Casa Caiada (5555) não possui conta bancária BB cadastrada em CONTAS_AUTORIZADAS_POR_UNIDADE
+def test_06_bloqueio_escrita_conta_27173_reclassificada_localmente():
+    """Garante que conhecer o cdConta não o libera automaticamente para escrita."""
     contas_autorizadas = CONTAS_AUTORIZADAS_POR_UNIDADE.get(5555, frozenset())
 
-    # Apenas a 17837 está mapeada, mas é CAIXA
+    # A allowlist de escrita não foi alterada pela reclassificação do cadastro local.
     assert 17837 in contas_autorizadas
+    assert 27173 not in contas_autorizadas
 
-    # Nenhuma conta bancária de BB (56816-3) está mapeada para 5555
-    # Simulação: tentar validar um cdConta arbitrário ou ausente levanta erro
-    cd_conta_bb = None
-    with pytest.raises(BarreiraDespesaErro):
-        validar_conta_financeira_unidade(5555, cd_conta_bb)
+    with pytest.raises(BarreiraDespesaErro, match="não pertence nem está cadastrada"):
+        validar_conta_financeira_unidade(5555, 27173)
 
 
 def test_07_classificacao_plano_contas_pro_labore_oficial():
@@ -260,7 +257,7 @@ def test_11_payload_preparado_despesa_626_casa_caiada():
         "descricao": "PRÓ-LABORE MÁRCIO (Posto Real Ltda)",
         "data": "2026-10-10",
         "valor": 626.00,
-        "conta": None,  # Aguarda cdConta oficial do BB da filial 5555
+        "conta": 27173,  # Identificada; permanece bloqueada para escrita real
         "documento": "COMPROVANTE_BB_20261010",
         "centroCusto": 7295,  # PISTA
         "planoConta": 29021,  # PRO LABORE
@@ -274,4 +271,5 @@ def test_11_payload_preparado_despesa_626_casa_caiada():
     assert payload_626["valor"] == 626.00
     assert payload_626["data"] == "2026-10-10"
     assert payload_626["planoConta"] == 29021
+    assert payload_626["conta"] == 27173
     assert payload_626["contaMovimentoTipo"] == "DEBITO"
