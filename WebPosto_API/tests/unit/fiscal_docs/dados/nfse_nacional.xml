@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<NFSe xmlns="http://www.sped.fazenda.gov.br/nfse" versao="1.00">
+<infNFSe Id="NFS26116062244444444000191000000000000126090000000001">
+<xLocEmi>Recife</xLocEmi>
+<nNFSe>1</nNFSe>
+<dhProc>2026-09-15T10:05:00-03:00</dhProc>
+<emit><CNPJ>44444444000191</CNPJ><xNome>MANUTENCAO DE BOMBAS TESTE LTDA</xNome></emit>
+<valores><vBC>1500.00</vBC><pAliqAplic>5.00</pAliqAplic><vISSQN>75.00</vISSQN><vTotalRet>97.50</vTotalRet><vLiq>1402.50</vLiq></valores>
+<DPS versao="1.00"><infDPS Id="DPS261160624444444400019100001000000000000001">
+<dhEmi>2026-09-15T10:00:00-03:00</dhEmi><dCompet>2026-09-15</dCompet>
+<prest><CNPJ>44444444000191</CNPJ></prest>
+<toma><CNPJ>52308604000284</CNPJ><xNome>POSTO TESTE</xNome></toma>
+<serv><cServ><cTribNac>140101</cTribNac><xDescServ>Manutencao preventiva de bombas de combustivel</xDescServ></cServ></serv>
+<valores><vServPrest><vServ>1500.00</vServ></vServPrest></valores>
+</infDPS></DPS>
+</infNFSe>
+</NFSe>
