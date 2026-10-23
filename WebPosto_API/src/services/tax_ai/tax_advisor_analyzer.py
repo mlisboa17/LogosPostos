@@ -45,9 +45,8 @@ class TaxAdvisorAnalyzer:
         """
         Validar NCM de um produto.
 
-        NCM = Nomenclatura Comum do Mercosul (8 dígitos)
-        - Primeiros 6 dígitos = classificação
-        - Últimos 2 dígitos = dígito verificador
+        NCM = Nomenclatura Comum do Mercosul (8 dígitos, sem dígito verificador)
+        - Valida formato e presença na tabela vigente
 
         Retorna: validação, categoria, alíquota
         """
@@ -73,16 +72,11 @@ class TaxAdvisorAnalyzer:
                 "problemas": problemas,
             }
 
-        # 2. Validar dígito verificador
-        is_checksum_valid = self._validate_ncm_checksum(ncm)
-        if not is_checksum_valid:
-            problemas.append(f"Dígito verificador inválido para NCM {ncm}")
-
-        # 3. Verificar se NCM está vigente
+        # 2. Verificar se NCM está vigente
         if ncm not in self.ncm_validos:
             problemas.append(f"NCM {ncm} não encontrado na tabela vigente")
 
-        # 4. Buscar informações do NCM
+        # 3. Buscar informações do NCM
         ncm_info = self.ncm_validos.get(ncm, {})
 
         is_valid = len(problemas) == 0
@@ -96,25 +90,6 @@ class TaxAdvisorAnalyzer:
             "aliquota_ii": ncm_info.get("aliquota_ii", 0),  # Imposto de Importação
             "problemas": problemas,
         }
-
-    def _validate_ncm_checksum(self, ncm: str) -> bool:
-        """Validar dígito verificador do NCM"""
-        if len(ncm) != 8:
-            return False
-
-        # Algoritmo: multiplicar posições pares por 2,3,4,5,6,7,8,9
-        sequencia = "23456789"
-        soma = 0
-
-        for i in range(7):
-            digito = int(ncm[i])
-            multiplicador = int(sequencia[i])
-            soma += digito * multiplicador
-
-        resto = soma % 11
-        digito_verificador = 0 if resto == 0 else 11 - resto if resto != 1 else 0
-
-        return int(ncm[7]) == digito_verificador
 
     # ========== 2. VALIDAR CEST ==========
 

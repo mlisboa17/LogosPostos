@@ -19,6 +19,7 @@ from src.modules.commercial_performance.interfaces.http import router as commerc
 from src.interfaces.http.routes import financial_intelligence
 from src.modules.cash_reconciliation.interfaces.http import router as cash_audit_router
 from src.shared.logger import setup_logging
+from src.api.v1.endpoints import buyer_ai, data_validation, pricing_ai, tax_advisor_ai
 
 
 def create_app() -> FastAPI:
@@ -62,6 +63,11 @@ def create_app() -> FastAPI:
     app.include_router(financial_intelligence.router)
     app.include_router(cash_audit_router)
     app.include_router(commercial_router)
+    # IAs de negócio (fases 1-4) — prefixo /api/v1, como documentado nos QUICKSTART
+    app.include_router(data_validation.router, prefix="/api/v1")
+    app.include_router(buyer_ai.router, prefix="/api/v1")
+    app.include_router(tax_advisor_ai.router, prefix="/api/v1")
+    app.include_router(pricing_ai.router, prefix="/api/v1")
 
     frontend_dir = root / "frontend"
     if frontend_dir.is_dir():

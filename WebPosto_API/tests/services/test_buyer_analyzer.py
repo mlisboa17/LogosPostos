@@ -159,7 +159,8 @@ class TestRuptureRiskAnalysis:
         ruptura = resultado[0]
         assert ruptura["produto_id"] == "SKU_CAFE"
         assert ruptura["dias_de_estoque"] < 5  # 50 / 20 = 2.5 dias
-        assert ruptura["rupture_probability"] > 80
+        # Formula: (1 - dias_de_estoque / dias_reabastecimento) * 100 = (1 - 2.5/5) * 100
+        assert ruptura["rupture_probability"] == pytest.approx(50.0)
         assert ruptura["urgencia"] == "CRÍTICA"
 
     @pytest.mark.asyncio

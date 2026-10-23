@@ -169,9 +169,9 @@ class ComprasValidator:
 
             media = sum(precos) / len(precos)
             variancia = sum((p - media) ** 2 for p in precos) / len(precos)
-            std_dev = variancia ** 0.5
+            std_dev = variancia.sqrt()
 
-            threshold_superior = media + (sensitivity * std_dev)
+            threshold_superior = media + (Decimal(str(sensitivity)) * std_dev)
 
             for preco in precos:
                 if preco > threshold_superior:
@@ -182,7 +182,7 @@ class ComprasValidator:
                             "media_historica": float(media),
                             "desvio_padrao": float(std_dev),
                             "percentual_acima": float((preco - media) / media * 100),
-                            "severidade": "ALTA" if preco > media * 1.5 else "MÉDIA",
+                            "severidade": "ALTA" if preco > media * Decimal("1.5") else "MÉDIA",
                         }
                     )
 

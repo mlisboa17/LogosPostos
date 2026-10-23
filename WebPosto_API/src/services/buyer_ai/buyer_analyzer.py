@@ -330,7 +330,7 @@ class BuyerAnalyzer:
             dias_reabast = ruptura["tempo_reabastecimento_dias"]
 
             # Quantidade ideal = consumo_diário * (dias_reabastecimento + margem)
-            margem_seguranca = self.config["margem_seguranca"]
+            margem_seguranca = Decimal(str(self.config["margem_seguranca"]))
             quantidade_ideal = int(
                 consumo_diario * (dias_reabast + 7) * margem_seguranca
             )
@@ -344,7 +344,7 @@ class BuyerAnalyzer:
             recomendacoes.append(
                 {
                     "produto_id": produto_id,
-                    "descricao": ruptura["descricao"],
+                    "descricao": ruptura.get("descricao", ""),
                     "prioridade": 1,
                     "quantidade_sugerida": quantidade_ideal,
                     "estoque_atual": ruptura["estoque_atual"],
@@ -520,13 +520,14 @@ class BuyerAnalyzer:
                             )
                             or Decimal("0")
                         )
-                        vendas_perdidas = int(diferenca) * preco_venda
+                        deficit = -diferenca  # comprado - vendido é negativo aqui
+                        vendas_perdidas = int(deficit) * preco_venda
                         produtos_comprado_pouco.append(
                             {
                                 "produto_id": produto_id,
                                 "comprado_ultimo_mes": comprado,
                                 "vendido_ultimo_mes": vendido,
-                                "deficit": diferenca,
+                                "deficit": deficit,
                                 "vendas_perdidas_potenciais": float(vendas_perdidas),
                                 "percentual_desvio": percentual,
                                 "recomendacao": f"Aumentar compras em {int(percentual)}%",
@@ -635,8 +636,8 @@ class BuyerAnalyzer:
                 {
                     "id": i,
                     "produto_id": r["produto_id"],
-                    "descricao": r["descricao"],
-                    "quantidade": r["quantidade_sugerida"],
+                    "descricao": r.get("descricao", ""),
+                    "quantidade": r.get("quantidade_sugerida", 0),
                     "economia": r["economia_potencial"],
                     "urgencia": "CRÍTICA",
                 }

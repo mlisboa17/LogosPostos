@@ -59,20 +59,6 @@ class TestNCMValidation:
         assert resultado["is_valid"] is False
         assert len(resultado["problemas"]) > 0
 
-    def test_ncm_checksum_valido(self, analyzer):
-        """Validar cálculo de checksum do NCM"""
-        # NCM válido com checksum correto
-        is_valid = analyzer._validate_ncm_checksum("27160000")
-        # Resultado pode ser True ou False dependendo do algoritmo
-        assert isinstance(is_valid, bool)
-
-    def test_ncm_checksum_invalido(self, analyzer):
-        """Checksum inválido"""
-        # NCM com checksum deliberadamente errado
-        is_valid = analyzer._validate_ncm_checksum("27160001")
-        # Ao menos será testado que o método funciona
-        assert isinstance(is_valid, bool)
-
 
 class TestCESTValidation:
     """Testes de validação de CEST"""
