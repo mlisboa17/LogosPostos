@@ -60,6 +60,7 @@ from src.infrastructure.config.settings import settings
 from src.infrastructure.health.checks import run_health_checks
 from src.infrastructure.services.cache_service import get_cache_service
 from src.presentation.background_jobs import create_job, get_job, run_job
+from src.interfaces.http.dependencies import get_current_user
 from src.shared.log_buffer import install_log_buffer, recent_logs
 from src.shared.logger import setup_logging
 
@@ -360,7 +361,9 @@ def create_unified_app() -> FastAPI:
 
         app.include_router(cash_audit_router)
     except Exception as exc:
-        pass
+        import logging
+
+        logging.getLogger(__name__).warning("Rotas cash-audit não carregadas: %s", exc)
 
     try:
         from src.interfaces.http.routes.classification_review_routes import router as classification_router
@@ -369,8 +372,8 @@ def create_unified_app() -> FastAPI:
     except Exception as exc:
         import logging
 
-        logging.getLogger(__name__).warning(
-            "Rotas classification-review não carregadas: %s", exc
+        logging.getLogger(__name__).error(
+            "Rotas classification-review não carregadas: %s", exc, exc_info=True
         )
 
     try:
@@ -700,7 +703,10 @@ def create_unified_app() -> FastAPI:
         return FileResponse(p, media_type="text/html; charset=utf-8")
 
     @app.get("/revisao", response_class=HTMLResponse, tags=["gateway", "revisao"])
-    async def pagina_revisao_classificacao():
+    async def pagina_revisao_classificacao(
+        request: Request,
+        current_user: Dict = Depends(get_current_user),
+    ):
         p = ROOT / "static" / "revisao_classificacao.html"
         if not p.is_file():
             raise HTTPException(404, "static/revisao_classificacao.html não encontrado")

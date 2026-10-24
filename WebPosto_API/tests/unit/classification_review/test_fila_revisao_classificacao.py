@@ -10,20 +10,36 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from WebPosto_API.src.modules.classification_review import (
-    CONTA_TEMPORARIA_CLASSIFICACAO,
-    ClassificationReviewService,
-    DadoEssencialAusenteErro,
-    EstadoRevisao,
-    RevisaoConcorrenteErro,
-    SqliteClassificationReviewRepository,
-    StatusRegraCandidata,
-    TransicaoInvalidaErro,
-)
-from WebPosto_API.src.modules.master_data.adapters.migrations.migration_002_fila_revisao_classificacao import (
-    migrar as migrar_002,
-    reverter as reverter_002,
-)
+try:
+    from src.modules.classification_review import (
+        CONTA_TEMPORARIA_CLASSIFICACAO,
+        ClassificationReviewService,
+        DadoEssencialAusenteErro,
+        EstadoRevisao,
+        RevisaoConcorrenteErro,
+        SqliteClassificationReviewRepository,
+        StatusRegraCandidata,
+        TransicaoInvalidaErro,
+    )
+    from src.modules.master_data.adapters.migrations.migration_002_fila_revisao_classificacao import (
+        migrar as migrar_002,
+        reverter as reverter_002,
+    )
+except ImportError:
+    from WebPosto_API.src.modules.classification_review import (
+        CONTA_TEMPORARIA_CLASSIFICACAO,
+        ClassificationReviewService,
+        DadoEssencialAusenteErro,
+        EstadoRevisao,
+        RevisaoConcorrenteErro,
+        SqliteClassificationReviewRepository,
+        StatusRegraCandidata,
+        TransicaoInvalidaErro,
+    )
+    from WebPosto_API.src.modules.master_data.adapters.migrations.migration_002_fila_revisao_classificacao import (
+        migrar as migrar_002,
+        reverter as reverter_002,
+    )
 
 
 @pytest.fixture

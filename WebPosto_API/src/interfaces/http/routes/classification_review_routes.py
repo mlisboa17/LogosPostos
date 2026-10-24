@@ -97,6 +97,54 @@ def _serializar_item(item: ItemFilaRevisao) -> dict[str, Any]:
     }
 
 
+def _exigir_permissao_alteracao(user: Dict) -> None:
+    """Apenas diretor pode classificar, bloquear ou cancelar pendências nesta etapa."""
+    role = user.get("role")
+    if role != "diretor":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Permissão negada. Apenas diretor pode alterar pendências nesta etapa (papel atual: '{role}').",
+        )
+
+
+def _validar_perfil_leitura(user: Dict) -> None:
+    """Valida se o usuário autenticado possui perfil de leitura permitido."""
+    role = user.get("role")
+    if role not in {"diretor", "auditor", "gerente"}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Acesso não autorizado para este perfil.",
+        )
+
+
+def _validar_acesso_leitura_empresa(user: Dict, empresa_codigo: Optional[int]) -> Optional[int]:
+    """Valida leitura: diretor e auditor lêem qualquer empresa; gerente somente a própria."""
+    _validar_perfil_leitura(user)
+    role = user.get("role")
+    if role == "gerente":
+        user_company = user.get("company_id")
+        if empresa_codigo is not None and empresa_codigo != user_company:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Acesso negado para esta unidade.",
+            )
+        return user_company
+    return empresa_codigo
+
+
+def _validar_acesso_leitura_item(user: Dict, item_empresa_codigo: int) -> None:
+    """Valida se o usuário tem permissão para ler o item específico."""
+    _validar_perfil_leitura(user)
+    role = user.get("role")
+    if role == "gerente":
+        user_company = user.get("company_id")
+        if item_empresa_codigo != user_company:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Acesso negado para esta unidade.",
+            )
+
+
 # -------------------------------------------------------------
 # ENDPOINTS
 # -------------------------------------------------------------
@@ -109,8 +157,7 @@ async def listar_pendencias(
     service: ClassificationReviewService = Depends(get_classification_review_service),
 ):
     """Lista pendências da fila com filtros opcionais de status e empresa."""
-    if empresa_codigo is not None:
-        require_unit_access(current_user, empresa_codigo)
+    empresa_codigo = _validar_acesso_leitura_empresa(current_user, empresa_codigo)
 
     estado_enum = None
     if status_filtro:
@@ -121,13 +168,6 @@ async def listar_pendencias(
                 status_code=400,
                 detail=f"Status '{status_filtro}' inválido. Opções: {[e.value for e in EstadoRevisao]}",
             )
-
-    # Gerentes só veem a sua própria empresa
-    if current_user.get("role") == "gerente":
-        user_company = current_user.get("company_id")
-        if empresa_codigo and empresa_codigo != user_company:
-            raise HTTPException(status_code=403, detail="Acesso negado para esta unidade.")
-        empresa_codigo = user_company
 
     itens = service.listar_pendencias(status=estado_enum, empresa_codigo=empresa_codigo)
     return {
@@ -147,7 +187,7 @@ async def obter_detalhes_pendencia(
     if not item:
         raise HTTPException(status_code=404, detail="Pendência não encontrada.")
 
-    require_unit_access(current_user, item.empresa_codigo)
+    _validar_acesso_leitura_item(current_user, item.empresa_codigo)
     return _serializar_item(item)
 
 
@@ -162,7 +202,7 @@ async def consultar_historico_pendencia(
     if not item:
         raise HTTPException(status_code=404, detail="Pendência não encontrada.")
 
-    require_unit_access(current_user, item.empresa_codigo)
+    _validar_acesso_leitura_item(current_user, item.empresa_codigo)
     historico = service.consultar_historico(pendencia_id)
     return {
         "pendencia_id": pendencia_id,
@@ -199,7 +239,7 @@ async def classificar_pendencia(
     if not item:
         raise HTTPException(status_code=404, detail="Pendência não encontrada.")
 
-    require_unit_access(current_user, item.empresa_codigo)
+    _exigir_permissao_alteracao(current_user)
 
     revisor = current_user.get("sub") or current_user.get("email") or "cockpit_user"
 
@@ -241,7 +281,7 @@ async def bloquear_pendencia(
     if not item:
         raise HTTPException(status_code=404, detail="Pendência não encontrada.")
 
-    require_unit_access(current_user, item.empresa_codigo)
+    _exigir_permissao_alteracao(current_user)
     autor = current_user.get("sub") or current_user.get("email") or "cockpit_user"
 
     try:
@@ -277,7 +317,7 @@ async def cancelar_pendencia(
     if not item:
         raise HTTPException(status_code=404, detail="Pendência não encontrada.")
 
-    require_unit_access(current_user, item.empresa_codigo)
+    _exigir_permissao_alteracao(current_user)
     autor = current_user.get("sub") or current_user.get("email") or "cockpit_user"
 
     try:
@@ -309,8 +349,7 @@ async def consultar_casos_semelhantes(
     service: ClassificationReviewService = Depends(get_classification_review_service),
 ):
     """Recupera exemplos humanos confirmados com descrições semelhantes."""
-    if empresa_codigo:
-        require_unit_access(current_user, empresa_codigo)
+    empresa_codigo = _validar_acesso_leitura_empresa(current_user, empresa_codigo)
 
     exemplos = service.recuperar_casos_semelhantes(
         descricao=descricao, empresa_codigo=empresa_codigo, limite=limite
@@ -341,6 +380,7 @@ async def obter_metricas(
     service: ClassificationReviewService = Depends(get_classification_review_service),
 ):
     """Retorna métricas consolidadas de acurácia da IA e volumetria."""
+    _validar_perfil_leitura(current_user)
     m = service.gerar_metricas_ia()
     return {
         "total_avaliados": m.total_avaliados,
@@ -362,6 +402,7 @@ async def listar_planos_validos(
 
     Exclui categoricamente contas pai e a conta temporária 198966.
     """
+    _validar_perfil_leitura(current_user)
     planos = service.listar_planos_folha_validos()
     return {
         "total": len(planos),
@@ -380,6 +421,7 @@ async def listar_regras_candidatas(
     Regras com >= 3 casos são indicadas como elegíveis para revisão,
     sem ativar qualquer automação ou lançamento no ERP.
     """
+    _validar_perfil_leitura(current_user)
     st_enum = None
     if status_regra:
         try:

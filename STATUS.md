@@ -5,6 +5,23 @@ Repositório canônico: C:\Projetos\LOGOS\LogosPostos · branch feature/cash-aud
 PR a abrir: https://github.com/mlisboa17/LogosPostos/pull/new/feature/cash-audit-fechamento
 Histórico de sprints: um prompt por sprint em docs/prompts/ (SPRINT_05 ... SPRINT_12, PREMMIA_00, TELEGRAM_00)
 
+# COCKPIT-REVIEW-QUEUE-02 — Hardening de Segurança e Validação RBAC — 23/10/2026
+
+- RBAC explícito implementado e testado rigorosamente:
+  - `diretor`: leitura irrestrita e permissão exclusiva para mutações (`classificar`, `bloquear`, `cancelar`);
+  - `auditor`: somente leitura (tentativas de mutação bloqueadas com HTTP 403);
+  - `gerente`: somente leitura estritamente restrita à sua própria empresa (`company_id`), tentativas de acesso a outra empresa ou de mutação bloqueadas com HTTP 403;
+  - Usuários não autenticados recebem HTTP 401.
+- Proteção da página `/revisao`: exigência de autenticação obrigatória via `get_current_user` (HTTP 401 para requisições anônimas).
+- Tratamento e logging de rotas restabelecido:
+  - Restaurado o log de aviso original para falhas em rotas `cash-audit` (sem `except: pass`);
+  - Registro transparente e com stacktrace (`logging.error`) para falhas no carregamento das rotas de classificação;
+  - Teste unitário automatizado assegura o registro das rotas e da tela `/revisao` no app unificado FastAPI.
+- Validação de build do frontend declarada como `BLOCKED_BUILD_VALIDATION` devido à ausência de `frontend/cockpit/node_modules` e política estrita de não instalar novas dependências.
+- 32 testes unitários da fila e API de classificação aprovados com 100% de sucesso (106 testes com Master Data).
+- Barreiras e integridade mantidas: ERP WRITES = ZERO, conta temporária 198966 com `candidato_lancavel=0` e `permite_despesa=0`, conta 27173 bloqueada e allowlist `{17837}` inalterada.
+- Evidência: [COCKPIT_REVIEW_QUEUE_02_CHECKPOINT.md](docs/checkpoints/COCKPIT_REVIEW_QUEUE_02_CHECKPOINT.md).
+
 # COCKPIT-REVIEW-QUEUE-01 — Interface e Endpoints da Fila de Revisão — 23/10/2026
 
 - Endpoints locais autenticados implementados em `/api/v1/classification-review/`:

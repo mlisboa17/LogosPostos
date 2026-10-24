@@ -16,18 +16,32 @@ from src.interfaces.http.routes.classification_review_routes import (
     get_classification_review_service,
     router as review_router,
 )
-from WebPosto_API.src.modules.classification_review import (
-    CONTA_TEMPORARIA_CLASSIFICACAO,
-    ClassificationReviewService,
-    EstadoRevisao,
-    SqliteClassificationReviewRepository,
-)
-from WebPosto_API.src.modules.master_data.adapters.migrations.migration_001_planos_conta_hierarquia import (
-    migrar as migrar_001,
-)
-from WebPosto_API.src.modules.master_data.adapters.migrations.migration_002_fila_revisao_classificacao import (
-    migrar as migrar_002,
-)
+try:
+    from src.modules.classification_review import (
+        CONTA_TEMPORARIA_CLASSIFICACAO,
+        ClassificationReviewService,
+        EstadoRevisao,
+        SqliteClassificationReviewRepository,
+    )
+    from src.modules.master_data.adapters.migrations.migration_001_planos_conta_hierarquia import (
+        migrar as migrar_001,
+    )
+    from src.modules.master_data.adapters.migrations.migration_002_fila_revisao_classificacao import (
+        migrar as migrar_002,
+    )
+except ImportError:
+    from WebPosto_API.src.modules.classification_review import (
+        CONTA_TEMPORARIA_CLASSIFICACAO,
+        ClassificationReviewService,
+        EstadoRevisao,
+        SqliteClassificationReviewRepository,
+    )
+    from WebPosto_API.src.modules.master_data.adapters.migrations.migration_001_planos_conta_hierarquia import (
+        migrar as migrar_001,
+    )
+    from WebPosto_API.src.modules.master_data.adapters.migrations.migration_002_fila_revisao_classificacao import (
+        migrar as migrar_002,
+    )
 
 
 @pytest.fixture
@@ -436,3 +450,188 @@ def test_13_rbac_gerente_acesso_outra_unidade_negado(app_client: TestClient, rev
     )
     assert res.status_code == 403
     assert "Acesso negado para esta unidade" in res.json()["detail"]
+
+
+def test_14_auditor_le_mas_nao_altera(app_client: TestClient, review_service: ClassificationReviewService):
+    it, _ = review_service.registrar_movimento_para_revisao(
+        empresa_codigo=5555,
+        conta_financeira_codigo=17837,
+        data_movimento="2026-10-17",
+        valor="120.00",
+        descricao="DESPESA AUDITOR",
+        confianca_ia=0.5,
+    )
+    headers_auditor = _auth_headers("auditor")
+
+    # Auditor pode ler pendências
+    res_list = app_client.get("/api/v1/classification-review/pendencias", headers=headers_auditor)
+    assert res_list.status_code == 200
+
+    # Auditor pode ler detalhes
+    res_det = app_client.get(f"/api/v1/classification-review/pendencias/{it.id}", headers=headers_auditor)
+    assert res_det.status_code == 200
+
+    # Auditor NÃO pode classificar (403)
+    res_class = app_client.post(
+        f"/api/v1/classification-review/pendencias/{it.id}/classificar",
+        json={"versao": it.versao, "plano_definitivo_codigo": 158764},
+        headers=headers_auditor,
+    )
+    assert res_class.status_code == 403
+    assert "Apenas diretor pode alterar" in res_class.json()["detail"]
+
+    # Auditor NÃO pode bloquear (403)
+    res_block = app_client.post(
+        f"/api/v1/classification-review/pendencias/{it.id}/bloquear",
+        json={"versao": it.versao, "motivo": "Bloqueio auditor"},
+        headers=headers_auditor,
+    )
+    assert res_block.status_code == 403
+
+    # Auditor NÃO pode cancelar (403)
+    res_cancel = app_client.post(
+        f"/api/v1/classification-review/pendencias/{it.id}/cancelar",
+        json={"versao": it.versao, "motivo": "Cancelamento auditor"},
+        headers=headers_auditor,
+    )
+    assert res_cancel.status_code == 403
+
+
+def test_15_gerente_le_somente_propria_empresa_e_nao_altera(app_client: TestClient, review_service: ClassificationReviewService):
+    it_5555, _ = review_service.registrar_movimento_para_revisao(
+        empresa_codigo=5555,
+        conta_financeira_codigo=17837,
+        data_movimento="2026-10-18",
+        valor="130.00",
+        descricao="DESPESA PROPRIA",
+        confianca_ia=0.5,
+    )
+    it_5556, _ = review_service.registrar_movimento_para_revisao(
+        empresa_codigo=5556,
+        conta_financeira_codigo=17837,
+        data_movimento="2026-10-18",
+        valor="140.00",
+        descricao="DESPESA OUTRA",
+        confianca_ia=0.5,
+    )
+    headers_gerente = _auth_headers("gerente", company_id=5555)
+
+    # 1. Gerente lista: somente vê a própria unidade 5555
+    res_list = app_client.get("/api/v1/classification-review/pendencias", headers=headers_gerente)
+    assert res_list.status_code == 200
+    empresas = [item["empresa_codigo"] for item in res_list.json()["itens"]]
+    assert all(e == 5555 for e in empresas)
+
+    # 2. Gerente tenta filtrar por outra unidade -> 403
+    res_outra_unidade = app_client.get("/api/v1/classification-review/pendencias?empresa_codigo=5556", headers=headers_gerente)
+    assert res_outra_unidade.status_code == 403
+
+    # 3. Gerente lê detalhes da própria unidade -> 200
+    res_det_propria = app_client.get(f"/api/v1/classification-review/pendencias/{it_5555.id}", headers=headers_gerente)
+    assert res_det_propria.status_code == 200
+
+    # 4. Gerente tenta ler detalhes de outra unidade -> 403
+    res_det_outra = app_client.get(f"/api/v1/classification-review/pendencias/{it_5556.id}", headers=headers_gerente)
+    assert res_det_outra.status_code == 403
+
+    # 5. Gerente tenta classificar mesmo na própria unidade -> 403
+    res_class = app_client.post(
+        f"/api/v1/classification-review/pendencias/{it_5555.id}/classificar",
+        json={"versao": it_5555.versao, "plano_definitivo_codigo": 158764},
+        headers=headers_gerente,
+    )
+    assert res_class.status_code == 403
+    assert "Apenas diretor pode alterar" in res_class.json()["detail"]
+
+    # 6. Gerente tenta bloquear na própria unidade -> 403
+    res_block = app_client.post(
+        f"/api/v1/classification-review/pendencias/{it_5555.id}/bloquear",
+        json={"versao": it_5555.versao, "motivo": "Bloqueio gerente"},
+        headers=headers_gerente,
+    )
+    assert res_block.status_code == 403
+
+    # 7. Gerente tenta cancelar na própria unidade -> 403
+    res_cancel = app_client.post(
+        f"/api/v1/classification-review/pendencias/{it_5555.id}/cancelar",
+        json={"versao": it_5555.versao, "motivo": "Cancelamento gerente"},
+        headers=headers_gerente,
+    )
+    assert res_cancel.status_code == 403
+
+
+def test_16_diretor_altera(app_client: TestClient, review_service: ClassificationReviewService):
+    it, _ = review_service.registrar_movimento_para_revisao(
+        empresa_codigo=5555,
+        conta_financeira_codigo=17837,
+        data_movimento="2026-10-19",
+        valor="150.00",
+        descricao="DESPESA DIRETOR",
+        confianca_ia=0.5,
+    )
+    headers_diretor = _auth_headers("diretor")
+
+    # Diretor bloqueia -> 200
+    res_block = app_client.post(
+        f"/api/v1/classification-review/pendencias/{it.id}/bloquear",
+        json={"versao": it.versao, "motivo": "Bloqueio pelo diretor"},
+        headers=headers_diretor,
+    )
+    assert res_block.status_code == 200
+    assert res_block.json()["status"] == "BLOQUEADO"
+
+    # Criar outro item para classificar
+    it2, _ = review_service.registrar_movimento_para_revisao(
+        empresa_codigo=5555,
+        conta_financeira_codigo=17837,
+        data_movimento="2026-10-19",
+        valor="160.00",
+        descricao="DESPESA DIRETOR 2",
+        confianca_ia=0.5,
+    )
+    # Diretor classifica -> 200
+    res_class = app_client.post(
+        f"/api/v1/classification-review/pendencias/{it2.id}/classificar",
+        json={"versao": it2.versao, "plano_definitivo_codigo": 158764, "justificativa": "Classificado"},
+        headers=headers_diretor,
+    )
+    assert res_class.status_code == 200
+    assert res_class.json()["status"] == "SUCESSO"
+    assert res_class.json()["item"]["status"] == "CLASSIFICADO"
+
+
+def test_17_pagina_revisao_exige_autenticacao():
+    from src.presentation.app import create_unified_app
+    app = create_unified_app()
+    client = TestClient(app)
+
+    # 1. Sem autenticação -> 401
+    res_unauth = client.get("/revisao")
+    assert res_unauth.status_code == 401
+
+    # 2. Com autenticação -> 200
+    headers = _auth_headers("diretor")
+    res_auth = client.get("/revisao", headers=headers)
+    assert res_auth.status_code == 200
+    assert "Fila de Revisão" in res_auth.text
+
+
+def test_18_rotas_classificacao_registradas_no_app_unificado():
+    from src.presentation.app import create_unified_app
+    app = create_unified_app()
+    paths = [route.path for route in app.routes]
+
+    # Rotas de API
+    assert "/api/v1/classification-review/pendencias" in paths
+    assert "/api/v1/classification-review/pendencias/{pendencia_id}" in paths
+    assert "/api/v1/classification-review/pendencias/{pendencia_id}/historico" in paths
+    assert "/api/v1/classification-review/pendencias/{pendencia_id}/classificar" in paths
+    assert "/api/v1/classification-review/pendencias/{pendencia_id}/bloquear" in paths
+    assert "/api/v1/classification-review/pendencias/{pendencia_id}/cancelar" in paths
+    assert "/api/v1/classification-review/casos-semelhantes" in paths
+    assert "/api/v1/classification-review/metricas" in paths
+    assert "/api/v1/classification-review/planos-validos" in paths
+    assert "/api/v1/classification-review/regras-candidatas" in paths
+
+    # Rota da tela HTML
+    assert "/revisao" in paths
