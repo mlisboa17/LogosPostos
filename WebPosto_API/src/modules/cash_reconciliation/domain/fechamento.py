@@ -101,6 +101,21 @@ class Alerta(_Frozen):
     referencia: int | None = None  # caixaCodigo ou sangriaCodigo
 
 
+class FuncionarioFechamento(_Frozen):
+    codigo: int
+    nome: str
+    funcao: str | None = None
+    responsavel: bool = False
+    valor_apurado: Decimal = Decimal(0)
+    valor_declarado: Decimal = Decimal(0)
+    quebra_sobra: Decimal = Decimal(0)  # negativo = falta, positivo = sobra
+    vales_associados: Decimal = Decimal(0)
+    tem_vale_falta: bool = False
+    valor_vale_falta: Decimal = Decimal(0)
+    status_vale: str = "sem_falta"  # "com_vale", "pendente_sem_vale", "sem_falta"
+    alertas: tuple[str, ...] = ()
+
+
 class AuditoriaCaixa(_Frozen):
     caixa: Caixa
     modalidades: tuple[LinhaModalidade, ...]
@@ -111,6 +126,7 @@ class AuditoriaCaixa(_Frozen):
     vales: tuple[ValeFuncionario, ...] = ()
     desconto_falta: DescontoFalta | None = None
     despesas: tuple[MovimentoDespesa, ...] = ()
+    funcionarios_participantes: tuple[FuncionarioFechamento, ...] = ()
 
     @property
     def quebra(self) -> Decimal:
@@ -118,6 +134,10 @@ class AuditoriaCaixa(_Frozen):
         if not self.caixa.fechado:
             return Decimal(0)
         return sum((m.diferenca for m in self.modalidades), Decimal(0))
+
+    @property
+    def total_sangrias(self) -> Decimal:
+        return sum((s.valor for s in self.sangrias), Decimal(0))
 
     @property
     def severidade(self) -> Severidade | None:
@@ -139,3 +159,7 @@ class ResultadoAuditoria(_Frozen):
     @property
     def quebra_total(self) -> Decimal:
         return sum((c.quebra for c in self.caixas), Decimal(0))
+
+    @property
+    def total_sangrias(self) -> Decimal:
+        return sum((c.total_sangrias for c in self.caixas), Decimal(0))

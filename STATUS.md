@@ -1,9 +1,33 @@
-# STATUS — LOGOS Auditoria (atualizado em 23/10/2026)
+# STATUS — LOGOS Auditoria (atualizado em 27/10/2026)
 
 Repositório canônico: C:\Projetos\LOGOS\LogosPostos · branch feature/cash-audit-fechamento
-Última entrega de código: Sprint 19 (A–D) · branch feature/cash-audit-fechamento, sem merge
+Última entrega de código: Sprint Cash Audit (01-03) · branch feature/cash-audit-fechamento, sem merge
 PR a abrir: https://github.com/mlisboa17/LogosPostos/pull/new/feature/cash-audit-fechamento
 Histórico de sprints: um prompt por sprint em docs/prompts/ (SPRINT_05 ... SPRINT_12, PREMMIA_00, TELEGRAM_00)
+
+# CASH-AUDIT-03 — Auditoria Multi-Dias, Rateio por Frentista e Filtros Isolados — 27/10/2026
+
+- **Saneamento e isolamento de legados**:
+  - Limpeza estrutural da raiz do repositório, movendo scripts descartáveis, dashboards legados (Reflex/HTML) e artefatos obsoletos para a pasta `_archive/`.
+- **Otimização Concorrente da Rota `/api/v1/cash-audit/fechamento`**:
+  - Paralelização total de subconsultas (`buscar_apresentados`, `buscar_sangrias`, `buscar_vales`, `buscar_despesas`, `buscar_vendas_por_caixa`, `buscar_nomes_funcionarios`) utilizando `asyncio.gather`.
+  - Suporte de alta performance a consultas multi-dias (7 a 30 dias) sem travamentos ou timeouts.
+  - Agregação consolidada por data com métricas de faturamento, total de sangrias e quebra líquida geral acumulada.
+- **Isolamento Estrito em `/api/v1/cash-audit/filtros-operacionais`**:
+  - Retorno de Centros de Custo, Operadores e PDVs estritamente pertencentes e vinculados à empresa selecionada (`empresa == unidade`), eliminando duplicidades e contaminação cruzada entre filiais.
+  - Implementação de cache em memória para resposta instantânea na alternância de unidades.
+- **Rateio e Responsabilização Individual de Quebra/Sobra por Frentista**:
+  - Mapeamento de múltiplos frentistas/operadores no mesmo PDV/Turno de pista a partir de itens de venda do WebPosto.
+  - Cruzamento de prestação de contas com vales de funcionário (`GET /INTEGRACAO/V1/VALES_FUNCIONARIO`), segregando origem `Falta de Caixa` de adiantamentos comuns.
+  - Atribuição de status: `com_vale`, `pendente_sem_vale` e `sem_falta`, garantindo que faltas sem vale sejam atribuídas ao operador específico ou ao responsável pelo turno.
+- **Interface Cockpit (`src/components/cash-audit-live.tsx`)**:
+  - Modos de visualização **Analítico** (detalhado por caixa/turno) e **Consolidado** (sintético agrupado por dia).
+  - 4 Cards Executivos de KPIs no topo: Total Faturado, Total de Sangrias, Quebra Líquida Geral (com contagem de faltosos e alertas de pendência de vale), e Caixas/Turnos Auditados.
+  - Presets rápidos de período: "Hoje", "Ontem", "7 dias", "15 dias", "30 dias" e "Mês Atual".
+  - Apontamento visual de alto impacto (banner vermelho e badges) na tabela principal destacando o operador faltoso, o valor da quebra e se o vale está emitido ou pendente.
+- **Integridade e Governança**:
+  - ERP WRITES = ZERO (100% somente leitura no WebPosto).
+  - Validação completa com suíte de testes unitários passando e compilação do frontend Next.js sem erros.
 
 # COCKPIT-REVIEW-QUEUE-02 — Hardening de Segurança e Validação RBAC — 23/10/2026
 

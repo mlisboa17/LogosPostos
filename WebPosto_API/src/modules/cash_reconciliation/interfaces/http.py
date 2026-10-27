@@ -37,6 +37,9 @@ from ..domain.models import Proveniencia
 from ..domain.pendencias import Pendencia, calcular_prazo_pendencia
 from ..domain.recebimentos import ResultadoRecebimentos
 from ..domain.tempo import agora, formatar_data_hora
+import os
+import httpx
+from ..adapters.webposto_caixas import buscar_caixas
 from ...webposto_integration.funcionarios import buscar_nomes_funcionarios
 from src.interfaces.http.dependencies import get_current_user, require_unit_access
 
@@ -46,6 +49,8 @@ TIMEOUT_FECHAMENTO = 180
 INTERVALO_SINCRONIZACAO_SEGUNDOS = 120
 _ultima_sincronizacao: dict[int, float] = {}
 _bloqueio_sincronizacao = asyncio.Lock()
+_filtros_cache: dict[int, tuple[float, dict]] = {}
+CACHE_TTL_FILTROS = 300
 
 
 class JustificativaPayload(BaseModel):
@@ -488,11 +493,128 @@ async def obter_recebimentos(
     return await conciliar_recebimentos(unidade, dia)
 
 
+@router.get("/filtros-operacionais")
+async def obter_filtros_operacionais(
+    unidade: int = Query(...),
+    current_user: dict = Depends(get_current_user),
+) -> dict:
+    unidades = carregar_unidades()
+    if unidade not in unidades:
+        raise HTTPException(status_code=404, detail="Unidade não encontrada.")
+    require_unit_access(current_user, unidade)
+
+    agora_ts = time.time()
+    if unidade in _filtros_cache:
+        expira, dados = _filtros_cache[unidade]
+        if agora_ts < expira:
+            return dados
+
+    unidade_cfg = unidades[unidade]
+    base_url = os.getenv("WEBPOSTO_BASE_URL", "https://web.qualityautomacao.com.br")
+    chave = os.getenv(unidade_cfg.chave_env)
+
+    hoje = agora().date()
+    inicio = hoje - timedelta(days=30)
+
+    # 1. Caixas recentes da unidade para extração dos vínculos operacionais reais
+    caixas = []
+    try:
+        caixas = await buscar_caixas(unidade_cfg, inicio, hoje)
+    except Exception as exc:
+        logger.warning("Falha ao extrair caixas da unidade %s: %s", unidade, exc)
+
+    # 2. Centros de Custo com vínculo/movimentação real nesta unidade
+    cc_codigos_movimento = {c.centro_custo for c in caixas if c.centro_custo is not None}
+    if unidade == 74014:
+        cc_codigos_movimento.update([7295, 22310])
+    elif unidade == 11495:
+        cc_codigos_movimento.update([7295, 21650])
+    elif unidade == 5555:
+        cc_codigos_movimento.add(7295)
+    elif unidade == 118508:
+        cc_codigos_movimento.add(24886)
+
+    centros = []
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(f"{base_url}/INTEGRACAO/CENTRO_CUSTO", params={"CHAVE": chave})
+            if r.status_code == 200:
+                vistos_cc = set()
+                for cc in r.json().get("resultados", []):
+                    cod = cc.get("centroCustoCodigo")
+                    desc = (cc.get("descricao") or "").strip()
+                    if cod in cc_codigos_movimento and cod not in vistos_cc and desc:
+                        vistos_cc.add(cod)
+                        centros.append({
+                            "codigo": cod,
+                            "nome": desc,
+                            "tipo": cc.get("tipoCentroCusto", "Geral"),
+                        })
+    except Exception as exc:
+        logger.warning("Falha ao obter centros de custo para unidade %s: %s", unidade, exc)
+
+    # 3. Funcionários / Operadores: Isolamento estrito por empresa e status ativo
+    funcionarios = []
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r_f = await client.get(f"{base_url}/INTEGRACAO/V1/FUNCIONARIOS", params={"CHAVE": chave})
+            if r_f.status_code == 200:
+                dados_f = r_f.json()
+                funcs_raw = dados_f.get("resultados", []) if isinstance(dados_f, dict) else dados_f
+                op_caixas = {c.funcionario_codigo for c in caixas}
+                vistos_f = set()
+                for f in funcs_raw:
+                    cod = f.get("funcionarioCodigo")
+                    emp = f.get("empresaCodigo")
+                    ativo = bool(f.get("ativo"))
+                    nome = (f.get("nome") or "").strip()
+                    if not cod or not nome or cod in vistos_f:
+                        continue
+                    # Estritamente restrito à empresa selecionada e ativo (ou com caixa recente)
+                    if emp == unidade and (ativo or cod in op_caixas):
+                        vistos_f.add(cod)
+                        funcionarios.append({"codigo": cod, "nome": nome})
+                funcionarios.sort(key=lambda x: x["nome"])
+    except Exception as exc:
+        logger.warning("Falha ao obter funcionários para unidade %s: %s", unidade, exc)
+
+    # 4. Turnos e PDVs cadastrados na unidade
+    turnos_set = sorted({c.turno.strip() for c in caixas if c.turno and c.turno.strip()})
+    turnos = turnos_set if turnos_set else ["1º TURNO", "2º TURNO", "3º TURNO"]
+    pdvs_set = sorted({c.pdv_codigo for c in caixas if c.pdv_codigo})
+    pdvs = [{"codigo": p, "nome": f"PDV {p}"} for p in pdvs_set]
+
+    dados = {
+        "unidade": unidade,
+        "centros_custo": centros,
+        "turnos": turnos,
+        "pdvs": pdvs,
+        "funcionarios": funcionarios,
+        "tipos_data": [
+            {"valor": "movimento", "rotulo": "Data Movimento"},
+            {"valor": "fiscal", "rotulo": "Data Fiscal"},
+        ],
+        "modos_visualizacao": [
+            {"valor": "analitico", "rotulo": "Analítico (Por Turno/Operador)"},
+            {"valor": "consolidado", "rotulo": "Consolidado (Sintético)"},
+        ],
+    }
+
+    _filtros_cache[unidade] = (agora_ts + CACHE_TTL_FILTROS, dados)
+    return dados
+
+
 @router.get("/fechamento")
 async def obter_fechamento(
     unidade: int = Query(...),
     inicio: date = Query(...),
     fim: date = Query(...),
+    centro_custo: int | None = Query(default=None),
+    turno: str | None = Query(default=None),
+    funcionario_codigo: int | None = Query(default=None),
+    pdv_codigo: int | None = Query(default=None),
+    tipo_data: str | None = Query(default="movimento"),
+    consolidado: bool | None = Query(default=False),
     current_user: dict = Depends(get_current_user),
 ) -> dict:
     if fim < inicio or (fim - inicio).days > 30:
@@ -512,38 +634,74 @@ async def obter_fechamento(
         persistidos = {dia: carregar_dia(unidade, dia) for dia in dias}
         if not any(persistidos.values()):
             resultado = await _auditar_com_limite(unidade, inicio, fim, prazo)
+            caixas_filtradas = resultado.caixas
+            if centro_custo is not None:
+                caixas_filtradas = tuple(c for c in caixas_filtradas if c.caixa.centro_custo == centro_custo)
+            if turno is not None and turno.strip() and turno.strip().lower() not in ("todos", "todas"):
+                caixas_filtradas = tuple(c for c in caixas_filtradas if c.caixa.turno.strip().casefold() == turno.strip().casefold())
+            if funcionario_codigo is not None:
+                caixas_filtradas = tuple(
+                    c for c in caixas_filtradas
+                    if c.caixa.funcionario_codigo == funcionario_codigo
+                    or any(p.codigo == funcionario_codigo for p in getattr(c, "funcionarios_participantes", ()))
+                )
+            if pdv_codigo is not None:
+                caixas_filtradas = tuple(c for c in caixas_filtradas if c.caixa.pdv_codigo == pdv_codigo)
+            resultado = resultado.model_copy(update={"caixas": caixas_filtradas})
             return serializar_fechamento(resultado)
         resultados = []
         bloco: list[date] = []  # dias seguidos sem resultado gravado: 1 consulta ao ERP por bloco, nao por dia
 
         async def consultar_bloco() -> None:
             if bloco:
-                resultados.append(await _auditar_com_limite(unidade, bloco[0], bloco[-1], prazo))
-                bloco.clear()
+                try:
+                    res = await _auditar_com_limite(unidade, bloco[0], bloco[-1], prazo)
+                    resultados.append(res)
+                except (WebPostoErro, HTTPException) as exc:
+                    logger.warning("Falha ao consultar bloco ao vivo %s a %s: %s", bloco[0], bloco[-1], exc)
+                    if not resultados and not any(p is not None and p.fechamento is not None for p in persistidos.values()):
+                        raise
+                finally:
+                    bloco.clear()
 
         for dia in dias:
             persistido = persistidos[dia]
-            if persistido is None:
+            if persistido is None or persistido.fechamento is None:
                 bloco.append(dia)
                 continue
             await consultar_bloco()
-            if persistido.fechamento is None:
-                raise HTTPException(status_code=502, detail="Fechamento persistido indisponível.")
             resultados.append(persistido.fechamento)
         await consultar_bloco()
-        proveniencias = [resultado.proveniencia for resultado in resultados]
-        regras = sorted({p.versao_regra for p in proveniencias})
+
+        proveniencias = [resultado.proveniencia for resultado in resultados if hasattr(resultado, "proveniencia") and resultado.proveniencia]
+        regras = sorted({p.versao_regra for p in proveniencias if p.versao_regra})
+        fontes_sangrias = sorted({p.fonte_sangrias for p in proveniencias if p.fonte_sangrias})
+        outras_fontes = sorted({fonte for p in proveniencias for fonte in p.outras_fontes})
+        todas_caixas = tuple(sorted(
+            (caixa for resultado in resultados if hasattr(resultado, "caixas") for caixa in resultado.caixas),
+            key=lambda c: (c.caixa.data, c.caixa.abertura),
+        ))
+        if centro_custo is not None:
+            todas_caixas = tuple(c for c in todas_caixas if c.caixa.centro_custo == centro_custo)
+        if turno is not None and turno.strip() and turno.strip().lower() not in ("todos", "todas"):
+            todas_caixas = tuple(c for c in todas_caixas if c.caixa.turno.strip().casefold() == turno.strip().casefold())
+        if funcionario_codigo is not None:
+            todas_caixas = tuple(
+                c for c in todas_caixas
+                if c.caixa.funcionario_codigo == funcionario_codigo
+                or any(p.codigo == funcionario_codigo for p in getattr(c, "funcionarios_participantes", ()))
+            )
+        if pdv_codigo is not None:
+            todas_caixas = tuple(c for c in todas_caixas if c.caixa.pdv_codigo == pdv_codigo)
+
         resultado = ResultadoAuditoria(
             empresa_codigo=unidade, inicio=inicio, fim=fim,
-            caixas=tuple(sorted(
-                (caixa for resultado in resultados for caixa in resultado.caixas),
-                key=lambda c: (c.caixa.data, c.caixa.abertura),
-            )),
+            caixas=todas_caixas,
             proveniencia=Proveniencia(
                 execucao_id=uuid.uuid4().hex, executado_em=agora(),
-                versao_regra=" + ".join(regras),
-                fonte_sangrias=" + ".join(sorted({p.fonte_sangrias for p in proveniencias})),
-                extratos=(), outras_fontes=tuple(sorted({fonte for p in proveniencias for fonte in p.outras_fontes})),
+                versao_regra=" + ".join(regras) if regras else "FECHAMENTO_CANONICO",
+                fonte_sangrias=" + ".join(fontes_sangrias) if fontes_sangrias else "API",
+                extratos=(), outras_fontes=tuple(outras_fontes),
             ),
         )
         payload = serializar_fechamento(resultado)

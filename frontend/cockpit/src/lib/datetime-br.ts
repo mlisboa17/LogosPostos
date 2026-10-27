@@ -29,12 +29,20 @@ function addDaysFromIso(iso: string, delta: number): string {
   return formatDateBR(dt);
 }
 
-export function presetRange(id: "hoje" | "ontem" | "7d"): { inicio: string; fim: string } {
+export function presetRange(
+  id: "hoje" | "ontem" | "7d" | "15d" | "30d" | "mes"
+): { inicio: string; fim: string } {
   const fim = todayRecife();
   if (id === "hoje") return { inicio: fim, fim };
   if (id === "ontem") {
     const s = addDaysFromIso(fim, -1);
     return { inicio: s, fim: s };
   }
-  return { inicio: addDaysFromIso(fim, -7), fim };
+  if (id === "15d") return { inicio: addDaysFromIso(fim, -14), fim };
+  if (id === "30d") return { inicio: addDaysFromIso(fim, -29), fim };
+  if (id === "mes") {
+    const [y, m] = fim.split("-");
+    return { inicio: `${y}-${m}-01`, fim };
+  }
+  return { inicio: addDaysFromIso(fim, -6), fim };
 }

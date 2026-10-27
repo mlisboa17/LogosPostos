@@ -1,6 +1,6 @@
 # LOGOS Auditoria — contexto para qualquer IA que for ajudar (Gemini, ChatGPT, Copilot, Cursor, Antigravity)
 
-Leia antes de sugerir qualquer coisa. Atualizado em 11/10/2026.
+Leia antes de sugerir qualquer coisa. Atualizado em 27/10/2026.
 
 ## O que é
 
@@ -11,7 +11,7 @@ Hoje o LOGOS confere 4 unidades: **Doze 74014**, **VIP 11495** (pista + conveni�
 ## Onde fica e quem faz o quê
 
 - Projeto oficial (o ÚNICO que vale): `C:\Projetos\LOGOS\LogosPostos` · GitHub `mlisboa17/LogosPostos` · branch `feature/cash-audit-fechamento`.
-- A pasta antiga do OneDrive (`...\LOGOS SPACE\Api_WebPosto`) é **arquivo morto**: não trabalhar nela; serve só de consulta.
+- A pasta antiga do OneDrive (`...\LOGOS SPACE\Api_WebPosto`) e o diretório `_archive/` são **arquivos mortos/legados**: não trabalhar neles; servem só de consulta histórica.
 - **Arquiteto/revisor:** Claude (Claude Code). **Construtores:** um agente por vez (VS Code, Cursor ou Antigravity), **sempre a partir de um prompt de sprint em `docs/prompts/`**. **Decisões:** o diretor.
 - **Regra de ouro: nenhuma IA implementa plano que não esteja numa sprint aprovada.** Ideias novas vêm como **proposta** (formato abaixo) para o arquiteto conferir com o que já existe.
 
@@ -27,7 +27,9 @@ Hoje o LOGOS confere 4 unidades: **Doze 74014**, **VIP 11495** (pista + conveni�
 
 ## O que já existe (não refazer)
 
-- Módulo `WebPosto_API/src/modules/cash_reconciliation/`: fechamento de caixa (FECHAMENTO_V4), conciliação de cartões (CARTOES_V3_4: NSU, troca de forma, duplicidade, Cartão POS), PagBank EDI, Premmia (robô do portal), pendências com prazo, relatório do caixa do dia com status ✅/❌/⏳, Painel do Diretor, Conferência de Recebimentos (Lançar / Alterar / Apurar / Conferir à mão), Telegram diário.
+- Módulo `WebPosto_API/src/modules/cash_reconciliation/`:
+  - **Auditoria de Fechamento de Caixa** (`/api/v1/cash-audit/fechamento` e `/filtros-operacionais`): motor concorrente multi-dias com `asyncio.gather` (7 a 30 dias), isolamento estrito de Centros de Custo/Operadores/PDVs por filial, rateio de quebra/sobra individual por frentista da pista com rastreamento de vales (`com_vale` vs `pendente_sem_vale`) e tela executiva no Cockpit (`src/components/cash-audit-live.tsx`) com visão Analítica vs Consolidada e KPIs de Faturamento, Sangrias e Quebra Líquida.
+  - Fechamento de caixa (FECHAMENTO_V4), conciliação de cartões (CARTOES_V3_4: NSU, troca de forma, duplicidade, Cartão POS), PagBank EDI, Premmia (robô do portal), pendências com prazo, relatório do caixa do dia com status ✅/❌/⏳, Painel do Diretor, Conferência de Recebimentos (Lançar / Alterar / Apurar / Conferir à mão), Telegram diário.
 - Módulo `WebPosto_API/src/modules/commercial_performance/`: **placar de metas e litros por frentista** (base para qualquer ranking de frentistas — evoluir este, não criar outro).
 - Robô noturno às 03:00 (`src/jobs/noturno.py`).
 

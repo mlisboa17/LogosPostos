@@ -63,6 +63,21 @@ def create_app() -> FastAPI:
     app.include_router(cash_audit_router)
     app.include_router(commercial_router)
 
+    # Rotas de integração WebPosto (catálogo de produtos, grupos, proxy, etc.)
+    try:
+        from src.presentation.app import app as presentation_app
+        for route in presentation_app.routes:
+            path = getattr(route, "path", "")
+            if (
+                path.startswith("/api/v1/webposto")
+                or path.startswith("/api/v1/proxy")
+                or path.startswith("/api/v1/adelaide")
+            ):
+                app.routes.append(route)
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning("Rotas webposto/produtos não carregadas: %s", exc)
+
     frontend_dir = root / "frontend"
     if frontend_dir.is_dir():
         app.mount("/frontend", StaticFiles(directory=str(frontend_dir)), name="frontend")

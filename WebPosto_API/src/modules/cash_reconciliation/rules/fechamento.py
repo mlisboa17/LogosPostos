@@ -24,6 +24,7 @@ from ..domain.fechamento import (
     AuditoriaCaixa,
     Caixa,
     DescontoFalta,
+    FuncionarioFechamento,
     LinhaModalidade,
     MovimentoDespesa,
     Severidade,
@@ -55,6 +56,8 @@ def auditar_caixa(
     repasse_sangria_para: int | None = None,
     nome_destino_repasse: str | None = None,
     destino_padrao: int | None = None,
+    vendas_operadores: dict[int, Decimal] | None = None,
+    nomes_funcionarios: dict[int, str] | None = None,
 ) -> AuditoriaCaixa:
     linhas = tuple(modalidades)
     do_caixa = tuple(s for s in sangrias if s.caixa_codigo == caixa.codigo)
@@ -215,6 +218,94 @@ def auditar_caixa(
                 )
             )
 
+    # Prestação individual por funcionário / frentista participante no caixa
+    vendas_cx = (vendas_operadores or {})
+    nomes = (nomes_funcionarios or {})
+
+    funcs_ids = set()
+    funcs_ids.add(caixa.funcionario_codigo)
+    funcs_ids.update(vendas_cx.keys())
+    funcs_ids.update(v.funcionario_codigo for v in vales_do_caixa if v.funcionario_codigo is not None)
+
+    participantes: list[FuncionarioFechamento] = []
+    for fid in funcs_ids:
+        nome = nomes.get(fid) or f"Operador #{fid}"
+        is_resp = (fid == caixa.funcionario_codigo)
+        val_apurado = vendas_cx.get(fid, Decimal(0))
+        if not vendas_cx and is_resp and caixa.apurado:
+            val_apurado = caixa.apurado
+
+        vales_f = [v for v in vales_do_caixa if v.funcionario_codigo == fid]
+        faltas = sum((v.valor for v in vales_f if "falta" in v.origem.lower() or v.origem.upper() == ORIGEM_VALE_FALTA), Decimal(0))
+        sobras = sum((v.valor for v in vales_f if "sobra" in v.origem.lower()), Decimal(0))
+        vales_comuns = sum((v.valor for v in vales_f if "vale" in v.origem.lower() and "falta" not in v.origem.lower() and "sobra" not in v.origem.lower()), Decimal(0))
+
+        quebra_f = sobras - faltas
+        if val_apurado > Decimal(0):
+            declarado_f = val_apurado + quebra_f
+        elif quebra_f != Decimal(0):
+            declarado_f = quebra_f if quebra_f > Decimal(0) else Decimal(0)
+        else:
+            declarado_f = Decimal(0)
+
+        # Se não houve rateio individual por frentista mas o caixa fechou com falta em dinheiro,
+        # atribui a falta ao responsável do turno para que não fique oculta da diretoria
+        if is_resp and quebra_f == Decimal(0) and falta_dinheiro > limite and not any(v.funcionario_codigo != fid for v in vales_falta):
+            quebra_f = -falta_dinheiro
+            if val_apurado > Decimal(0):
+                declarado_f = val_apurado + quebra_f
+
+        # Determinação do status do vale de desconto
+        tem_vale_f = False
+        val_vale_f = Decimal(0)
+        status_vale_f = "sem_falta"
+
+        if quebra_f < Decimal(0):
+            if faltas > Decimal(0):
+                tem_vale_f = True
+                val_vale_f = faltas
+                status_vale_f = "com_vale"
+            elif is_resp and vales_falta:
+                val_caixa = sum((v.valor for v in vales_falta), Decimal(0))
+                if val_caixa > Decimal(0):
+                    tem_vale_f = True
+                    val_vale_f = val_caixa
+                    status_vale_f = "com_vale"
+                else:
+                    status_vale_f = "pendente_sem_vale"
+            else:
+                status_vale_f = "pendente_sem_vale"
+
+        alertas_f: list[str] = []
+        if quebra_f < -limite:
+            msg_vale = f" ({_brl(val_vale_f)} com vale)" if tem_vale_f else " (sem vale lançado)"
+            alertas_f.append(f"Falta individual de {_brl(abs(quebra_f))}{msg_vale}")
+        elif quebra_f < Decimal(0):
+            alertas_f.append(f"Falta de {_brl(abs(quebra_f))}")
+        elif quebra_f > Decimal(0):
+            alertas_f.append(f"Sobra de {_brl(quebra_f)}")
+        if vales_comuns > Decimal(0):
+            alertas_f.append(f"Vale de {_brl(vales_comuns)}")
+
+        participantes.append(
+            FuncionarioFechamento(
+                codigo=fid,
+                nome=nome,
+                funcao="Responsável (Abertura PDV)" if is_resp else "Frentista / Operador",
+                responsavel=is_resp,
+                valor_apurado=val_apurado,
+                valor_declarado=declarado_f,
+                quebra_sobra=quebra_f,
+                vales_associados=vales_comuns,
+                tem_vale_falta=tem_vale_f,
+                valor_vale_falta=val_vale_f,
+                status_vale=status_vale_f,
+                alertas=tuple(alertas_f),
+            )
+        )
+
+    participantes.sort(key=lambda x: (not x.responsavel, -x.valor_apurado))
+
     return AuditoriaCaixa(
         caixa=caixa,
         modalidades=linhas,
@@ -225,4 +316,6 @@ def auditar_caixa(
         vales=vales_do_caixa,
         desconto_falta=desconto_falta,
         despesas=despesas_do_caixa,
+        funcionarios_participantes=tuple(participantes),
     )
+
