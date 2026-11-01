@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block titulo %}Prévia do extrato{% endblock %}
+{% block conteudo %}
+<h1>Prévia de importação de extrato</h1>
+<p><strong>{{ aprovacao.resumo.posto.apelido or aprovacao.resumo.posto.nome }}</strong>
+  — {{ aprovacao.resumo.conta.banco }} / conta final {{ aprovacao.resumo.conta.conta_sufixo }}</p>
+<p>Situação: {{ aprovacao.rotulo }} · {{ aprovacao.resumo.total_linhas }} lançamento(s) a enviar</p>
+<p>{{ aprovacao.resumo.aviso }}</p>
+{% for p in aprovacao.resumo.periodos %}
+<section class="cartao">
+  <h2>{{ p.de|data }} a {{ p.ate|data }}</h2>
+  <p>{{ p.quantidade }} lançamento(s) a enviar · Entradas a enviar {{ p.entradas|dinheiro }}
+    · Saídas a enviar {{ p.saidas|dinheiro }}</p>
+  {% if p.dias_ja_enviados %}
+  <p>Dias já enviados pelo Logos Match (não serão reenviados): {{ p.dias_ja_enviados|join(", ") }}</p>
+  {% endif %}
+</section>
+{% endfor %}
+{% if pode_decidir and aprovacao.situacao == "pendente" %}
+<form method="post" action="/extratos/aprovacoes/{{ aprovacao.ticket }}" class="linha">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <button name="acao" value="aprovar" type="submit">Aprovar</button>
+  <button name="acao" value="recusar" type="submit" class="secundario">Recusar</button>
+</form>
+{% endif %}
+<p><a href="/extratos">Voltar aos extratos</a></p>
+{% endblock %}

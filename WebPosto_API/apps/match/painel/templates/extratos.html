@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block titulo %}Extratos{% endblock %}
+{% block conteudo %}
+<h1>Extratos OFX</h1>
+<p>Pasta monitorada: <code>{{ pasta }}</code></p>
+{% if pode_abrir %}
+<form method="post" action="/extratos/abrir-pasta">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <button type="submit" class="secundario">Abrir pasta</button>
+</form>
+{% endif %}
+
+{% if pode_configurar %}
+<section class="cartao">
+  <h2>Permissão para importar no webPosto</h2>
+  {% for p in postos_config %}
+  <form method="post" action="/postos/{{ p.id }}/extratos-webposto" class="linha">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <strong>{{ p.apelido or p.nome }}</strong>
+    <label class="caixa">
+      <input type="checkbox" name="permitir" value="1"{% if p.enviar_extratos_webposto %} checked{% endif %}>
+      Permitir enviar extratos ao webPosto
+    </label>
+    <input type="hidden" name="permitir" value="0">
+    <button type="submit">Salvar</button>
+  </form>
+  {% endfor %}
+</section>
+{% endif %}
+
+<section class="cartao">
+  <h2>Contas bancárias reconhecidas</h2>
+  {% if contas %}
+  <ul>
+    {% for c in contas %}
+    <li>{{ c.posto_apelido or c.posto_nome }} — {{ c.banco }} / conta final {{ c.conta_sufixo }}
+      (conta webPosto {{ c.cd_conta_webposto }})</li>
+    {% endfor %}
+  </ul>
+  {% else %}<p>Nenhuma conta bancária vinculada.</p>{% endif %}
+</section>
+
+{% if aguardando %}
+<section class="cartao">
+  <h2>Aguardando vínculo</h2>
+  {% for a in aguardando %}
+  <article>
+    <h3>{{ a.nome_original }} — {{ a.banco }} / conta final {{ a.conta_sufixo }}</h3>
+    {% if pode_configurar %}
+    <form method="post" action="/extratos/vincular" class="linha">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="arquivo_id" value="{{ a.id }}">
+      <label>Posto
+        <select name="posto_id" required>
+          <option value="">Escolha</option>
+          {% for p in postos_vinculo %}<option value="{{ p.id }}">{{ p.apelido or p.nome }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Código da conta no webPosto
+        <input name="cd_conta_webposto" type="number" min="1" required>
+      </label>
+      <button type="submit">Vincular conta</button>
+    </form>
+    {% endif %}
+  </article>
+  {% endfor %}
+</section>
+{% endif %}
+
+<section class="cartao">
+  <h2>Aguardando aprovação</h2>
+  {% if pendentes %}
+  {% for a in pendentes %}
+  <article>
+    <h3>{{ a.resumo.posto.apelido or a.resumo.posto.nome }} — {{ a.resumo.conta.banco }}
+      / conta final {{ a.resumo.conta.conta_sufixo }}</h3>
+    <p>{{ a.resumo.total_linhas }} lançamento(s) a enviar em {{ a.resumo.periodos|length }} período(s).</p>
+    <a href="/extratos/aprovacoes/{{ a.ticket }}">Ver prévia</a>
+    {% if pode_aprovar[a.id] %}
+    <form method="post" action="/extratos/aprovacoes/{{ a.ticket }}" class="linha">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button name="acao" value="aprovar" type="submit">Aprovar</button>
+      <button name="acao" value="recusar" type="submit" class="secundario">Recusar</button>
+    </form>
+    {% endif %}
+  </article>
+  {% endfor %}
+  {% else %}<p>Nenhum extrato aguardando aprovação.</p>{% endif %}
+</section>
+
+<section class="cartao">
+  <h2>Arquivos recebidos</h2>
+  {% if arquivos %}
+  <ul>
+    {% for a in arquivos %}
+    <li>{{ a.nome_original }} — {{ a.banco or "Banco não identificado" }} —
+      {% if a.situacao == "aguardando_vinculo" %}Aguardando vínculo
+      {% elif a.situacao == "recusado" %}Recusado{% else %}Lido{% endif %}
+      {% if a.motivo %}: {{ a.motivo }}{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}<p>Nenhum arquivo recebido.</p>{% endif %}
+</section>
+
+<section class="cartao">
+  <h2>Histórico de aprovações</h2>
+  {% if historico %}
+  <ul>
+    {% for a in historico %}
+    <li>{{ a.resumo.posto.apelido or a.resumo.posto.nome }} —
+      {{ a.rotulo }}{% if a.resultado %}: {{ a.resultado }}{% endif %}</li>
+    {% endfor %}
+  </ul>
+  {% else %}<p>Nenhuma aprovação registrada.</p>{% endif %}
+</section>
+{% endblock %}

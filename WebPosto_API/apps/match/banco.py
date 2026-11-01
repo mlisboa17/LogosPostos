@@ -207,9 +207,31 @@ CREATE TABLE extrato_linha (
     UNIQUE (conta_bancaria_id, chave));
 """
 
+_SCHEMA_V7 = """
+CREATE TABLE aprovacao (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tipo TEXT NOT NULL CHECK (tipo IN ('importar_extrato','lancamento')),
+    conta_bancaria_id INTEGER REFERENCES conta_bancaria(id),
+    posto_id INTEGER NOT NULL REFERENCES posto(id),
+    resumo_json TEXT NOT NULL,
+    hash TEXT NOT NULL,
+    situacao TEXT NOT NULL CHECK
+        (situacao IN ('pendente','aprovada','recusada','executada','falhou','automatica')),
+    criada_em TEXT NOT NULL,
+    decidida_em TEXT,
+    decidida_por TEXT,
+    canal_decisao TEXT,
+    resultado TEXT,
+    ticket TEXT UNIQUE NOT NULL);
+CREATE UNIQUE INDEX aprovacao_importacao_pendente_por_conta
+    ON aprovacao(conta_bancaria_id)
+    WHERE tipo='importar_extrato' AND situacao='pendente';
+ALTER TABLE posto ADD COLUMN enviar_extratos_webposto INTEGER NOT NULL DEFAULT 0;
+"""
+
 _MIGRACOES = [
     (1, _SCHEMA_V1), (2, _SCHEMA_V2), (3, _SCHEMA_V3), (4, _SCHEMA_V4),
-    (5, _SCHEMA_V5), (6, _SCHEMA_V6),
+    (5, _SCHEMA_V5), (6, _SCHEMA_V6), (7, _SCHEMA_V7),
 ]
 
 

@@ -97,12 +97,28 @@ def _job_fiscal_mensal(con_factory) -> None:
 
 
 def _job_extratos(con_factory) -> None:
-    from apps.match.extratos import entrada
+    from apps.match.extratos import camada1, entrada, repositorio
 
     def rodar():
         con = con_factory()
         try:
             entrada.processar_pasta(con, agora())
+            for conta in repositorio.contas(con):
+                try:
+                    if repositorio.linhas_pendentes(con, conta["id"]):
+                        camada1.montar_previa(con, conta["id"])
+                except Exception as exc:  # noqa: BLE001 - uma conta não interrompe as demais
+                    logger.warning("Prévia de extrato falhou tipo=%s", type(exc).__name__)
+            aprovadas = con.execute(
+                """SELECT id FROM aprovacao
+                   WHERE tipo='importar_extrato' AND situacao='aprovada'
+                   ORDER BY criada_em, id"""
+            ).fetchall()
+            for item in aprovadas:
+                try:
+                    camada1.executar(con, item["id"])
+                except Exception as exc:  # noqa: BLE001 - uma aprovação não interrompe as demais
+                    logger.warning("Execução de extrato falhou tipo=%s", type(exc).__name__)
         finally:
             con.close()
 

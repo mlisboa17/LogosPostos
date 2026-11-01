@@ -7,7 +7,9 @@ from fastapi.testclient import TestClient
 
 from apps.match import acesso, banco, coletas, credenciais, rotina
 from apps.match.acesso import Perfil
+from apps.match.extratos import aprovacoes
 from apps.match.painel import criar_app, rotas
+from apps.match.painel import rotas as rotas_painel
 from src.modules.cash_reconciliation import config as cfg
 from src.modules.cash_reconciliation.domain.tempo import ontem
 from src.shared import segredos
@@ -24,7 +26,8 @@ def _limpa():
 
 
 @pytest.fixture
-def fab(tmp_path):
+def fab(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOGOS_MATCH_DIR", str(tmp_path))
     caminho = tmp_path / "m.db"
     banco.conectar(caminho).close()
     return lambda: banco.conectar(caminho)
@@ -365,6 +368,140 @@ def test_agenda_hora_invalida_recusa(cli, admin, con):
     r = cli.post("/agenda", data={"csrf": tok, "hora_coleta": "05:30", "hora_repescagem": "11:15"})
     assert r.status_code == 303
     assert rotina.horarios(con) == ("05:30", "11:15")
+
+
+def _conta_extrato(con, posto_id):
+    cur = con.execute(
+        """INSERT INTO conta_bancaria
+           (posto_id, banco, agencia, conta_sufixo, cd_conta_webposto)
+           VALUES (?, 'BB', '0001', ?, 86248)""",
+        (posto_id, f"4068-{posto_id}"),
+    )
+    con.commit()
+    return cur.lastrowid
+
+
+def _aprovacao_extrato(con, posto_id, conta_id, ticket_seed):
+    posto = banco.obter_posto(con, posto_id)
+    return aprovacoes.criar(
+        con, "importar_extrato", posto_id, conta_id,
+        {"posto_id": posto_id, "conta_id": conta_id,
+         "posto": {"id": posto_id, "nome": posto["nome"], "apelido": posto["apelido"]},
+         "conta": {"banco": "BB", "conta_sufixo": f"4068-{posto_id}"},
+         "periodos": [{"de": "2026-10-31", "ate": "2026-10-31", "quantidade": 1,
+                       "entradas": "1.00", "saidas": "0.00",
+                       "dias_ja_enviados": ["2026-10-30"]}],
+         "total_linhas": 1,
+         "aviso": "Dias que o webPosto já tiver serão ignorados por ele na importação.",
+         "resumo": ticket_seed},
+    )
+
+
+def test_extratos_tela_escopo_por_posto(cli, admin, con):
+    posto_a, posto_b = _posto(con, "Posto Alfa", 1001), _posto(con, "Posto Beta", 1002)
+    conta_a, conta_b = _conta_extrato(con, posto_a), _conta_extrato(con, posto_b)
+    aprovacao_a = _aprovacao_extrato(con, posto_a, conta_a, "visivel")
+    _aprovacao_extrato(con, posto_b, conta_b, "oculto")
+    acesso.criar_usuario(con, "Gê", "gerente", SENHA, Perfil.GERENTE, [posto_a])
+    _logado(cli, "gerente")
+
+    resposta = cli.get("/extratos")
+
+    assert resposta.status_code == 200
+    assert "Posto Alfa" in resposta.text
+    assert "Posto Beta" not in resposta.text
+    assert "4068-1" in resposta.text
+    assert "4068-2" not in resposta.text
+    detalhe = cli.get(f"/extratos/aprovacoes/{aprovacao_a['ticket']}")
+    assert detalhe.status_code == 200
+    assert "Dias que o webPosto já tiver serão ignorados por ele na importação." in detalhe.text
+    assert "a enviar" in detalhe.text
+
+
+def test_vincular_admin_e_csrf(cli, admin, con, monkeypatch):
+    posto_id = _posto(con)
+    conta_id = _conta_extrato(con, posto_id)
+    cur = con.execute(
+        """INSERT INTO extrato_arquivo
+           (sha256, nome_original, recebido_em, banco, conta_sufixo, situacao)
+           VALUES (?, 'desconhecido.ofx', '2026-11-01T10:00:00-03:00',
+                   'PAGBANK', '9048-8', 'aguardando_vinculo')""",
+        (hash("vinculo"),),
+    )
+    arquivo_id = cur.lastrowid
+    con.commit()
+    chamadas = []
+    monkeypatch.setattr(rotas_painel.entrada, "vincular",
+                        lambda *args: chamadas.append(args) or 2)
+    acesso.criar_usuario(con, "Gê", "gerente", SENHA, Perfil.GERENTE, [posto_id])
+    tok_gerente = _logado(cli, "gerente")
+    assert cli.post("/extratos/vincular", data={"csrf": tok_gerente}).status_code == 403
+    tok_admin = _logado(cli, "admin")
+    assert cli.post("/extratos/vincular", data={"arquivo_id": arquivo_id,
+                                                "posto_id": posto_id,
+                                                "cd_conta_webposto": 96123}).status_code == 403
+    resposta = cli.post("/extratos/vincular", data={
+        "csrf": tok_admin, "arquivo_id": arquivo_id, "posto_id": posto_id,
+        "cd_conta_webposto": 96123,
+    })
+    assert resposta.status_code == 303
+    assert [(args[1], args[2], args[3]) for args in chamadas] == [
+        (arquivo_id, posto_id, 96123),
+    ]
+
+
+def test_configurar_trava_extratos_admin_e_csrf(cli, admin, con):
+    posto_id = _posto(con)
+    tok = _logado(cli)
+
+    assert cli.post(f"/postos/{posto_id}/extratos-webposto",
+                    data={"permitir": "1"}).status_code == 403
+    resposta = cli.post(f"/postos/{posto_id}/extratos-webposto",
+                        data={"csrf": tok, "permitir": "1"})
+
+    assert resposta.status_code == 303
+    assert banco.obter_posto(con, posto_id)["enviar_extratos_webposto"] == 1
+    log = con.execute(
+        "SELECT detalhe FROM log_acesso WHERE acao='configurar_envio_extratos'"
+    ).fetchone()
+    assert log["detalhe"] == f"posto={posto_id} permitido=1"
+
+
+def test_aprovar_pelo_painel(cli, admin, con, monkeypatch):
+    posto_id = _posto(con)
+    conta_id = _conta_extrato(con, posto_id)
+    aprovacao = _aprovacao_extrato(con, posto_id, conta_id, "aprovar-pelo-painel")
+    acesso.criar_usuario(con, "Gê", "gerente", SENHA, Perfil.GERENTE, [posto_id])
+    chamado, feito = [], threading.Event()
+
+    def executar(factory, aprovacao_id):
+        chamado.append((factory, aprovacao_id))
+        feito.set()
+        return True, "ok"
+
+    monkeypatch.setattr(rotas_painel.camada1, "executar", executar)
+    tok = _logado(cli, "gerente")
+
+    resposta = cli.post(f"/extratos/aprovacoes/{aprovacao['ticket']}",
+                        data={"csrf": tok, "acao": "aprovar"})
+
+    assert resposta.status_code == 303
+    assert resposta.headers["location"] == "/extratos"
+    assert feito.wait(5)
+    assert chamado[0][1] == aprovacao["id"]
+
+
+def test_gerente_outro_posto_403(cli, admin, con):
+    meu, outro = _posto(con, "Meu posto", 1001), _posto(con, "Outro posto", 1002)
+    conta_id = _conta_extrato(con, outro)
+    aprovacao = _aprovacao_extrato(con, outro, conta_id, "fora-escopo")
+    acesso.criar_usuario(con, "Gê", "gerente", SENHA, Perfil.GERENTE, [meu])
+    tok = _logado(cli, "gerente")
+
+    resposta = cli.post(f"/extratos/aprovacoes/{aprovacao['ticket']}",
+                        data={"csrf": tok, "acao": "aprovar"})
+
+    assert resposta.status_code == 403
 
 
 def test_historico_datas_brasil(cli, admin, con):

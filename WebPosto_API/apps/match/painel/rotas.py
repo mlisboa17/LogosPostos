@@ -10,6 +10,7 @@ import asyncio
 import hmac
 import json
 import logging
+import os
 import re
 import secrets
 import sqlite3
@@ -27,10 +28,11 @@ from fastapi.responses import FileResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
-from apps.match import (acesso, agendador, banco, coletas, credenciais, explicar, registro_rede,
-                        relatorio_xlsx, rotina, unidades)
+from apps.match import (acesso, agendador, banco, caminhos, coletas, credenciais, explicar,
+                        registro_rede, relatorio_xlsx, rotina, unidades)
 from apps.match.acesso import Acao, Perfil
 from apps.match.canais import envio
+from apps.match.extratos import aprovacoes, camada1, entrada, repositorio
 from src.modules.cash_reconciliation import config as config_cr
 from src.modules.cash_reconciliation.adapters import pagbank_edi, webposto_caixas
 from src.modules.cash_reconciliation.domain.tempo import agora, formatar_data_hora, ontem
@@ -238,6 +240,8 @@ def _menu(ctx: Ctx) -> list[tuple[str, str]]:
     if _so_fiscal(ctx):
         return fiscal
     itens = [("/", "Hoje"), ("/coleta", "Coleta")] + fiscal
+    if ctx.pode(Acao.VER):
+        itens.append(("/extratos", "Extratos"))
     if ctx.pode(Acao.CADASTRAR_POSTO) or ctx.pode(Acao.TROCAR_CREDENCIAL):
         itens.append(("/postos", "Postos"))
     if ctx.pode(Acao.CONFIGURAR):
@@ -1143,6 +1147,163 @@ async def historico(ctx: Ctx = Depends(_ctx)):
     envios = banco.ultimos_envios(ctx.con) if configurar else None
     return _pagina(ctx, "historico.html", execucoes=execucoes,
                    coletas=banco.ultimas_coletas(ctx.con, ctx.postos()), envios=envios)
+
+
+# ---------------------------------------------------------------- Extratos OFX
+
+_ROTULO_APROVACAO = {
+    "pendente": "Aguardando aprovação",
+    "executada": "Importado no webPosto",
+    "falhou": "Falhou",
+    "recusada": "Recusado",
+    "automatica": "Importado automaticamente",
+    "aprovada": "Aprovada",
+}
+
+
+def _extratos_da_tela(ctx: Ctx):
+    visiveis = set(ctx.postos())
+    configurar = ctx.pode(Acao.CONFIGURAR)
+    contas = [c for c in repositorio.contas(ctx.con)
+              if configurar or c["posto_id"] in visiveis]
+    arquivos_db = ctx.con.execute(
+        """SELECT a.*, c.posto_id, p.nome AS posto_nome, p.apelido AS posto_apelido
+           FROM extrato_arquivo a
+           LEFT JOIN conta_bancaria c ON c.id=a.conta_bancaria_id
+           LEFT JOIN posto p ON p.id=c.posto_id
+           ORDER BY a.recebido_em DESC, a.id DESC LIMIT 100"""
+    ).fetchall()
+    arquivos = [a for a in arquivos_db
+                if configurar or (a["posto_id"] is not None and a["posto_id"] in visiveis)]
+    aprovacoes_db = ctx.con.execute(
+        "SELECT * FROM aprovacao ORDER BY criada_em DESC, id DESC LIMIT 100"
+    ).fetchall()
+    historico = []
+    pendentes = []
+    for row in aprovacoes_db:
+        if not configurar and row["posto_id"] not in visiveis:
+            continue
+        item = dict(row)
+        item["resumo"] = json.loads(row["resumo_json"])
+        item["rotulo"] = _ROTULO_APROVACAO.get(row["situacao"], row["situacao"])
+        historico.append(item)
+        if row["tipo"] == "importar_extrato" and row["situacao"] == "pendente":
+            pendentes.append(item)
+    aguardando = [a for a in arquivos if a["situacao"] == "aguardando_vinculo"]
+    postos_vinculo = banco.listar_postos(ctx.con, so_ativos=False) if configurar else []
+    postos_config = ctx.con.execute(
+        "SELECT id, nome, apelido, enviar_extratos_webposto FROM posto ORDER BY nome"
+    ).fetchall() if configurar else []
+    if not configurar:
+        postos_config = []
+    return contas, arquivos, pendentes, historico, aguardando, postos_vinculo, postos_config
+
+
+@router.get("/extratos")
+async def extratos_tela(ctx: Ctx = Depends(_ctx)):
+    ctx.exigir(Acao.VER)
+    (contas, arquivos, pendentes, historico, aguardando,
+     postos_vinculo, postos_config) = _extratos_da_tela(ctx)
+    return _pagina(
+        ctx, "extratos.html", contas=contas, arquivos=arquivos, pendentes=pendentes,
+        historico=historico, aguardando=aguardando, postos_vinculo=postos_vinculo,
+        postos_config=postos_config,
+        pasta=caminhos.extratos(ctx.con), pode_configurar=ctx.pode(Acao.CONFIGURAR),
+        pode_abrir=ctx.pode(Acao.CONFIGURAR),
+        pode_aprovar={r["id"]: ctx.pode(Acao.COLETAR, r["posto_id"]) for r in pendentes},
+        erro=None, mensagem=None,
+    )
+
+
+@router.get("/extratos/aprovacoes/{ticket}")
+async def extrato_aprovacao(ticket: str, ctx: Ctx = Depends(_ctx)):
+    ctx.exigir(Acao.VER)
+    row = ctx.con.execute("SELECT * FROM aprovacao WHERE ticket=?", (ticket,)).fetchone()
+    if row is None:
+        raise Recusado(404, "Aprovação não encontrada.")
+    ctx.exigir(Acao.VER, row["posto_id"])
+    item = dict(row)
+    item["resumo"] = json.loads(row["resumo_json"])
+    item["rotulo"] = _ROTULO_APROVACAO.get(row["situacao"], row["situacao"])
+    return _pagina(ctx, "extrato_aprovacao.html", aprovacao=item,
+                   pode_decidir=ctx.pode(Acao.COLETAR, row["posto_id"]))
+
+
+@router.post("/extratos/vincular")
+async def extratos_vincular(ctx: Ctx = Depends(_ctx_post)):
+    ctx.exigir(Acao.CONFIGURAR)
+    arquivo_id = _int(ctx.form, "arquivo_id")
+    posto_id = _int(ctx.form, "posto_id")
+    cd_conta = _int(ctx.form, "cd_conta_webposto")
+    if not arquivo_id or not posto_id or not cd_conta or cd_conta < 0:
+        raise Recusado(400, "Informe arquivo, posto e conta válida do webPosto.")
+    arquivo = ctx.con.execute(
+        "SELECT situacao FROM extrato_arquivo WHERE id=?", (arquivo_id,)
+    ).fetchone()
+    if arquivo is None or arquivo["situacao"] != "aguardando_vinculo":
+        raise Recusado(404, "Extrato aguardando vínculo não encontrado.")
+    _posto_ou_404(ctx, posto_id)
+    novas = entrada.vincular(ctx.con, arquivo_id, posto_id, cd_conta)
+    acesso.registrar(ctx.con, ctx.uid, "vincular_conta_extrato",
+                     f"arquivo={arquivo_id} posto={posto_id} conta={cd_conta} linhas={novas}")
+    return _ir("/extratos")
+
+
+@router.post("/postos/{posto_id}/extratos-webposto")
+async def extratos_webposto_gravar(posto_id: int, ctx: Ctx = Depends(_ctx_post)):
+    ctx.exigir(Acao.CONFIGURAR)
+    _posto_ou_404(ctx, posto_id)
+    valores = ctx.form.getlist("permitir")
+    if not valores or any(valor not in ("0", "1") for valor in valores):
+        raise Recusado(400, "Opção de envio inválida.")
+    valor = "1" if "1" in valores else "0"
+    ctx.con.execute(
+        "UPDATE posto SET enviar_extratos_webposto=? WHERE id=?", (int(valor), posto_id)
+    )
+    ctx.con.commit()
+    acesso.registrar(ctx.con, ctx.uid, "configurar_envio_extratos",
+                     f"posto={posto_id} permitido={valor}")
+    return _ir("/extratos")
+
+
+@router.post("/extratos/aprovacoes/{ticket}")
+async def extratos_decidir(ticket: str, ctx: Ctx = Depends(_ctx_post)):
+    row = ctx.con.execute("SELECT * FROM aprovacao WHERE ticket=?", (ticket,)).fetchone()
+    if row is None:
+        raise Recusado(404, "Aprovação não encontrada.")
+    ctx.exigir(Acao.COLETAR, row["posto_id"])
+    if row["tipo"] != "importar_extrato":
+        raise Recusado(400, "Tipo de aprovação inválido para esta ação.")
+    acao = _txt(ctx.form, "acao")
+    if acao not in ("aprovar", "recusar"):
+        raise Recusado(400, "Escolha aprovar ou recusar.")
+    ok, mensagem = aprovacoes.decidir(
+        ctx.con, ticket, acao == "aprovar", f"usuario:{ctx.uid}", "painel"
+    )
+    if not ok:
+        return _ir("/extratos?resolvido=1")
+    acesso.registrar(ctx.con, ctx.uid, f"{acao}_aprovacao_extrato",
+                     f"aprovacao={row['id']} posto={row['posto_id']}")
+    if acao == "aprovar":
+        factory = ctx.request.app.state.con_factory
+
+        def executar(factory_, aprovacao_id):
+            return _com_conexao(factory_, lambda con: camada1.executar(con, aprovacao_id))
+
+        _em_segundo_plano("importar-extrato", executar, factory, row["id"])
+    return _ir("/extratos")
+
+
+def _abrir_pasta_extratos(caminho: str) -> None:
+    os.startfile(caminho)
+
+
+@router.post("/extratos/abrir-pasta")
+async def extratos_abrir_pasta(ctx: Ctx = Depends(_ctx_post)):
+    ctx.exigir(Acao.CONFIGURAR)
+    _em_segundo_plano("abrir-pasta-extratos", _abrir_pasta_extratos,
+                      str(caminhos.extratos(ctx.con)))
+    return _ir("/extratos")
 
 
 # ---------------------------------------------------------------- Usuários
