@@ -520,12 +520,21 @@ def test_canais_cria_e_mantem_token(cli, admin, con):
                                   "token": SEGREDO, "chat_ids": "11, 22", "ativo": "1"})
     assert r.status_code == 303
     canal = con.execute("SELECT * FROM canal").fetchone()
-    assert json.loads(canal["config_json"])["chat_ids"] == ["11", "22"]
+    configuracao = json.loads(canal["config_json"])
+    assert configuracao["chat_ids"] == ["11", "22"]
+    assert configuracao["aprovacoes"] is False
+    assert configuracao["aprovadores"] == []
     assert SEGREDO not in canal["config_json"]
     assert credenciais.ler(f"canal/{canal['id']}/token") == SEGREDO
     cli.post("/canais", data={"csrf": tok, "acao": "editar", "id": canal["id"], "tipo": "telegram",
-                              "token": "", "chat_ids": "33", "ativo": "1"})
+                              "token": "", "chat_ids": "33", "ativo": "1",
+                              "aprovacoes": "1", "aprovadores": "11, 22"})
     assert credenciais.ler(f"canal/{canal['id']}/token") == SEGREDO
+    configuracao = json.loads(con.execute(
+        "SELECT config_json FROM canal WHERE id=?", (canal["id"],)
+    ).fetchone()[0])
+    assert configuracao["aprovacoes"] is True
+    assert configuracao["aprovadores"] == ["11", "22"]
     assert SEGREDO not in cli.get("/canais").text
 
 
@@ -598,7 +607,10 @@ def test_editar_canal_preserva_chaves_desconhecidas(cli, admin, con):
     tok = _logado(cli)
     cli.post("/canais", data={"csrf": tok, "acao": "editar", "id": cid, "chat_ids": "2", "ativo": "1"})
     cfg = json.loads(con.execute("SELECT config_json FROM canal WHERE id=?", (cid,)).fetchone()[0])
-    assert cfg == {"chat_ids": ["2"], "extra": "manter", "postos": []}
+    assert cfg == {
+        "chat_ids": ["2"], "extra": "manter", "postos": [],
+        "aprovacoes": False, "aprovadores": [],
+    }
 
 
 def test_falha_em_segundo_plano_nao_loga_mensagem(caplog, fab, monkeypatch):

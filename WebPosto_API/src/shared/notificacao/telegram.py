@@ -38,6 +38,7 @@ def enviar_mensagem(
     chat_ids: Iterable[str | int],
     cliente: httpx.Client | None = None,
     parse_mode: str | None = None,
+    reply_markup: dict[str, object] | None = None,
 ) -> list[ResultadoDestinatario]:
     resultados = []
     ids = list(dict.fromkeys(str(chat_id).strip() for chat_id in chat_ids if str(chat_id).strip()))
@@ -54,6 +55,7 @@ def enviar_mensagem(
                             "chat_id": chat_id,
                             "text": texto,
                             **({"parse_mode": parse_mode} if parse_mode else {}),
+                            **({"reply_markup": reply_markup} if reply_markup else {}),
                         },
                         timeout=TIMEOUT_SEGUNDOS,
                     )

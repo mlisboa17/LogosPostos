@@ -208,6 +208,10 @@ def montar_previa(con: sqlite3.Connection, conta_id: int) -> dict | None:
             raise
         criada = existente
         resumo = json.loads(criada["resumo_json"])
+    else:
+        from apps.match.canais.telegram_aprovacoes import notificar_aprovacao
+
+        notificar_aprovacao(con, resumo, criada["ticket"])
     return {**resumo, "aprovacao_id": criada["id"], "ticket": criada["ticket"]}
 
 

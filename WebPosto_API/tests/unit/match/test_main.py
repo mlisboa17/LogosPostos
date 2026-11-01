@@ -3,6 +3,7 @@ import logging
 import logging.handlers
 import os
 import sys
+import threading
 import time
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
@@ -162,6 +163,24 @@ def test_main_orquestra_e_porta_so_apos_started(monkeypatch):
     assert chamado["porta"] == "4999"
     assert not (caminhos.raiz() / "porta.txt").exists()
     assert os.environ["LOGOS_NAVEGADOR_CANAL"] == "msedge"
+
+
+def test_main_para_thread_de_aprovacoes_telegram(monkeypatch):
+    _prepara(monkeypatch)
+    iniciou = threading.Event()
+    parou = threading.Event()
+
+    def poller(_con_factory, parar):
+        iniciou.set()
+        parar.wait()
+        parou.set()
+
+    monkeypatch.setattr(m.telegram_aprovacoes, "rodar", poller)
+    monkeypatch.setattr(m.bandeja, "rodar", lambda *args: iniciou.wait(2))
+
+    assert m.main() == 0
+    assert iniciou.is_set()
+    assert parou.is_set()
 
 
 def test_servidor_que_nao_inicia_sai_com_erro(monkeypatch):

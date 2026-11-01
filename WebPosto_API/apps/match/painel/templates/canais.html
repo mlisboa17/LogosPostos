@@ -3,6 +3,10 @@
 {% macro campos(tipo, cfg, postos_sel, segredo, segredo_salvo) %}
   {% if tipo == "telegram" %}
     <label>Conversas (chat id, separados por vírgula) <input name="chat_ids" value="{{ (cfg.chat_ids or [])|join(', ') }}"></label>
+    <label class="caixa"><input type="checkbox" name="aprovacoes" value="1"{% if cfg.aprovacoes %} checked{% endif %}> Receber aprovações por este canal</label>
+    <label>Aprovadores (ids de usuário Telegram, separados por vírgula; vazio = qualquer conversa do canal)
+      <input name="aprovadores" value="{{ (cfg.aprovadores or [])|join(', ') }}">
+    </label>
   {% elif tipo == "email" %}
     <label>Servidor SMTP <input name="servidor" value="{{ cfg.servidor or '' }}"></label>
     <label>Porta <input name="porta" value="{{ cfg.porta or 587 }}" inputmode="numeric"></label>
@@ -21,6 +25,9 @@
 {% for item in canais %}{% set c = item.canal %}
 <section class="cartao">
   <h2>{{ {"telegram": "Telegram", "email": "E-mail", "toast": "Notificação do Windows"}[c.tipo] }} #{{ c.id }} <small>{{ "ativo" if c.ativo else "desativado" }}</small></h2>
+  {% if c.tipo == "telegram" and item.aprovacoes_erro == "conflito" %}
+  <p class="erro">Este bot já é usado por outro programa; crie um bot só para o Logos Match.</p>
+  {% endif %}
   <form method="post" action="/canais" class="linha">
     <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="acao" value="editar"><input type="hidden" name="id" value="{{ c.id }}">
     <label class="caixa"><input type="checkbox" name="ativo" value="1"{% if c.ativo %} checked{% endif %}> Ativo</label>

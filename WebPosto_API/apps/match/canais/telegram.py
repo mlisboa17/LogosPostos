@@ -9,12 +9,28 @@ from apps.match.canais import CanalErro
 from src.shared.notificacao import telegram as tg
 
 
-def enviar(canal, texto: str, anexo: Path | None, cliente=None) -> None:
+def enviar(
+    canal,
+    texto: str,
+    anexo: Path | None,
+    cliente=None,
+    botoes: list[tuple[str, str]] | None = None,
+) -> None:
     token = credenciais.ler(f"canal/{canal['id']}/token")
     chat_ids = json.loads(canal["config_json"]).get("chat_ids") or []
     if not token or not chat_ids:
         raise CanalErro("Telegram sem token ou sem conversa configurada. Confira em Canais de envio.")
-    resultados = tg.enviar_mensagem(texto, token=token, chat_ids=chat_ids, cliente=cliente)
+    reply_markup = None
+    if botoes:
+        reply_markup = {
+            "inline_keyboard": [[
+                {"text": rotulo, "callback_data": callback_data}
+                for rotulo, callback_data in botoes
+            ]]
+        }
+    resultados = tg.enviar_mensagem(
+        texto, token=token, chat_ids=chat_ids, cliente=cliente, reply_markup=reply_markup
+    )
     if anexo is not None:
         resultados += tg.enviar_documento(anexo, "Planilha do dia", token=token,
                                           chat_ids=chat_ids, cliente=cliente)

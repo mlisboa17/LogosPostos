@@ -860,6 +860,7 @@ def _pagina_canais(ctx: Ctx, status: int = 200, **dados):
         segredo = _SEGREDO_CANAL.get(c["tipo"])
         itens.append({"canal": c, "cfg": cfg, "postos": cfg.get("postos") or [],
                       "segredo": segredo,
+                      "aprovacoes_erro": cfg.get("aprovacoes_erro"),
                       "segredo_salvo": bool(segredo and credenciais.tem(f"canal/{c['id']}/{segredo[0]}"))})
     return _pagina(ctx, "canais.html", status, canais=itens,
                    todos_postos=banco.listar_postos(ctx.con, so_ativos=False), **dados)
@@ -874,7 +875,11 @@ async def canais(ctx: Ctx = Depends(_ctx)):
 def _config_canal(tipo: str, form, atual: dict | None = None) -> dict:
     """Mescla sobre a config atual: chaves que a tela não edita são preservadas."""
     if tipo == "telegram":
-        cfg = {"chat_ids": _lista(_txt(form, "chat_ids"))}
+        cfg = {
+            "chat_ids": _lista(_txt(form, "chat_ids")),
+            "aprovacoes": _txt(form, "aprovacoes") == "1",
+            "aprovadores": _lista(_txt(form, "aprovadores")),
+        }
     elif tipo == "email":
         porta = _txt(form, "porta") or "587"
         if not porta.isdigit():
@@ -884,7 +889,9 @@ def _config_canal(tipo: str, form, atual: dict | None = None) -> dict:
     else:
         cfg = {}
     cfg["postos"] = _ints(form, "postos")
-    return {**(atual or {}), **cfg}
+    resultado = {**(atual or {}), **cfg}
+    resultado.pop("aprovacoes_erro", None)
+    return resultado
 
 
 @router.post("/canais")

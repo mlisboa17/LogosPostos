@@ -20,7 +20,7 @@ import uvicorn
 
 from apps.match import (NOME, acesso, agendador, banco, bandeja, caminhos, credenciais, registro_rede,
                         rotina)
-from apps.match.canais import toast
+from apps.match.canais import telegram_aprovacoes, toast
 from apps.match.painel import criar_app
 from src.modules.cash_reconciliation.domain.tempo import FUSO
 from src.shared.logger import silenciar_urls_http
@@ -313,6 +313,8 @@ def main(argv: list[str] | None = None) -> int:
         _abrir_instancia_viva()
         return 0
     configurar_log()
+    parar_aprovacoes = threading.Event()
+    thread_aprovacoes = None
     try:
         apagar_porta()
         sock = abrir_socket()
@@ -324,6 +326,13 @@ def main(argv: list[str] | None = None) -> int:
             sched.shutdown(wait=False)
             toast.avisar(NOME, "O Logos Match não conseguiu abrir o painel.")
             return 1
+        thread_aprovacoes = threading.Thread(
+            target=telegram_aprovacoes.rodar,
+            args=(banco.conectar, parar_aprovacoes),
+            name="telegram-aprovacoes",
+            daemon=True,
+        )
+        thread_aprovacoes.start()
         gravar_porta(porta)
         logger.info("Logos Match iniciado")
         bandeja.rodar(lambda: webbrowser.open(url_painel(porta)), _dica_segura,
@@ -331,6 +340,9 @@ def main(argv: list[str] | None = None) -> int:
                       lambda: sched.shutdown(wait=False))
         return 0
     finally:
+        parar_aprovacoes.set()
+        if thread_aprovacoes is not None:
+            thread_aprovacoes.join(timeout=2)
         apagar_porta()
 
 
