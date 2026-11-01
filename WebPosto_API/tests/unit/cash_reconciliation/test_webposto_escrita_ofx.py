@@ -521,3 +521,76 @@ async def test_permissao_escrita_403_tratada_com_clareza(tmp_path, monkeypatch):
             diretorio_historico=tmp_path / "hist",
             caminho_env=env_file,
         )
+
+
+def _posts_ofx(contador):
+    def handler(request: httpx.Request) -> httpx.Response:
+        url_str = str(request.url)
+        if "/INTEGRACAO/V1/CONTAS" in url_str:
+            return httpx.Response(200, json={"ultimoCodigo": None, "resultados": [
+                {"contaCodigo": 86188, "descricao": "PAGBANK", "ativo": True},
+                {"contaCodigo": 86248, "descricao": "BB", "ativo": True},
+            ]})
+        if "/INTEGRACAO/V1/OFXS" in url_str:
+            contador.append(1)
+            return httpx.Response(201, json={"status": "sucesso"})
+        return httpx.Response(404)
+    return httpx.MockTransport(handler)
+
+
+@pytest.mark.asyncio
+async def test_autorizacao_injetada_substitui_env(tmp_path, monkeypatch):
+    posts: list = []
+    monkeypatch.setenv("CHAVE_TESTE_ENV", "token_valido")
+    client = httpx.AsyncClient(transport=_posts_ofx(posts), base_url="https://fake-webposto")
+    res = await enviar_ofx_webposto(
+        _criar_unidade_teste(), _criar_ofx_creditos_apenas(tmp_path), confirmar=True, client=client,
+        diretorio_historico=tmp_path / "hist", caminho_env=tmp_path / "nao_existe.env",
+        autorizacao=lambda: (True, "ok"),
+    )
+    assert res.sucesso is True and res.modo == "enviado"
+    assert len(posts) == 1
+
+
+@pytest.mark.asyncio
+async def test_autorizacao_injetada_bloqueia(tmp_path, monkeypatch):
+    posts: list = []
+    monkeypatch.setenv("CHAVE_TESTE_ENV", "token_valido")
+    env_file = tmp_path / ".env"
+    env_file.write_text("WEBPOSTO_WRITES=1\nLOGOS_OFX_IMPORTACAO=1\n", encoding="utf-8")
+    client = httpx.AsyncClient(transport=_posts_ofx(posts), base_url="https://fake-webposto")
+    res = await enviar_ofx_webposto(
+        _criar_unidade_teste(), _criar_ofx_creditos_apenas(tmp_path), confirmar=True, client=client,
+        diretorio_historico=tmp_path / "hist", caminho_env=env_file,
+        autorizacao=lambda: (False, "x"),
+    )
+    assert res.sucesso is False
+    assert "x" in res.mensagem
+    assert posts == []
+
+
+@pytest.mark.asyncio
+async def test_sem_autorizacao_continua_exigindo_env(tmp_path, monkeypatch):
+    posts: list = []
+    monkeypatch.setenv("CHAVE_TESTE_ENV", "token_valido")
+    client = httpx.AsyncClient(transport=_posts_ofx(posts), base_url="https://fake-webposto")
+    res = await enviar_ofx_webposto(
+        _criar_unidade_teste(), _criar_ofx_creditos_apenas(tmp_path), confirmar=True, client=client,
+        diretorio_historico=tmp_path / "hist", caminho_env=tmp_path / "nao_existe.env",
+    )
+    assert res.sucesso is False
+    assert posts == []
+
+
+@pytest.mark.asyncio
+async def test_previa_com_autorizacao_injetada_sem_env(tmp_path, monkeypatch):
+    posts: list = []
+    monkeypatch.setenv("CHAVE_TESTE_ENV", "token_valido")
+    client = httpx.AsyncClient(transport=_posts_ofx(posts), base_url="https://fake-webposto")
+    res = await enviar_ofx_webposto(
+        _criar_unidade_teste(), _criar_ofx_creditos_apenas(tmp_path), confirmar=False, client=client,
+        diretorio_historico=tmp_path / "hist", caminho_env=tmp_path / "nao_existe.env",
+        autorizacao=lambda: (True, "ok"),
+    )
+    assert res.sucesso is True and res.modo == "previa" and res.previa is not None
+    assert posts == []

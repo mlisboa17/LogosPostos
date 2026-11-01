@@ -20,7 +20,7 @@ from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import httpx
 from dotenv import dotenv_values
@@ -470,6 +470,7 @@ async def enviar_ofx_webposto(
     caminho_units: Path | None = None,
     formato_tipo_debito_confirmado: str | None = None,
     incluir_tipo_transacao: bool = False,
+    autorizacao: Callable[[], tuple[bool, str]] | None = None,
     **kwargs: Any,
 ) -> ResultadoImportacaoOfx:
     """ÚNICA função de envio de OFX para /INTEGRACAO/V1/OFXS com barreira total."""
@@ -579,8 +580,11 @@ async def enviar_ofx_webposto(
         incluir_tipo_transacao=incluir_tipo_transacao,
     )
 
-    # 8. Verificação das travas para envio exclusivamente no arquivo .env
-    travas_ok, motivo_trava = verificar_travas_ambiente(caminho_env=caminho_env)
+    # 8. Travas de envio: autorização injetada (app) substitui a leitura do .env
+    if autorizacao is not None:
+        travas_ok, motivo_trava = autorizacao()
+    else:
+        travas_ok, motivo_trava = verificar_travas_ambiente(caminho_env=caminho_env)
     if not confirmar:
         return ResultadoImportacaoOfx(
             sucesso=True,
