@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import html
 import json
 import logging
 import sqlite3
@@ -27,6 +26,10 @@ from src.modules.cash_reconciliation.domain.tempo import hoje
 logger = logging.getLogger(__name__)
 _TRAVA_EXECUCAO = threading.Lock()
 AVISO_DIAS_IGNORADOS = "Dias que o webPosto já tiver serão ignorados por ele na importação."
+AVISO_DEBITO = (
+    "Extrato com débitos aguardando a Quality confirmar o formato de débito do webPosto. "
+    "Nada foi enviado."
+)
 _BANCO_ID = {
     nome: codigo for codigo, nome in BANCOS_CONHECIDOS.items()
     if len(codigo) == 3
@@ -67,14 +70,14 @@ def _ofx(conta, linhas: list[sqlite3.Row]) -> bytes:
     banco_id = _BANCO_ID.get(conta["banco"].upper())
     if banco_id is None:
         raise ValueError("Banco do extrato não possui código OFX conhecido.")
-    conta_ofx = html.escape(conta["conta_sufixo"], quote=False)
+    conta_ofx = _texto_ofx(conta["conta_sufixo"])
     transacoes = []
     for linha in linhas:
         dia = date.fromisoformat(linha["data"])
         valor = Decimal(linha["valor"])
         tipo = "CREDIT" if valor >= 0 else "DEBIT"
-        fitid = html.escape(linha["fitid"] or linha["chave"], quote=False)
-        memo = html.escape(linha["descricao"] or "", quote=False)
+        fitid = _texto_ofx(linha["fitid"] or linha["chave"])
+        memo = _texto_ofx(linha["descricao"] or "")
         transacoes.append(
             f"<STMTTRN><TRNTYPE>{tipo}</TRNTYPE>"
             f"<DTPOSTED>{dia:%Y%m%d}000000</DTPOSTED>"
@@ -92,6 +95,10 @@ def _ofx(conta, linhas: list[sqlite3.Row]) -> bytes:
         f"<DTEND>{fim:%Y%m%d}235959</DTEND>{''.join(transacoes)}"
         "</BANKTRANLIST></STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>"
     ).encode("utf-8")
+
+
+def _texto_ofx(texto: str) -> str:
+    return texto.translate(str.maketrans("", "", "<>&"))
 
 
 def _gerar_temporario(conta, linhas: list[sqlite3.Row]) -> Path:
@@ -135,18 +142,56 @@ def _executar_writer(unidade, arquivo: Path, *, inicio: date, fim: date,
     ))
 
 
+def bloqueio_previa(con: sqlite3.Connection, conta_id: int) -> str | None:
+    conta = repositorio.conta_por_id(con, conta_id)
+    if conta is None:
+        raise ValueError("Conta bancária não encontrada.")
+    if not _autorizado(con, conta["posto_id"])[0]:
+        return "Envio ao webPosto desligado para este posto."
+    linhas = con.execute(
+        """SELECT valor FROM extrato_linha WHERE conta_bancaria_id=?
+           AND importada_webposto=0 AND data<?""",
+        (conta_id, hoje().isoformat()),
+    ).fetchall()
+    if banco.formato_debito(con) is None and _tem_debitos(linhas):
+        return AVISO_DEBITO
+    return None
+
+
+def _tem_debitos(linhas: list) -> bool:
+    return any(Decimal(linha["valor"]) < 0 for linha in linhas)
+
+
+def propor_de_novo(con: sqlite3.Connection, ticket: str) -> bool:
+    cur = con.execute(
+        """UPDATE aprovacao SET reproposta_em=?
+           WHERE ticket=? AND tipo='importar_extrato' AND situacao IN ('recusada','falhou')
+           AND reproposta_em IS NULL""",
+        (datetime.now(timezone.utc).isoformat(), ticket),
+    )
+    con.commit()
+    return cur.rowcount == 1
+
+
+def _aprovacao_ativa(con: sqlite3.Connection, conta_id: int):
+    return con.execute(
+        """SELECT * FROM aprovacao WHERE tipo='importar_extrato'
+           AND conta_bancaria_id=? AND (situacao IN ('pendente','aprovada')
+              OR (situacao='automatica' AND decidida_em IS NULL))
+           ORDER BY id DESC LIMIT 1""",
+        (conta_id,),
+    ).fetchone()
+
+
 def montar_previa(con: sqlite3.Connection, conta_id: int) -> dict | None:
     conta = repositorio.conta_por_id(con, conta_id)
     if conta is None:
         return None
-    existente = con.execute(
-        """SELECT * FROM aprovacao WHERE tipo='importar_extrato'
-           AND conta_bancaria_id=? AND situacao IN ('pendente','aprovada')
-           ORDER BY id DESC LIMIT 1""",
-        (conta_id,),
-    ).fetchone()
+    if not _autorizado(con, conta["posto_id"])[0]:
+        return None
+    existente = _aprovacao_ativa(con, conta_id)
     if existente is not None:
-        if existente["situacao"] == "aprovada":
+        if existente["situacao"] != "pendente":
             return None
         return {**json.loads(existente["resumo_json"]), "aprovacao_id": existente["id"],
                 "ticket": existente["ticket"]}
@@ -160,6 +205,8 @@ def montar_previa(con: sqlite3.Connection, conta_id: int) -> dict | None:
         return None
     periodos = []
     for janela in janelas:
+        if banco.formato_debito(con) is None and _tem_debitos(janela):
+            continue
         dias_ja_enviados = sorted(_dias_ja_enviados(posto, conta, janela))
         dias_ja_enviados_set = set(dias_ja_enviados)
         linhas_novas = [l for l in janela if l["data"] not in dias_ja_enviados_set]
@@ -196,34 +243,29 @@ def montar_previa(con: sqlite3.Connection, conta_id: int) -> dict | None:
         "total_linhas": sum(p["quantidade"] for p in periodos),
         "aviso": AVISO_DIAS_IGNORADOS,
     }
+    con.execute("BEGIN IMMEDIATE")
     try:
+        existente = _aprovacao_ativa(con, conta_id)
+        if existente is not None:
+            con.rollback()
+            if existente["situacao"] != "pendente":
+                return None
+            return {**json.loads(existente["resumo_json"]),
+                    "aprovacao_id": existente["id"], "ticket": existente["ticket"]}
         criada = aprovacoes.criar(
-            con, "importar_extrato", conta["posto_id"], conta_id, resumo
+            con, "importar_extrato", conta["posto_id"], conta_id, resumo,
+            commit=False, situacao="automatica" if automatico else "pendente",
         )
+        con.commit()
     except Exception:
         con.rollback()
-        existente = con.execute(
-            """SELECT * FROM aprovacao WHERE tipo='importar_extrato'
-               AND conta_bancaria_id=? AND situacao='pendente'""",
-            (conta_id,),
-        ).fetchone()
-        if existente is None:
-            raise
-        criada = existente
-        resumo = json.loads(criada["resumo_json"])
-    else:
-        if automatico:
-            con.execute(
-                """UPDATE aprovacao SET situacao='automatica',
-                   resultado='Importado automaticamente' WHERE id=?""",
-                (criada["id"],),
-            )
-            con.commit()
-            executar(con, criada["id"])
-            return None
-        from apps.match.canais.telegram_aprovacoes import notificar_aprovacao
+        raise
+    if automatico:
+        executar(con, criada["id"])
+        return None
+    from apps.match.canais.telegram_aprovacoes import notificar_aprovacao
 
-        notificar_aprovacao(con, resumo, criada["ticket"])
+    notificar_aprovacao(con, resumo, criada["ticket"])
     return {**resumo, "aprovacao_id": criada["id"], "ticket": criada["ticket"]}
 
 
@@ -238,11 +280,15 @@ def _notificar(con: sqlite3.Connection, posto_id: int, texto: str) -> None:
 
 
 def _falhar(con: sqlite3.Connection, aprovacao_id: int, mensagem: str) -> tuple[bool, str]:
-    con.execute(
-        "UPDATE aprovacao SET situacao='falhou', resultado=? WHERE id=?",
-        (mensagem, aprovacao_id),
+    cur = con.execute(
+        """UPDATE aprovacao SET situacao='falhou', resultado=?, decidida_em=?
+           WHERE id=? AND (situacao='aprovada'
+              OR (situacao='automatica' AND decidida_em IS NULL))""",
+        (mensagem, datetime.now(timezone.utc).isoformat(), aprovacao_id),
     )
     con.commit()
+    if not cur.rowcount:
+        return False, aprovacoes.JA_RESOLVIDO
     row = con.execute(
         "SELECT posto_id, conta_bancaria_id FROM aprovacao WHERE id=?", (aprovacao_id,)
     ).fetchone()
@@ -269,6 +315,8 @@ def _executar(con: sqlite3.Connection, aprovacao_id: int) -> tuple[bool, str]:
     aprovacao = con.execute("SELECT * FROM aprovacao WHERE id=?", (aprovacao_id,)).fetchone()
     if aprovacao is None or aprovacao["situacao"] not in ("aprovada", "automatica"):
         return False, aprovacoes.JA_RESOLVIDO
+    if aprovacao["situacao"] == "automatica" and aprovacao["decidida_em"] is not None:
+        return False, aprovacoes.JA_RESOLVIDO
     resumo = json.loads(aprovacao["resumo_json"])
     automatico = aprovacao["situacao"] == "automatica"
     conta = con.execute(
@@ -278,7 +326,6 @@ def _executar(con: sqlite3.Connection, aprovacao_id: int) -> tuple[bool, str]:
         return _falhar(con, aprovacao_id, explicar.erro_pt(ValueError()))
     unidade = unidades.do_posto(con, banco.obter_posto(con, aprovacao["posto_id"]))
     autorizacao = lambda: _autorizado(con, aprovacao["posto_id"])
-    ids_enviados: list[int] = []
     try:
         for periodo in resumo["periodos"]:
             ids = periodo["linha_ids"] if "linha_ids" in periodo else periodo["linhas"]
@@ -293,6 +340,8 @@ def _executar(con: sqlite3.Connection, aprovacao_id: int) -> tuple[bool, str]:
             if len(linhas) != len(ids):
                 raise ValueError("Lançamentos da prévia não estão disponíveis.")
             for janela in _janelas(linhas, date.max):
+                if banco.formato_debito(con) is None and _tem_debitos(janela):
+                    return _falhar(con, aprovacao_id, AVISO_DEBITO)
                 arquivo = _gerar_temporario(conta, janela)
                 try:
                     resultado = _executar_writer(
@@ -307,17 +356,12 @@ def _executar(con: sqlite3.Connection, aprovacao_id: int) -> tuple[bool, str]:
                     autorizado, motivo = autorizacao()
                     mensagem = motivo if not autorizado else explicar.erro_pt(RuntimeError())
                     return _falhar(con, aprovacao_id, mensagem)
-            ids_enviados.extend(ids)
+                repositorio.marcar_importadas(con, [linha["id"] for linha in janela])
+                con.commit()
     except Exception as exc:
         mensagem = explicar.erro_pt(exc)
         logger.warning("Importação de extrato falhou tipo=%s", type(exc).__name__)
         return _falhar(con, aprovacao_id, mensagem)
-    if ids_enviados:
-        placeholders = ",".join("?" for _ in ids_enviados)
-        con.execute(
-            f"UPDATE extrato_linha SET importada_webposto=1 WHERE id IN ({placeholders})",
-            ids_enviados,
-        )
     mensagem = (
         "Importado automaticamente."
         if automatico
@@ -325,13 +369,13 @@ def _executar(con: sqlite3.Connection, aprovacao_id: int) -> tuple[bool, str]:
     )
     con.execute(
         """UPDATE aprovacao SET situacao='executada', decidida_em=?, resultado=?
-           WHERE id=? AND situacao!='automatica'""",
+           WHERE id=? AND situacao='aprovada'""",
         (datetime.now(timezone.utc).isoformat(), mensagem, aprovacao_id),
     )
     if automatico:
         con.execute(
             """UPDATE aprovacao SET decidida_em=?, resultado=?
-               WHERE id=? AND situacao='automatica'""",
+               WHERE id=? AND situacao='automatica' AND decidida_em IS NULL""",
             (datetime.now(timezone.utc).isoformat(), mensagem, aprovacao_id),
         )
     con.commit()

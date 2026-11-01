@@ -90,7 +90,8 @@ def do_posto(con, p) -> Unidade:
         premmia_usuario_env=f"LC_{pid}_PREMMIA_USUARIO",
         premmia_senha_env=f"LC_{pid}_PREMMIA_SENHA",
         destinos=(), administradoras={k: tuple(v) for k, v in adm.items()},
-        contas_extrato=contas_extrato)
+        contas_extrato=contas_extrato,
+        formato_tipo_debito_confirmado=banco.formato_debito(con))
 
 
 def montar(con) -> dict[int, Unidade]:

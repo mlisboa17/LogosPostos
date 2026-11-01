@@ -113,6 +113,7 @@ def _login(cli):
 def test_aprovacao_envia_botoes_sem_dados_sensiveis(con, monkeypatch):
     _canal(con)
     posto_id = banco.inserir_posto(con, "Posto Teste", "Teste", None, 74014)
+    con.execute("UPDATE posto SET enviar_extratos_webposto=1 WHERE id=?", (posto_id,))
     conta = con.execute(
         """INSERT INTO conta_bancaria
            (posto_id, banco, conta_sufixo, cd_conta_webposto)
@@ -209,6 +210,34 @@ def test_callback_aprova_e_executa(con, fab, monkeypatch):
             if path.endswith("/answerCallbackQuery")] == ["Aprovado."]
     assert [body["text"] for path, body in registros
             if path.endswith("/editMessageText")] == ["Aprovado."]
+
+
+@pytest.mark.parametrize("endpoint", ["answerCallbackQuery", "editMessageText"])
+def test_resposta_ruim_avanca_offset_e_executa(con, fab, monkeypatch, caplog, endpoint):
+    canal = _canal(con)
+    primeira = _aprovacao(con)
+    segunda = _aprovacao(con)
+    execucoes = []
+    monkeypatch.setattr(
+        telegram_aprovacoes, "_iniciar_execucao",
+        lambda factory, aid: execucoes.append(aid),
+    )
+
+    def handle(request):
+        return httpx.Response(
+            400 if request.url.path.endswith(endpoint) else 200,
+            json={"ok": not request.url.path.endswith(endpoint)},
+        )
+
+    with httpx.Client(transport=httpx.MockTransport(handle)) as client:
+        offset = telegram_aprovacoes.processar_lote(
+            fab, canal, [_callback(primeira["ticket"], update_id=10),
+                         _callback(segunda["ticket"], update_id=11)], client,
+        )
+    assert offset == 12 and telegram_aprovacoes._OFFSETS[canal["id"]] == 12
+    assert execucoes == [primeira["id"], segunda["id"]]
+    assert "HTTPStatusError" in caplog.text
+    assert "TOKEN-TESTE" not in caplog.text
 
 
 def test_callback_de_quem_nao_pode_e_ignorado(con, fab, monkeypatch):

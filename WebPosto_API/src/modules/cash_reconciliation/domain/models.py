@@ -100,6 +100,7 @@ class Unidade(_Frozen):
     premmia_usuario_env: str | None = None
     premmia_senha_env: str | None = None
     contas_extrato: tuple[ContaExtratoConfig, ...] = ()
+    formato_tipo_debito_confirmado: str | None = None
 
     def destino(self, conta_codigo: int | None) -> Destino | None:
         return next((d for d in self.destinos if d.conta_codigo == conta_codigo), None)

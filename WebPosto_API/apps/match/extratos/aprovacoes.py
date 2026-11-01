@@ -19,15 +19,15 @@ def _json_canonico(resumo: dict) -> str:
 
 
 def criar(con, tipo: str, posto_id: int, conta_id: int | None, resumo: dict, *,
-          commit: bool = True):
+          commit: bool = True, situacao: str = "pendente"):
     resumo_json = _json_canonico(resumo)
     digest = hashlib.sha256(resumo_json.encode("utf-8")).hexdigest()
     ticket = secrets.token_urlsafe(9)
     cur = con.execute(
         """INSERT INTO aprovacao
            (tipo, conta_bancaria_id, posto_id, resumo_json, hash, situacao, criada_em, ticket)
-           VALUES (?,?,?,?,?,'pendente',?,?)""",
-        (tipo, conta_id, posto_id, resumo_json, digest, _agora(), ticket),
+           VALUES (?,?,?,?,?,?,?,?)""",
+        (tipo, conta_id, posto_id, resumo_json, digest, situacao, _agora(), ticket),
     )
     if commit:
         con.commit()

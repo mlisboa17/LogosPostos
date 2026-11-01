@@ -13,6 +13,18 @@
 {% if pode_configurar %}
 <section class="cartao">
   <h2>Permissão para importar no webPosto</h2>
+  <form method="post" action="/extratos/formato-debito" class="linha">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>Formato de débito confirmado pela Quality
+      <select name="formato">
+        <option value=""{% if not formato_debito %} selected{% endif %}>Não confirmado</option>
+        {% for formato in formatos_debito %}
+        <option value="{{ formato }}"{% if formato_debito == formato %} selected{% endif %}>{{ formato }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button type="submit">Salvar formato</button>
+  </form>
   {% for p in postos_config %}
   <form method="post" action="/postos/{{ p.id }}/extratos-webposto" class="linha">
     <input type="hidden" name="csrf" value="{{ csrf }}">
@@ -34,7 +46,9 @@
   <ul>
     {% for c in contas %}
     <li>{{ c.posto_apelido or c.posto_nome }} — {{ c.banco }} / conta final {{ c.conta_sufixo }}
-      (conta webPosto {{ c.cd_conta_webposto }})</li>
+      (conta webPosto {{ c.cd_conta_webposto }})
+      {% if bloqueios[c.id] %}<p>{{ bloqueios[c.id] }}</p>{% endif %}
+    </li>
     {% endfor %}
   </ul>
   {% else %}<p>Nenhuma conta bancária vinculada.</p>{% endif %}
@@ -150,7 +164,14 @@
     {% for a in historico %}
     <li>{{ a.resumo.posto.apelido or a.resumo.posto.nome }} —
         {{ a.rotulo }}
-        {% if a.resultado %}: {{ a.resultado }}{% endif %}</li>
+        {% if a.resultado %}: {{ a.resultado }}{% endif %}
+        {% if a.tipo == "importar_extrato" and a.situacao in ("recusada", "falhou") and pode_repropor[a.id] %}
+        <form method="post" action="/extratos/aprovacoes/{{ a.ticket }}/repropor">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <button type="submit"{% if a.reproposta_em %} disabled{% endif %}>Propor de novo</button>
+        </form>
+        {% endif %}
+    </li>
     {% endfor %}
   </ul>
   {% else %}<p>Nenhuma aprovação registrada.</p>{% endif %}

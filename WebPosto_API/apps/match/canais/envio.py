@@ -8,6 +8,7 @@ from datetime import date
 
 from apps.match import banco, relatorio_xlsx
 from apps.match.canais import CanalErro, email_smtp, erro_envio_pt, telegram, toast
+from src.modules.cash_reconciliation.domain.tempo import ler_data_hora
 
 logger = logging.getLogger(__name__)
 
@@ -31,25 +32,21 @@ def texto_resumo(resultados, posto, dia: date, *, con=None) -> str:
     if resto > 0:
         linhas.append(f"e mais {resto} na planilha")
     if con is not None:
-        inicio_dia = dia.isoformat()
-        extratos_importados = con.execute(
-            """SELECT COUNT(*) FROM aprovacao
-               WHERE posto_id=? AND tipo='importar_extrato'
-               AND situacao IN ('executada','automatica') AND substr(criada_em,1,10)=?""",
-            (posto["id"], inicio_dia),
-        ).fetchone()[0]
-        extratos_pendentes = con.execute(
-            """SELECT COUNT(*) FROM aprovacao
-               WHERE posto_id=? AND tipo='importar_extrato' AND situacao='pendente'
-               AND substr(criada_em,1,10)=?""",
-            (posto["id"], inicio_dia),
-        ).fetchone()[0]
-        faltando = con.execute(
-            """SELECT COUNT(*) FROM aprovacao
-               WHERE posto_id=? AND tipo='lancamento'
-               AND situacao IN ('pendente','automatica') AND substr(criada_em,1,10)=?""",
-            (posto["id"], inicio_dia),
-        ).fetchone()[0]
+        extratos_importados = extratos_pendentes = faltando = 0
+        for aprovacao in con.execute(
+            "SELECT tipo, situacao, criada_em, decidida_em FROM aprovacao WHERE posto_id=?",
+            (posto["id"],),
+        ):
+            situacao = aprovacao["situacao"]
+            criada_hoje = ler_data_hora(aprovacao["criada_em"]).date() == dia
+            if aprovacao["tipo"] == "importar_extrato":
+                if situacao in ("executada", "automatica") and aprovacao["decidida_em"]:
+                    if ler_data_hora(aprovacao["decidida_em"]).date() == dia:
+                        extratos_importados += 1
+                elif situacao == "pendente" and criada_hoje:
+                    extratos_pendentes += 1
+            elif situacao in ("pendente", "automatica", "aprovada") and criada_hoje:
+                faltando += 1
         linhas.append(
             f"Extratos: {extratos_importados} importados, {extratos_pendentes} aguardando "
             f"aprovação, {faltando} faltando no financeiro."

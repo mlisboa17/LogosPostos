@@ -144,6 +144,23 @@ def test_fitid_vazio_usa_hash(con):
     assert row["fitid"] in (None, "")
 
 
+def test_tarifas_identicas_sem_fitid_preservadas_e_reimportacao(con, monkeypatch):
+    posto_id = banco.inserir_posto(con, "Posto A", "A", None, 74014)
+    _conta(con, posto_id)
+    monkeypatch.setattr(entrada.time, "sleep", lambda _: None)
+    tarifa = ("DEBIT", "-2.50", "", "Tarifa", "")
+    conteudo = _ofx(transacoes=[tarifa, tarifa])
+    for nome, texto, esperado in [
+        ("original.ofx", conteudo, 2),
+        ("copia.ofx", conteudo, 0),
+        ("novo.ofx", conteudo + b"\n", 0),
+    ]:
+        _colocar_entrada(con, nome, texto)
+        [resultado] = entrada.processar_pasta(con, datetime(2026, 11, 1, tzinfo=FUSO))
+        assert resultado.novas_linhas == esperado
+    assert con.execute("SELECT COUNT(*) FROM extrato_linha").fetchone()[0] == 2
+
+
 def test_conta_desconhecida_aguarda_vinculo_e_vincular_processa(con):
     _colocar_entrada(con, "desconhecido.ofx", _ofx(
         banco_id="290",
@@ -275,7 +292,7 @@ def test_migracao_6_de_banco_v5_preserva_dados(tmp_path):
 
     migrado = banco.conectar(caminho)
     try:
-        assert migrado.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 8
+        assert migrado.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 9
         assert migrado.execute("SELECT nome FROM posto").fetchone()[0] == "Posto legado"
         assert migrado.execute("SELECT razao_social FROM empresa").fetchone()[0] == "Empresa"
         tabelas = {r[0] for r in migrado.execute(

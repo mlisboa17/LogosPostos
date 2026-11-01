@@ -8,13 +8,15 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import httpx
 
-from apps.match import banco
+from apps.match import agendador, banco, unidades
 from apps.match.extratos import aprovacoes, camada1, camada2
 from src.modules.cash_reconciliation.adapters.webposto_escrita_ofx import (
     registrar_envio_historico,
 )
 from src.modules.cash_reconciliation.domain.tempo import FUSO
+from src.modules.cash_reconciliation.adapters.extrato_reader import ler_ofx
 
 
 @pytest.fixture
@@ -94,6 +96,206 @@ def test_previa_so_dias_novos_e_janelas_de_7(con, monkeypatch):
     assert all((date.fromisoformat(p["ate"]) - date.fromisoformat(p["de"])).days < 7
                for p in periodos)
     assert all(p["dias_ja_enviados"] == [] for p in periodos)
+
+
+def test_debito_sem_quality_bloqueia_lote_inteiro(con, monkeypatch):
+    _posto, conta_id = _posto_conta(con, enviar=True)
+    _linha(con, conta_id, "2026-10-31", "-5.00", "debito")
+    _linha(con, conta_id, "2026-10-31", "10.00", "credito")
+    monkeypatch.setattr(camada1, "hoje", lambda: date(2026, 11, 1))
+    monkeypatch.setattr(
+        "apps.match.canais.telegram_aprovacoes.notificar_aprovacao",
+        lambda *args: pytest.fail("Lote bloqueado não deve notificar."),
+    )
+    assert camada1.montar_previa(con, conta_id) is None
+    assert con.execute("SELECT COUNT(*) FROM aprovacao").fetchone()[0] == 0
+    assert camada1.bloqueio_previa(con, conta_id) == (
+        "Extrato com débitos aguardando a Quality confirmar o formato de débito do webPosto. "
+        "Nada foi enviado."
+    )
+
+
+def test_quality_bloqueia_janela_mista_mas_creditos_outro_periodo_seguem(con, monkeypatch):
+    _posto, conta_id = _posto_conta(con, enviar=True)
+    _linha(con, conta_id, "2026-10-20", "-5.00", "debito")
+    _linha(con, conta_id, "2026-10-20", "10.00", "credito-misto")
+    credito = _linha(con, conta_id, "2026-10-31", "10.00", "credito-outro-dia")
+    monkeypatch.setattr(camada1, "hoje", lambda: date(2026, 11, 1))
+    previa = camada1.montar_previa(con, conta_id)
+    assert previa["total_linhas"] == 1
+    assert previa["periodos"][0]["linha_ids"] == [credito]
+
+
+def test_quality_retirada_depois_da_aprovacao_nao_envia(con, monkeypatch):
+    _posto, conta_id = _posto_conta(con, enviar=True)
+    banco.salvar_formato_debito(con, "D")
+    _linha(con, conta_id, "2026-10-31", "-5.00", "debito")
+    monkeypatch.setattr(camada1, "hoje", lambda: date(2026, 11, 1))
+    previa = camada1.montar_previa(con, conta_id)
+    aprovacoes.decidir(con, previa["ticket"], True, "teste", "painel")
+    banco.salvar_formato_debito(con, None)
+    chamadas = []
+    monkeypatch.setattr(
+        camada1, "_executar_writer",
+        lambda *args, **kwargs: chamadas.append(kwargs) or SimpleNamespace(sucesso=True),
+    )
+    assert not camada1.executar(con, previa["aprovacao_id"])[0]
+    assert chamadas == []
+    assert con.execute("SELECT importada_webposto FROM extrato_linha").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("formato", [
+    "D", "DEBIT", "VALOR_NEGATIVO", "VALOR_NEGATIVO_DEBITO",
+    "VALOR_NEGATIVO_D", "VALOR_NEGATIVO_DEBIT",
+])
+@pytest.mark.asyncio
+async def test_ofx_app_com_quality_passa_writer_real(con, tmp_path, monkeypatch, formato):
+    posto_id, conta_id = _posto_conta(con, enviar=True)
+    banco.salvar_formato_debito(con, formato)
+    _linha(con, conta_id, "2026-10-31", "-5.00", "debito")
+    _linha(con, conta_id, "2026-10-31", "10.00", "credito")
+    unidade = unidades.do_posto(con, banco.obter_posto(con, posto_id))
+    monkeypatch.setenv(unidade.chave_env, "CHAVE-OFFLINE-TESTE")
+    assert unidades.montar(con)[74014].formato_tipo_debito_confirmado == formato
+    arquivo = tmp_path / "remontado.ofx"
+    arquivo.write_bytes(camada1._ofx(
+        con.execute("SELECT * FROM conta_bancaria").fetchone(),
+        con.execute("SELECT * FROM extrato_linha ORDER BY id").fetchall(),
+    ))
+    requisicoes = []
+
+    def handle(request):
+        requisicoes.append(request)
+        assert request.method == "GET"
+        assert request.url.path == "/INTEGRACAO/V1/CONTAS"
+        return httpx.Response(200, json={
+            "ultimoCodigo": None,
+            "resultados": [{"contaCodigo": 86248, "ativo": True}],
+        })
+
+    async with httpx.AsyncClient(
+        base_url="https://offline.invalid", transport=httpx.MockTransport(handle)
+    ) as client:
+        resultado = await camada1.enviar_ofx_webposto(
+            unidade, arquivo, confirmar=False, client=client,
+            autorizacao=lambda: camada1._autorizado(con, posto_id),
+            diretorio_historico=tmp_path / "historico",
+        )
+    assert resultado.sucesso and resultado.modo == "previa"
+    assert resultado.previa.quantidade == 2
+    assert resultado.previa.total_debitos == Decimal("5.00")
+    assert requisicoes
+
+
+def test_posto_desligado_nao_cria_nem_notifica(con, monkeypatch):
+    _posto, conta_id = _posto_conta(con)
+    _linha(con, conta_id, "2026-10-31", fitid="credito")
+    monkeypatch.setattr(camada1, "hoje", lambda: date(2026, 11, 1))
+    monkeypatch.setattr(
+        "apps.match.canais.telegram_aprovacoes.notificar_aprovacao",
+        lambda *args: pytest.fail("Posto desligado não deve notificar."),
+    )
+    assert camada1.montar_previa(con, conta_id) is None
+    assert camada1.bloqueio_previa(con, conta_id) == "Envio ao webPosto desligado para este posto."
+
+
+def test_recusa_so_repropoe_com_acao_explicita(con, monkeypatch):
+    _posto, conta_id = _posto_conta(con, enviar=True)
+    _linha(con, conta_id, "2026-10-31", fitid="recusada")
+    monkeypatch.setattr(camada1, "hoje", lambda: date(2026, 11, 1))
+    previa = camada1.montar_previa(con, conta_id)
+    assert aprovacoes.decidir(con, previa["ticket"], False, "teste", "painel")[0]
+    assert camada1.montar_previa(con, conta_id) is None
+    assert camada1.propor_de_novo(con, previa["ticket"])
+    assert camada1.montar_previa(con, conta_id)["aprovacao_id"] != previa["aprovacao_id"]
+
+
+@pytest.mark.parametrize("manual", [False, True])
+def test_falha_cooldown_ou_reproposta_manual(con, monkeypatch, manual):
+    _posto, conta_id = _posto_conta(con, enviar=True)
+    _linha(con, conta_id, "2026-10-31", fitid="falha")
+    monkeypatch.setattr(camada1, "hoje", lambda: date(2026, 11, 1))
+    previa = camada1.montar_previa(con, conta_id)
+    aprovacoes.decidir(con, previa["ticket"], True, "teste", "painel")
+    camada1._falhar(con, previa["aprovacao_id"], "Falhou.")
+    assert camada1.montar_previa(con, conta_id) is None
+    if manual:
+        assert camada1.propor_de_novo(con, previa["ticket"])
+    else:
+        con.execute("UPDATE aprovacao SET decidida_em='2000-01-01T00:00:00+00:00'")
+        con.commit()
+    assert camada1.montar_previa(con, conta_id) is not None
+
+
+def test_automatica_ocupada_retentada_job_sem_sucesso_prematuro(con, monkeypatch):
+    from apps.match.extratos import autonomia
+
+    _posto, conta_id = _posto_conta(con, enviar=True)
+    _linha(con, conta_id, "2026-10-31", fitid="auto")
+    for _ in range(5):
+        autonomia.registrar_decisao(con, f"importar:{conta_id}", True, False)
+    monkeypatch.setattr(camada1, "hoje", lambda: date(2026, 11, 1))
+    camada1._TRAVA_EXECUCAO.acquire()
+    try:
+        assert camada1.montar_previa(con, conta_id) is None
+    finally:
+        camada1._TRAVA_EXECUCAO.release()
+    row = con.execute("SELECT * FROM aprovacao").fetchone()
+    assert row["situacao"] == "automatica"
+    assert row["resultado"] is None and row["decidida_em"] is None
+    monkeypatch.setattr("apps.match.extratos.entrada.processar_pasta", lambda *args: [])
+    chamadas = []
+    monkeypatch.setattr(
+        camada1, "_executar_writer",
+        lambda *args, **kwargs: chamadas.append(kwargs) or SimpleNamespace(sucesso=True),
+    )
+    class ConexaoJob:
+        def __getattr__(self, nome):
+            return getattr(con, nome)
+
+        def close(self):
+            pass
+
+    agendador._job_extratos(lambda: ConexaoJob())
+    assert len(chamadas) == 1
+    assert not camada1.executar(con, row["id"])[0]
+    assert len(chamadas) == 1
+    assert con.execute("SELECT resultado FROM aprovacao").fetchone()[0].startswith(
+        "Importado automaticamente"
+    )
+
+
+def test_ofx_remove_delimitadores_sem_entidades(con):
+    _posto, conta_id = _posto_conta(con, enviar=True)
+    _linha(con, conta_id, "2026-10-31", fitid="id<&>")
+    con.execute("UPDATE extrato_linha SET descricao='Loja <A> & B'")
+    linhas = con.execute("SELECT * FROM extrato_linha").fetchall()
+    conta = con.execute("SELECT * FROM conta_bancaria").fetchone()
+    [lancamento] = ler_ofx(camada1._ofx(conta, linhas)).lancamentos
+    assert lancamento.fitid == "id"
+    assert lancamento.descricao == "Loja A  B"
+
+
+@pytest.mark.parametrize("excecao", [False, True])
+def test_janela_posterior_falha_preserva_enviadas(con, monkeypatch, excecao):
+    _posto, conta_id = _posto_conta(con, enviar=True)
+    ids = [_linha(con, conta_id, dia, fitid=dia) for dia in ("2026-10-20", "2026-10-31")]
+    monkeypatch.setattr(camada1, "hoje", lambda: date(2026, 11, 1))
+    previa = camada1.montar_previa(con, conta_id)
+    aprovacoes.decidir(con, previa["ticket"], True, "teste", "painel")
+    chamadas = []
+
+    def writer(*args, **kwargs):
+        chamadas.append(kwargs)
+        if len(chamadas) == 2 and excecao:
+            raise TimeoutError
+        return SimpleNamespace(sucesso=len(chamadas) == 1)
+
+    monkeypatch.setattr(camada1, "_executar_writer", writer)
+    assert not camada1.executar(con, previa["aprovacao_id"])[0]
+    assert [r[0] for r in con.execute(
+        "SELECT importada_webposto FROM extrato_linha ORDER BY id"
+    )] == [1, 0]
 
 
 def _registrar_dias_enviados(tmp_path, dias):
@@ -283,6 +485,7 @@ def _aprovacao_para_executar(con, posto_id, conta_id, linha_id):
 
 def test_falha_webposto_fica_falhou_e_nao_marca(con, monkeypatch):
     posto_id, conta_id = _posto_conta(con, enviar=True)
+    banco.salvar_formato_debito(con, "D")
     linha_id = _linha(con, conta_id, "2026-10-31", "-10.00", "fit-falha")
     aprovacao = _aprovacao_para_executar(con, posto_id, conta_id, linha_id)
     aprovacoes.decidir(con, aprovacao["ticket"], True, "teste", "painel")
@@ -306,6 +509,7 @@ def test_falha_webposto_fica_falhou_e_nao_marca(con, monkeypatch):
 
 def test_trava_do_posto_desligada_bloqueia_envio(con, monkeypatch):
     posto_id, conta_id = _posto_conta(con, enviar=False)
+    banco.salvar_formato_debito(con, "D")
     linha_id = _linha(con, conta_id, "2026-10-31", "-10.00", "fit-off")
     aprovacao = _aprovacao_para_executar(con, posto_id, conta_id, linha_id)
     aprovacoes.decidir(con, aprovacao["ticket"], True, "teste", "painel")
@@ -374,7 +578,7 @@ def test_migracao_7_preserva_dados_de_v6(tmp_path):
 
     c = banco.conectar(caminho)
     try:
-        assert c.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 8
+        assert c.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 9
         assert c.execute("SELECT nome, enviar_extratos_webposto FROM posto").fetchone()[:] == (
             "Legado", 0,
         )

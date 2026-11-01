@@ -169,9 +169,25 @@ def test_aprovar_nao_chama_webposto(con, cli, monkeypatch):
     }
     aprovacao = aprovacoes.criar(con, "lancamento", posto_id, conta_id, resumo)
     requisicoes = []
-    client = httpx.Client(transport=httpx.MockTransport(
-        lambda request: requisicoes.append(request) or httpx.Response(200, json={"ok": True})
-    ))
+    def handle(request):
+        requisicoes.append(request)
+        assert request.method in ("GET", "HEAD"), "Camada 2 não pode escrever no webPosto."
+        return httpx.Response(200, json={"ok": True})
+
+    transport = httpx.MockTransport(handle)
+    monkeypatch.setattr(
+        httpx.HTTPTransport, "handle_request",
+        lambda self, request: transport.handle_request(request),
+    )
+
+    async def handle_async(self, request):
+        return await transport.handle_async_request(request)
+
+    monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", handle_async)
+    with httpx.Client() as client:
+        assert client.get("https://offline.invalid/prova-transporte").status_code == 200
+    assert len(requisicoes) == 1
+    requisicoes.clear()
     acesso.criar_usuario(con, "Admin", "admin", SENHA, Perfil.ADMINISTRADOR, [])
     csrf = _login(cli)
     monkeypatch.setattr(
@@ -188,7 +204,6 @@ def test_aprovar_nao_chama_webposto(con, cli, monkeypatch):
         data={"csrf": csrf, "acao": "aprovar"},
     )
 
-    client.close()
     assert resposta.status_code == 303
     assert requisicoes == []
     row = con.execute(

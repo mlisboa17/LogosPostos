@@ -6,7 +6,7 @@ import unicodedata
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from src.modules.cash_reconciliation.domain.tempo import hoje
+from src.modules.cash_reconciliation.domain.tempo import hoje, ler_data_hora
 
 APROVACOES_PARA_AUTOMATICO = 5
 LIMITE_POR_LANCAMENTO = Decimal("500.00")
@@ -100,15 +100,15 @@ def pode_automatico(con, chave_tipo: str, valor: Decimal | None, conta_id: int) 
     if any(palavra in padrao for palavra in _TRANSFERENCIAS_PROPRIAS):
         return False
 
-    hoje_iso = hoje().isoformat()
+    dia = hoje()
     total = Decimal("0")
     for aprovado in con.execute(
-        """SELECT resumo_json FROM aprovacao
+        """SELECT resumo_json, criada_em FROM aprovacao
            WHERE tipo='lancamento' AND conta_bancaria_id=? AND situacao='automatica'""",
         (conta_id,),
     ):
         resumo = json.loads(aprovado["resumo_json"])
-        if resumo.get("data") == hoje_iso:
+        if ler_data_hora(aprovado["criada_em"]).date() == dia:
             total += abs(Decimal(str(resumo.get("valor") or 0)))
     return total + abs(valor) <= LIMITE_DIARIO_POR_CONTA
 

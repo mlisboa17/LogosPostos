@@ -111,7 +111,8 @@ def _job_extratos(con_factory) -> None:
                     logger.warning("Prévia de extrato falhou tipo=%s", type(exc).__name__)
             aprovadas = con.execute(
                 """SELECT id FROM aprovacao
-                   WHERE tipo='importar_extrato' AND situacao='aprovada'
+                   WHERE tipo='importar_extrato' AND (situacao='aprovada'
+                      OR (situacao='automatica' AND decidida_em IS NULL))
                    ORDER BY criada_em, id"""
             ).fetchall()
             for item in aprovadas:

@@ -211,11 +211,15 @@ def processar_lote(con_factory, canal, updates: list[dict],
             ("Aprovado." if aprovar else "Recusado.")
             if decidido else "Já resolvido."
         )
-        _responder_callback(cliente, token, query_id, resposta, chat_id, message_id)
-        if decidido and aprovar and row is not None and row["tipo"] == "importar_extrato":
-            _iniciar_execucao(con_factory, row["id"])
-        offset = novo_offset
-        _OFFSETS[canal_id] = offset
+        try:
+            if decidido and aprovar and row is not None and row["tipo"] == "importar_extrato":
+                _iniciar_execucao(con_factory, row["id"])
+            _responder_callback(cliente, token, query_id, resposta, chat_id, message_id)
+        except Exception as exc:
+            logger.warning("Resposta de aprovação Telegram falhou tipo=%s", type(exc).__name__)
+        finally:
+            offset = novo_offset
+            _OFFSETS[canal_id] = offset
 
     _OFFSETS[canal_id] = offset
     return offset

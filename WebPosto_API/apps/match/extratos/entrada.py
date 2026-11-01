@@ -92,8 +92,14 @@ def _linha(
 def _inserir_linhas(con, conta_id: int, arquivo_id: int, extrato: ExtratoBancario,
                     conteudo: bytes) -> int:
     novas = 0
+    ocorrencias: dict[str, int] = {}
     for indice, lancamento in enumerate(extrato.lancamentos, 1):
         chave, fitid, documento = _linha(lancamento, conteudo, indice)
+        if not fitid:
+            ocorrencias[chave] = ocorrencias.get(chave, 0) + 1
+            # A primeira ocorrência mantém a chave dos extratos já arquivados.
+            if ocorrencias[chave] > 1:
+                chave = f"{chave}:{ocorrencias[chave]}"
         cur = con.execute(
             """INSERT INTO extrato_linha
                (conta_bancaria_id, arquivo_id, chave, fitid, data, valor, tipo,

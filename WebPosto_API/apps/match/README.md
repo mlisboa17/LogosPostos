@@ -65,6 +65,13 @@ máquina são desativados e listados com o motivo. "Desligar" volta a valer só 
    cada posto autorizado. Arquivos vinculados geram uma prévia para aprovação no painel ou nos
    botões de um canal Telegram inscrito. Para aprovações, configure um bot próprio do Logos Match,
    diferente do bot usado pelo robô LOGOS; não compartilhe o mesmo bot com outro programa.
+   Débitos só podem ser propostos depois que um administrador registrar, em *Extratos*,
+   o **Formato de débito confirmado pela Quality**. O padrão é **Não confirmado**: o lote
+   com débitos fica bloqueado inteiro, sem enviar apenas os créditos daquele período.
+   Use exclusivamente o formato confirmado pela Quality, nunca por tentativa.
+   Extratos recusados não são propostos novamente automaticamente; use **Propor de novo**
+   no histórico para liberá-los. Depois de uma falha, há uma espera de uma hora, que esse
+   botão também permite dispensar. Janelas já enviadas com sucesso não são reenviadas.
 5. **Autonomia gradual**: cinco aprovações limpas consecutivas tornam aquele tipo elegível para
    automação. Correção, recusa ou falha da importação zera a sequência e desliga a automação.
    A camada 1 importa automaticamente apenas para contas elegíveis. Na camada 2, somente débitos
@@ -72,6 +79,10 @@ máquina são desativados e listados com o motivo. "Desligar" volta a valer só 
    **Pronto para lançar sozinho**; entradas e transferências próprias não se qualificam. A camada
    2 não cria lançamentos no webPosto: qualquer escrita permanece desabilitada. O administrador
    pode desligar ou religar cada tipo em *Extratos > Autonomia*.
+   O limite diário considera as propostas automáticas criadas no dia local
+   (America/Recife), mesmo que os lançamentos do extrato sejam de dias anteriores.
+   Uma importação automática aguardando execução não é exibida como importada; o
+   agendador retenta a execução quando ela não conseguiu iniciar.
 
 ## Notas fiscais (v0.3)
 

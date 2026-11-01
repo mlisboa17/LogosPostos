@@ -239,10 +239,39 @@ CREATE TABLE autonomia (
     atualizado_em TEXT);
 """
 
+_SCHEMA_V9 = """
+ALTER TABLE instalacao ADD COLUMN formato_tipo_debito_confirmado TEXT
+    CHECK (formato_tipo_debito_confirmado IS NULL OR formato_tipo_debito_confirmado IN
+        ('D','DEBIT','VALOR_NEGATIVO','VALOR_NEGATIVO_DEBITO',
+         'VALOR_NEGATIVO_D','VALOR_NEGATIVO_DEBIT'));
+ALTER TABLE aprovacao ADD COLUMN reproposta_em TEXT;
+"""
+
 _MIGRACOES = [
     (1, _SCHEMA_V1), (2, _SCHEMA_V2), (3, _SCHEMA_V3), (4, _SCHEMA_V4),
-    (5, _SCHEMA_V5), (6, _SCHEMA_V6), (7, _SCHEMA_V7), (8, _SCHEMA_V8),
+    (5, _SCHEMA_V5), (6, _SCHEMA_V6), (7, _SCHEMA_V7), (8, _SCHEMA_V8), (9, _SCHEMA_V9),
 ]
+
+
+def formato_debito(con) -> str | None:
+    return con.execute(
+        "SELECT formato_tipo_debito_confirmado FROM instalacao LIMIT 1"
+    ).fetchone()[0]
+
+
+def formatos_debito() -> tuple[str, ...]:
+    from src.modules.cash_reconciliation.adapters.webposto_escrita_ofx import (
+        VARIANTES_FORMATO_DEBITO,
+    )
+
+    return VARIANTES_FORMATO_DEBITO[1:]
+
+
+def salvar_formato_debito(con, formato: str | None) -> None:
+    if formato is not None and formato not in formatos_debito():
+        raise ValueError("Formato de débito inválido.")
+    con.execute("UPDATE instalacao SET formato_tipo_debito_confirmado=?", (formato,))
+    con.commit()
 
 
 def _agora() -> str:

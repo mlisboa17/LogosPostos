@@ -129,6 +129,7 @@ def test_falha_camada1_zera(con, monkeypatch):
         con, "importar_extrato", posto_id, conta_id,
         {"periodos": [], "total_linhas": 0},
     )
+    aprovacoes.decidir(con, aprovacao["ticket"], True, "teste", "painel")
     monkeypatch.setattr(camada1, "_notificar", lambda *args: None)
 
     sucesso, _ = camada1._falhar(con, aprovacao["id"], "webPosto indisponível.")
@@ -152,6 +153,7 @@ def test_limites_valor_e_diario(con):
     assert not autonomia.pode_automatico(con, chave, Decimal("10.00"), conta_id)
 
     resumo = _resumo_lancamento("daily-1", "-1750.00")
+    resumo["data"] = date.fromordinal(date.today().toordinal() - 1).isoformat()
     aprovacao = aprovacoes.criar(con, "lancamento", _posto_id, conta_id, resumo)
     con.execute(
         "UPDATE aprovacao SET situacao='automatica', resultado='Pronto para lançar sozinho' WHERE id=?",
@@ -199,6 +201,8 @@ def test_admin_desliga(con, cli):
 
 def test_camada1_automatica_executa_e_avisa(con, monkeypatch):
     posto_id, conta_id = _posto_conta(con)
+    con.execute("UPDATE posto SET enviar_extratos_webposto=1 WHERE id=?", (posto_id,))
+    banco.salvar_formato_debito(con, "D")
     chave = f"importar:{conta_id}"
     for _ in range(5):
         autonomia.registrar_decisao(con, chave, True, False)
@@ -301,7 +305,11 @@ def test_resumo_diario_extratos(con):
             con, tipo, posto_id, conta_id,
             {"data": dia, "valor": "10", "chave_linha": f"{tipo}-{situacao}-{id(tipo)}"},
         )
-        con.execute("UPDATE aprovacao SET situacao=? WHERE id=?", (situacao, aprovacao["id"]))
+        con.execute(
+            "UPDATE aprovacao SET situacao=?, decidida_em=? WHERE id=?",
+            (situacao, datetime.now(timezone.utc).isoformat() if situacao == "executada" else None,
+             aprovacao["id"]),
+        )
     con.commit()
     posto = banco.obter_posto(con, posto_id)
 
@@ -323,7 +331,7 @@ def test_migracao_7_para_8_preserva_dados(tmp_path):
 
     migrado = banco.conectar(caminho)
     try:
-        assert migrado.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 8
+        assert migrado.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 9
         assert migrado.execute("SELECT nome FROM posto").fetchone()[0] == "Posto Legado"
         assert migrado.execute("SELECT COUNT(*) FROM autonomia").fetchone()[0] == 0
         colunas = {row["name"] for row in migrado.execute("PRAGMA table_info(autonomia)")}

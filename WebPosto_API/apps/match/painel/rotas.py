@@ -1201,6 +1201,9 @@ def _extratos_da_tela(ctx: Ctx):
                     "id": posto["id"], "nome": posto["nome"], "apelido": posto["apelido"],
                 }
         item["rotulo"] = _ROTULO_APROVACAO.get(row["situacao"], row["situacao"])
+        if (row["tipo"] == "importar_extrato" and row["situacao"] == "automatica"
+                and row["decidida_em"] is None):
+            item["rotulo"] = "Aguardando importação automática"
         if row["tipo"] == "lancamento":
             if row["situacao"] == "automatica":
                 item["rotulo"] = "Pronto para lançar sozinho"
@@ -1237,6 +1240,10 @@ def _pagina_extratos(ctx: Ctx, *, erro=None, mensagem=None):
         pode_aprovar={r["id"]: ctx.pode(Acao.COLETAR, r["posto_id"])
                       for r in pendentes + lancamentos_pendentes},
         pode_conferir={c["id"]: ctx.pode(Acao.COLETAR, c["posto_id"]) for c in contas},
+        bloqueios={c["id"]: camada1.bloqueio_previa(ctx.con, c["id"]) for c in contas},
+        pode_repropor={a["id"]: ctx.pode(Acao.COLETAR, a["posto_id"]) for a in historico},
+        formato_debito=banco.formato_debito(ctx.con),
+        formatos_debito=banco.formatos_debito(),
         erro=erro, mensagem=mensagem,
     )
 
@@ -1245,6 +1252,31 @@ def _pagina_extratos(ctx: Ctx, *, erro=None, mensagem=None):
 async def extratos_tela(ctx: Ctx = Depends(_ctx)):
     ctx.exigir(Acao.VER)
     return _pagina_extratos(ctx)
+
+
+@router.post("/extratos/formato-debito")
+async def extratos_formato_debito(ctx: Ctx = Depends(_ctx_post)):
+    ctx.exigir(Acao.CONFIGURAR)
+    formato = _txt(ctx.form, "formato") or None
+    try:
+        banco.salvar_formato_debito(ctx.con, formato)
+    except ValueError:
+        raise Recusado(400, "Formato de débito inválido.")
+    acesso.registrar(ctx.con, ctx.uid, "configurar_formato_debito",
+                     f"formato={formato or 'nao_confirmado'}")
+    return _ir("/extratos")
+
+
+@router.post("/extratos/aprovacoes/{ticket}/repropor")
+async def extratos_repropor(ticket: str, ctx: Ctx = Depends(_ctx_post)):
+    row = ctx.con.execute("SELECT * FROM aprovacao WHERE ticket=?", (ticket,)).fetchone()
+    if row is None or row["tipo"] != "importar_extrato":
+        raise Recusado(404, "Aprovação de extrato não encontrada.")
+    ctx.exigir(Acao.COLETAR, row["posto_id"])
+    if not camada1.propor_de_novo(ctx.con, ticket):
+        raise Recusado(400, "Este extrato não está disponível para reproposta.")
+    acesso.registrar(ctx.con, ctx.uid, "repropor_extrato", f"aprovacao={row['id']}")
+    return _ir("/extratos")
 
 
 @router.post("/extratos/analisar")
@@ -1292,6 +1324,9 @@ async def extrato_aprovacao(ticket: str, ctx: Ctx = Depends(_ctx)):
                 "id": posto["id"], "nome": posto["nome"], "apelido": posto["apelido"],
             }
     item["rotulo"] = _ROTULO_APROVACAO.get(row["situacao"], row["situacao"])
+    if (row["tipo"] == "importar_extrato" and row["situacao"] == "automatica"
+            and row["decidida_em"] is None):
+        item["rotulo"] = "Aguardando importação automática"
     if row["tipo"] == "lancamento":
         if row["situacao"] == "automatica":
             item["rotulo"] = "Pronto para lançar sozinho"
