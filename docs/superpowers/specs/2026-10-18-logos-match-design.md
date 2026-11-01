@@ -192,3 +192,40 @@ Layout das telas, estrutura interna dos templates, nomes de funções, detalhes 
 
 ### 13.4 Fora desta versão
 Telas reformuladas e dashboard; cadastro via webPosto (`V1/EMPRESAS`); Gas4You (v3).
+
+## 14. Extratos bancários (OFX) — proposta 01/11/2026, aguardando aprovação
+
+Trabalho feito pelo **próprio Logos Match**, automaticamente, sempre que aparecer um extrato novo. O diretor só baixa o OFX do banco (o PagBank exige login com QR code no celular — não automatizável; o EDI PagBank `/financial` não substitui o extrato).
+
+### 14.1 Pasta de entrada
+- `<Pasta da rede>\Extratos\Entrada` quando a Pasta da rede estiver ligada (recomendado: `OneDrive\LogosMatch-Rede\Extratos\Entrada`, assim qualquer máquina ou o celular salvam ali); senão `%LOCALAPPDATA%\LogosMatch\Extratos\Entrada`.
+- O app cria a pasta sozinho; o painel mostra o caminho e um botão "Abrir pasta".
+- Vigia a pasta (checagem a cada 1 min e ao iniciar). Aceita só `.ofx` com cabeçalho OFX válido; o resto vai para `Extratos\Recusados` com o motivo.
+
+### 14.2 Reconhecer e arquivar
+- Lê banco (BANKID) e conta (ACCTID) do arquivo; liga ao posto e à **conta bancária do webPosto** por um mapa salvo no banco local (pré-carregado do `units.json` quando houver). Conta desconhecida: o extrato fica "aguardando vínculo" e o painel pede para escolher posto + conta do webPosto uma única vez.
+- Sem duplicidade: arquivo igual (hash) é ignorado; cada lançamento é identificado pelo FITID (com hash de data+valor+descrição como reserva) — linha já lida nunca entra de novo.
+- Arquiva em `Extratos\<posto>\<conta>\<aaaa-mm>\` (nome original + data de recebimento).
+- Reaproveita `cash_reconciliation/adapters/extrato_reader.py` (BB, Bradesco, Itaú, PagBank; SGML e XML).
+
+### 14.3 Camada 1 — extrato dentro da conta bancária do webPosto
+- Usa o módulo já autorizado (ADR-003, 11/10/2026) `webposto_escrita_ofx`: `POST /INTEGRACAO/V1/OFXS` só com `IMPORTAR_APENAS_DIAS_INEXISTENTES_SISTEMA`; conta conferida em `V1/CONTAS`; até 7 dias por envio; só dias passados.
+- O app monta a **prévia** (conta, período, nº de lançamentos, total de entradas e saídas, dias que já existem e serão pulados) e pede aprovação **pelo painel ou pelo Telegram** (botões Aprovar/Recusar). Aprovado → envia, confere e avisa.
+- Trava própria do app (substitui o `.env`): "Permitir enviar extratos ao webPosto", desligada por padrão, só administrador liga, por posto.
+
+### 14.4 Camada 2 — lançamentos que faltam no financeiro
+- Depois da camada 1, compara cada linha do extrato com o financeiro do webPosto (títulos pagos, movimentos de conta, cartões, sangrias, transferências entre contas próprias). Reaproveita `application/despesas_sem_lancamento.py`.
+- Linha já coberta → nada. Linha sem lançamento → **proposta** com plano de contas e centro de custo sugeridos e explicação em português.
+- Aprovação pelo painel ou Telegram (aprovar / corrigir / recusar). Cada lançamento leva a referência da linha do extrato (FITID) para nunca repetir.
+- **No início só lista.** Passa a lançar de verdade depois de um lançamento-teste supervisionado que resolva o HTTP 400 do piloto `ERP_WRITE_01` (adaptador `webposto_escrita_despesa`).
+
+### 14.5 Autonomia gradual (sugestão do construtor; diretor delegou a regra)
+- "Tipo" = mesmo banco + conta + padrão de descrição + plano de contas + centro de custo.
+- Um tipo vira **automático** depois de **5 aprovações seguidas sem correção**, só para lançamentos de **até R$ 500,00** cada e no máximo **R$ 2.000,00 por dia** no total de automáticos por conta.
+- Qualquer correção ou recusa zera a contagem daquele tipo. O administrador pode desligar o automático de um tipo (ou de tudo) a qualquer momento.
+- Nunca automático: transferências entre contas próprias, entradas (créditos), valores acima do limite e qualquer coisa com dúvida de classificação.
+- Mesmo automático, tudo é avisado no Telegram/painel e entra no resumo diário.
+- A camada 1 (importar o extrato) também pode virar automática pela mesma regra (5 importações aprovadas sem problema na conta).
+
+### 14.6 Fora desta entrega
+Extrato por e-mail (login com QR), Open Finance, conciliação depósito × sangria (decisão anterior: fora de escopo), boletos/PIX enviados com anexo de comprovante.
