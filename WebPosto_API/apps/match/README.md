@@ -49,6 +49,30 @@ máquina são desativados e listados com o motivo. "Desligar" volta a valer só 
   desta instalação (`LogosMatchCLI.exe --liberar-postos` faz o mesmo à mão).
 - Desligar ou trocar a Pasta da rede não remove os registros desta máquina; use 'Assumir posto' na outra máquina se precisar.
 
+## Extratos OFX
+
+1. **Pasta de entrada**: com a Pasta da rede ligada, coloque os arquivos em
+   `C:\Users\<usuario>\OneDrive\LogosMatch-Rede\Extratos\Entrada` (ajuste o caminho à pasta
+   compartilhada configurada). Sem Pasta da rede, use
+   `%LOCALAPPDATA%\LogosMatch\Extratos\Entrada`. O Match verifica essa pasta periodicamente,
+   reconhece OFX e arquiva os recebidos.
+2. **Baixar o OFX**: no internet banking, abra a conta e o período desejado, escolha
+   *Exportar/Download*, selecione o formato **OFX** e salve o arquivo na pasta de entrada. O
+   nome do menu varia por banco; não converta o arquivo para CSV ou Excel.
+3. **Vincular conta**: em *Extratos > Aguardando vínculo*, escolha o posto e informe o código da
+   conta correspondente no webPosto. Essa associação é feita por um administrador.
+4. **Importar no webPosto**: um administrador deve habilitar **Enviar extratos ao webPosto** para
+   cada posto autorizado. Arquivos vinculados geram uma prévia para aprovação no painel ou nos
+   botões de um canal Telegram inscrito. Para aprovações, configure um bot próprio do Logos Match,
+   diferente do bot usado pelo robô LOGOS; não compartilhe o mesmo bot com outro programa.
+5. **Autonomia gradual**: cinco aprovações limpas consecutivas tornam aquele tipo elegível para
+   automação. Correção, recusa ou falha da importação zera a sequência e desliga a automação.
+   A camada 1 importa automaticamente apenas para contas elegíveis. Na camada 2, somente débitos
+   de até R$ 500 por lançamento e até R$ 2.000 no dia por conta podem ser marcados como
+   **Pronto para lançar sozinho**; entradas e transferências próprias não se qualificam. A camada
+   2 não cria lançamentos no webPosto: qualquer escrita permanece desabilitada. O administrador
+   pode desligar ou religar cada tipo em *Extratos > Autonomia*.
+
 ## Notas fiscais (v0.3)
 
 Captura as NF-e recebidas por cada empresa e manda o pacote do mês para a contabilidade.

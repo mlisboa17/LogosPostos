@@ -229,9 +229,19 @@ CREATE UNIQUE INDEX aprovacao_importacao_pendente_por_conta
 ALTER TABLE posto ADD COLUMN enviar_extratos_webposto INTEGER NOT NULL DEFAULT 0;
 """
 
+_SCHEMA_V8 = """
+CREATE TABLE autonomia (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    chave_tipo TEXT UNIQUE NOT NULL,
+    aprovacoes_seguidas INTEGER NOT NULL DEFAULT 0,
+    automatico INTEGER NOT NULL DEFAULT 0,
+    desligado_por_admin INTEGER NOT NULL DEFAULT 0,
+    atualizado_em TEXT);
+"""
+
 _MIGRACOES = [
     (1, _SCHEMA_V1), (2, _SCHEMA_V2), (3, _SCHEMA_V3), (4, _SCHEMA_V4),
-    (5, _SCHEMA_V5), (6, _SCHEMA_V6), (7, _SCHEMA_V7),
+    (5, _SCHEMA_V5), (6, _SCHEMA_V6), (7, _SCHEMA_V7), (8, _SCHEMA_V8),
 ]
 
 

@@ -38,7 +38,7 @@ def decidir(con, ticket: str, aprovar: bool, quem: str, canal: str) -> tuple[boo
     con.execute("BEGIN IMMEDIATE")
     try:
         row = con.execute(
-            "SELECT id, situacao FROM aprovacao WHERE ticket=?", (ticket,)
+            "SELECT * FROM aprovacao WHERE ticket=?", (ticket,)
         ).fetchone()
         if row is None or row["situacao"] != "pendente":
             con.rollback()
@@ -51,6 +51,22 @@ def decidir(con, ticket: str, aprovar: bool, quem: str, canal: str) -> tuple[boo
             (situacao, _agora(), quem, canal, resultado, row["id"]),
         )
         con.commit()
+        from apps.match.extratos import autonomia
+
+        if row["tipo"] == "importar_extrato" and row["conta_bancaria_id"] is not None:
+            chave_tipo = autonomia.chave_importacao(row["conta_bancaria_id"])
+        elif row["tipo"] == "lancamento" and row["conta_bancaria_id"] is not None:
+            resumo = json.loads(row["resumo_json"])
+            chave_tipo = autonomia.chave_lancamento(
+                row["conta_bancaria_id"],
+                resumo.get("descricao", ""),
+                resumo.get("plano_conta"),
+                resumo.get("centro_custo"),
+            )
+        else:
+            chave_tipo = None
+        if chave_tipo:
+            autonomia.registrar_decisao(con, chave_tipo, aprovar, corrigida=False)
         return True, resultado
     except Exception:
         con.rollback()

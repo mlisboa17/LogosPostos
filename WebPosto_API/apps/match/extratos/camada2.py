@@ -10,7 +10,7 @@ from datetime import date
 from decimal import Decimal
 
 from apps.match import banco, unidades
-from apps.match.extratos import aprovacoes, repositorio
+from apps.match.extratos import aprovacoes, autonomia, repositorio
 from src.modules.cash_reconciliation.adapters.extrato_reader import (
     ExtratoBancario,
     LancamentoBancario,
@@ -81,6 +81,16 @@ def _json_item(despesa, linha) -> dict:
     }
 
 
+def _resultado_financeiro(unidade, de: date, ate: date, extratos: list[ExtratoBancario]):
+    return asyncio.run(identificar_despesas_sem_lancamento(
+        unidade,
+        de,
+        ate,
+        extratos_mock=extratos,
+        falhar_em_erro_leitura=True,
+    ))
+
+
 def analisar(con, conta_id: int, de: date, ate: date) -> list[dict]:
     """Cria propostas únicas para os débitos não encontrados no financeiro."""
     if de > ate:
@@ -102,13 +112,7 @@ def analisar(con, conta_id: int, de: date, ate: date) -> list[dict]:
         raise ValueError("Posto da conta não encontrado.")
     unidades.ativar(con)
     unidade = unidades.do_posto(con, posto)
-    resultado = asyncio.run(identificar_despesas_sem_lancamento(
-        unidade,
-        de,
-        ate,
-        extratos_mock=[_extrato(conta, linhas)],
-        falhar_em_erro_leitura=True,
-    ))
+    resultado = _resultado_financeiro(unidade, de, ate, [_extrato(conta, linhas)])
 
     por_fitid = {l["fitid"] or l["chave"]: l for l in linhas}
     itens: dict[str, dict] = {}
@@ -127,6 +131,11 @@ def analisar(con, conta_id: int, de: date, ate: date) -> list[dict]:
             )
             continue
         item = _json_item(despesa, linha)
+        chave_tipo = autonomia.chave_lancamento(
+            conta_id, item["descricao"], item["plano_conta"], item["centro_custo"]
+        )
+        item["_chave_tipo"] = chave_tipo
+        item["_valor_assinado"] = linha["valor"]
         itens.setdefault(linha["chave"], item)
 
     from apps.match.canais import telegram_aprovacoes
@@ -145,11 +154,25 @@ def analisar(con, conta_id: int, de: date, ate: date) -> list[dict]:
         for chave, item in itens.items():
             if chave in existentes:
                 continue
+            chave_tipo = item.pop("_chave_tipo", None)
+            valor_assinado = Decimal(item.pop("_valor_assinado"))
+            automatico = bool(
+                chave_tipo and autonomia.pode_automatico(
+                    con, chave_tipo, valor_assinado, conta_id
+                )
+            )
             criada = aprovacoes.criar(
                 con, "lancamento", conta["posto_id"], conta_id, item, commit=False
             )
-            criadas.append((item, criada["ticket"]))
-            propostas.append(item)
+            if automatico:
+                con.execute(
+                    """UPDATE aprovacao SET situacao='automatica',
+                       resultado='Pronto para lançar sozinho' WHERE id=?""",
+                    (criada["id"],),
+                )
+            else:
+                criadas.append((item, criada["ticket"]))
+                propostas.append(item)
         con.commit()
     except Exception:
         con.rollback()
@@ -177,6 +200,12 @@ def decidir(con, ticket: str, acao: str, *, plano_conta: str = "",
             con.rollback()
             return False, aprovacoes.JA_RESOLVIDO
         resumo = json.loads(row["resumo_json"])
+        chave_tipo = autonomia.chave_lancamento(
+            row["conta_bancaria_id"],
+            resumo.get("descricao", ""),
+            resumo.get("plano_conta"),
+            resumo.get("centro_custo"),
+        )
         if acao == "corrigir":
             plano_conta = plano_conta.strip()
             centro_custo = centro_custo.strip()
@@ -205,6 +234,9 @@ def decidir(con, ticket: str, acao: str, *, plano_conta: str = "",
             con.rollback()
             return False, aprovacoes.JA_RESOLVIDO
         con.commit()
+        autonomia.registrar_decisao(
+            con, chave_tipo, acao == "aprovar", corrigida=acao == "corrigir"
+        )
         return True, resultado
     except Exception:
         con.rollback()

@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block titulo %}Autonomia dos extratos{% endblock %}
+{% block conteudo %}
+<h1>Autonomia dos extratos</h1>
+<p>Um tipo só se torna automático após cinco aprovações limpas consecutivas.</p>
+{% if tipos %}
+<section class="cartao">
+  <ul>
+    {% for tipo in tipos %}
+    <li>
+      <strong>{{ tipo.chave_tipo }}</strong> —
+      {{ tipo.aprovacoes_seguidas }} aprovação(ões) consecutiva(s) —
+      {% if tipo.automatico %}Automático
+      {% elif tipo.desligado_por_admin %}Desligado pelo administrador
+      {% else %}Aguardando aprovações{% endif %}
+      <form method="post" action="/extratos/autonomia" class="linha">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="chave_tipo" value="{{ tipo.chave_tipo }}">
+        {% if tipo.automatico or not tipo.desligado_por_admin %}
+        <button name="acao" value="desligar" type="submit">Desligar automático</button>
+        {% else %}
+        <button name="acao" value="religar" type="submit">Religar</button>
+        {% endif %}
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% else %}
+<p>Nenhum tipo de extrato possui decisões registradas.</p>
+{% endif %}
+{% endblock %}

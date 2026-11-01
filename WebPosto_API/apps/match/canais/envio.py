@@ -17,7 +17,7 @@ _NOME_FONTE = {"premmia": "Premmia", "pagbank_edi": "PagBank"}
 _MAX_DIVERGENCIAS = 10
 
 
-def texto_resumo(resultados, posto, dia: date) -> str:
+def texto_resumo(resultados, posto, dia: date, *, con=None) -> str:
     nome = posto["apelido"] or posto["nome"]
     linhas = [f"Logos Match — {nome} — {dia:%d/%m/%Y}"]
     divergencias = []
@@ -30,6 +30,30 @@ def texto_resumo(resultados, posto, dia: date) -> str:
     resto = len(divergencias) - _MAX_DIVERGENCIAS
     if resto > 0:
         linhas.append(f"e mais {resto} na planilha")
+    if con is not None:
+        inicio_dia = dia.isoformat()
+        extratos_importados = con.execute(
+            """SELECT COUNT(*) FROM aprovacao
+               WHERE posto_id=? AND tipo='importar_extrato'
+               AND situacao IN ('executada','automatica') AND substr(criada_em,1,10)=?""",
+            (posto["id"], inicio_dia),
+        ).fetchone()[0]
+        extratos_pendentes = con.execute(
+            """SELECT COUNT(*) FROM aprovacao
+               WHERE posto_id=? AND tipo='importar_extrato' AND situacao='pendente'
+               AND substr(criada_em,1,10)=?""",
+            (posto["id"], inicio_dia),
+        ).fetchone()[0]
+        faltando = con.execute(
+            """SELECT COUNT(*) FROM aprovacao
+               WHERE posto_id=? AND tipo='lancamento'
+               AND situacao IN ('pendente','automatica') AND substr(criada_em,1,10)=?""",
+            (posto["id"], inicio_dia),
+        ).fetchone()[0]
+        linhas.append(
+            f"Extratos: {extratos_importados} importados, {extratos_pendentes} aguardando "
+            f"aprovação, {faltando} faltando no financeiro."
+        )
     return "\n".join(linhas)
 
 
@@ -60,7 +84,7 @@ def enviar_dia(con, resultados, dia: date, execucao_id: int | None = None) -> No
         posto = con.execute("SELECT * FROM posto WHERE id=?", (posto_id,)).fetchone()
         if posto is None:
             continue
-        texto = texto_resumo(itens, posto, dia)
+        texto = texto_resumo(itens, posto, dia, con=con)
         assunto = texto.splitlines()[0]
         try:
             anexo = relatorio_xlsx.gerar(con, posto_id, dia)

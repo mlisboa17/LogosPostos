@@ -15,7 +15,7 @@ from typing import Callable
 
 from apps.match import banco, caminhos, explicar, unidades
 from apps.match.canais import envio
-from apps.match.extratos import aprovacoes, repositorio
+from apps.match.extratos import aprovacoes, autonomia, repositorio
 from src.modules.cash_reconciliation.adapters.webposto_escrita_ofx import (
     BarreiraOfxErro,
     enviar_ofx_webposto,
@@ -182,6 +182,9 @@ def montar_previa(con: sqlite3.Connection, conta_id: int) -> dict | None:
     if not periodos:
         return None
 
+    automatico = autonomia.pode_automatico(
+        con, autonomia.chave_importacao(conta_id), None, conta_id
+    )
     resumo = {
         "conta": {
             "id": conta["id"], "banco": conta["banco"],
@@ -209,6 +212,15 @@ def montar_previa(con: sqlite3.Connection, conta_id: int) -> dict | None:
         criada = existente
         resumo = json.loads(criada["resumo_json"])
     else:
+        if automatico:
+            con.execute(
+                """UPDATE aprovacao SET situacao='automatica',
+                   resultado='Importado automaticamente' WHERE id=?""",
+                (criada["id"],),
+            )
+            con.commit()
+            executar(con, criada["id"])
+            return None
         from apps.match.canais.telegram_aprovacoes import notificar_aprovacao
 
         notificar_aprovacao(con, resumo, criada["ticket"])
@@ -232,8 +244,13 @@ def _falhar(con: sqlite3.Connection, aprovacao_id: int, mensagem: str) -> tuple[
     )
     con.commit()
     row = con.execute(
-        "SELECT posto_id FROM aprovacao WHERE id=?", (aprovacao_id,)
+        "SELECT posto_id, conta_bancaria_id FROM aprovacao WHERE id=?", (aprovacao_id,)
     ).fetchone()
+    if row and row["conta_bancaria_id"] is not None:
+        autonomia.registrar_decisao(
+            con, autonomia.chave_importacao(row["conta_bancaria_id"]),
+            aprovada=False, corrigida=False,
+        )
     if row:
         _notificar(con, row["posto_id"], f"Falha ao importar extrato: {mensagem}")
     return False, mensagem
@@ -253,6 +270,7 @@ def _executar(con: sqlite3.Connection, aprovacao_id: int) -> tuple[bool, str]:
     if aprovacao is None or aprovacao["situacao"] not in ("aprovada", "automatica"):
         return False, aprovacoes.JA_RESOLVIDO
     resumo = json.loads(aprovacao["resumo_json"])
+    automatico = aprovacao["situacao"] == "automatica"
     conta = con.execute(
         "SELECT * FROM conta_bancaria WHERE id=?", (aprovacao["conta_bancaria_id"],)
     ).fetchone()
@@ -300,12 +318,22 @@ def _executar(con: sqlite3.Connection, aprovacao_id: int) -> tuple[bool, str]:
             f"UPDATE extrato_linha SET importada_webposto=1 WHERE id IN ({placeholders})",
             ids_enviados,
         )
-    mensagem = "Enviado ao webPosto; dias já existentes foram ignorados por ele."
+    mensagem = (
+        "Importado automaticamente."
+        if automatico
+        else "Enviado ao webPosto; dias já existentes foram ignorados por ele."
+    )
     con.execute(
         """UPDATE aprovacao SET situacao='executada', decidida_em=?, resultado=?
-           WHERE id=?""",
+           WHERE id=? AND situacao!='automatica'""",
         (datetime.now(timezone.utc).isoformat(), mensagem, aprovacao_id),
     )
+    if automatico:
+        con.execute(
+            """UPDATE aprovacao SET decidida_em=?, resultado=?
+               WHERE id=? AND situacao='automatica'""",
+            (datetime.now(timezone.utc).isoformat(), mensagem, aprovacao_id),
+        )
     con.commit()
     _notificar(con, aprovacao["posto_id"], f"{mensagem}\n{AVISO_DIAS_IGNORADOS}")
     from apps.match.extratos import camada2

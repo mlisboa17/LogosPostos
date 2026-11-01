@@ -32,7 +32,7 @@ from apps.match import (acesso, agendador, banco, caminhos, coletas, credenciais
                         registro_rede, relatorio_xlsx, rotina, unidades)
 from apps.match.acesso import Acao, Perfil
 from apps.match.canais import envio
-from apps.match.extratos import aprovacoes, camada1, camada2, entrada, repositorio
+from apps.match.extratos import aprovacoes, autonomia, camada1, camada2, entrada, repositorio
 from src.modules.cash_reconciliation import config as config_cr
 from src.modules.cash_reconciliation.adapters import pagbank_edi, webposto_caixas
 from src.modules.cash_reconciliation.domain.tempo import agora, formatar_data_hora, ontem
@@ -245,7 +245,8 @@ def _menu(ctx: Ctx) -> list[tuple[str, str]]:
     if ctx.pode(Acao.CADASTRAR_POSTO) or ctx.pode(Acao.TROCAR_CREDENCIAL):
         itens.append(("/postos", "Postos"))
     if ctx.pode(Acao.CONFIGURAR):
-        itens += [("/canais", "Canais"), ("/agenda", "Agenda")]
+        itens += [("/canais", "Canais"), ("/agenda", "Agenda"),
+                  ("/extratos/autonomia", "Autonomia")]
     itens.append(("/historico", "Histórico"))
     if ctx.pode(Acao.GERIR_USUARIOS):
         itens.append(("/usuarios", "Usuários"))
@@ -1201,7 +1202,9 @@ def _extratos_da_tela(ctx: Ctx):
                 }
         item["rotulo"] = _ROTULO_APROVACAO.get(row["situacao"], row["situacao"])
         if row["tipo"] == "lancamento":
-            if row["situacao"] == "aprovada":
+            if row["situacao"] == "automatica":
+                item["rotulo"] = "Pronto para lançar sozinho"
+            elif row["situacao"] == "aprovada":
                 item["rotulo"] = ("Corrigido" if row["resultado"] == "Corrigido."
                                   else "Aprovado — aguardando liberação")
             elif row["situacao"] == "recusada":
@@ -1290,7 +1293,9 @@ async def extrato_aprovacao(ticket: str, ctx: Ctx = Depends(_ctx)):
             }
     item["rotulo"] = _ROTULO_APROVACAO.get(row["situacao"], row["situacao"])
     if row["tipo"] == "lancamento":
-        if row["situacao"] == "aprovada":
+        if row["situacao"] == "automatica":
+            item["rotulo"] = "Pronto para lançar sozinho"
+        elif row["situacao"] == "aprovada":
             item["rotulo"] = ("Corrigido" if row["resultado"] == "Corrigido."
                               else "Aprovado — aguardando liberação")
         elif row["situacao"] == "recusada":
@@ -1334,6 +1339,38 @@ async def extratos_webposto_gravar(posto_id: int, ctx: Ctx = Depends(_ctx_post))
     acesso.registrar(ctx.con, ctx.uid, "configurar_envio_extratos",
                      f"posto={posto_id} permitido={valor}")
     return _ir("/extratos")
+
+
+@router.get("/extratos/autonomia")
+async def extratos_autonomia(ctx: Ctx = Depends(_ctx)):
+    ctx.exigir(Acao.CONFIGURAR)
+    tipos = ctx.con.execute(
+        "SELECT * FROM autonomia ORDER BY chave_tipo"
+    ).fetchall()
+    return _pagina(ctx, "extratos_autonomia.html", tipos=tipos)
+
+
+@router.post("/extratos/autonomia")
+async def extratos_autonomia_gravar(ctx: Ctx = Depends(_ctx_post)):
+    ctx.exigir(Acao.CONFIGURAR)
+    chave_tipo = _txt(ctx.form, "chave_tipo")
+    acao = _txt(ctx.form, "acao")
+    if not chave_tipo or acao not in ("desligar", "religar"):
+        raise Recusado(400, "Ação de autonomia inválida.")
+    existente = ctx.con.execute(
+        "SELECT id FROM autonomia WHERE chave_tipo=?", (chave_tipo,)
+    ).fetchone()
+    if existente is None:
+        raise Recusado(404, "Tipo de autonomia não encontrado.")
+    ligado = acao == "religar"
+    autonomia.definir_automatico(ctx.con, chave_tipo, ligado)
+    acesso.registrar(
+        ctx.con,
+        ctx.uid,
+        "religar_automatico_extrato" if ligado else "desligar_automatico_extrato",
+        f"tipo={chave_tipo}",
+    )
+    return _ir("/extratos/autonomia")
 
 
 @router.post("/extratos/aprovacoes/{ticket}")
