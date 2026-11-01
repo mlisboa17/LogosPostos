@@ -10,7 +10,7 @@ from typing import Callable
 
 from apps.match import banco, credenciais, registro_rede, relatorio_xlsx
 from src.modules.cash_reconciliation.config import definir_provedor_unidades
-from src.modules.cash_reconciliation.domain.models import Unidade
+from src.modules.cash_reconciliation.domain.models import ContaExtratoConfig, Unidade
 from src.shared.segredos import definir_resolvedor
 
 logger = logging.getLogger(__name__)
@@ -72,13 +72,25 @@ def do_posto(con, p) -> Unidade:
     adm = _config(origem).get("administradoras", {}) if origem else {}
     pid = p["id"]
     codigo = codigo_empresa(p)
+    contas_extrato = tuple(
+        ContaExtratoConfig(
+            banco=c["banco"], conta_sufixo=c["conta_sufixo"], cd_conta=c["cd_conta_webposto"]
+        )
+        for c in con.execute(
+            """SELECT banco, conta_sufixo, cd_conta_webposto
+               FROM conta_bancaria WHERE posto_id=? AND ativo=1
+               ORDER BY banco, conta_sufixo""",
+            (pid,),
+        ).fetchall()
+    )
     return Unidade(
         empresa_codigo=codigo, nome=p["nome"], apelido=p["apelido"] or f"P{pid}",
         chave_env=f"LC_{pid}_WEBPOSTO_CHAVE",
         premmia_ativo=bool(premmia and premmia["ativo"]),
         premmia_usuario_env=f"LC_{pid}_PREMMIA_USUARIO",
         premmia_senha_env=f"LC_{pid}_PREMMIA_SENHA",
-        destinos=(), administradoras={k: tuple(v) for k, v in adm.items()})
+        destinos=(), administradoras={k: tuple(v) for k, v in adm.items()},
+        contas_extrato=contas_extrato)
 
 
 def montar(con) -> dict[int, Unidade]:
@@ -170,9 +182,21 @@ def _validar_formato_unidade(u) -> None:
     if not isinstance(u, dict) or not isinstance(u.get("nome"), str) or not u["nome"].strip():
         raise ValueError("unidade inválida")
     adq = u.get("adquirentes", [])
+    contas_extrato = u.get("contas_extrato", [])
     if (not _texto_ou_nada(u.get("apelido")) or not isinstance(u.get("administradoras", {}), dict)
-            or not isinstance(adq, list) or not all(isinstance(a, dict) for a in adq)):
+            or not isinstance(adq, list) or not all(isinstance(a, dict) for a in adq)
+            or not isinstance(contas_extrato, list)):
         raise ValueError("unidade inválida")
+    for conta in contas_extrato:
+        if (not isinstance(conta, dict) or not isinstance(conta.get("banco"), str)
+                or not conta["banco"].strip()
+                or not isinstance(conta.get("conta_sufixo"), str)
+                or not conta["conta_sufixo"].strip()
+                or not _texto_ou_nada(conta.get("agencia"))
+                or ("cd_conta" in conta and conta["cd_conta"] is not None
+                    and (isinstance(conta["cd_conta"], bool)
+                         or not isinstance(conta["cd_conta"], int)))):
+            raise ValueError("conta bancária inválida")
 
 
 def _validar_formato_canais(canais) -> None:
@@ -262,6 +286,10 @@ def importar_units_json(con, caminho: Path, *, desativados: list[str] | None = N
     """Importa os postos do units.json. `desativados` recebe os de outra máquina (salvos desativados)."""
     dados = json.loads(Path(caminho).read_text(encoding="utf-8"))
     existentes = {p["empresa_codigo_webposto"] for p in banco.listar_postos(con, so_ativos=False)}
+    postos_por_codigo = {
+        p["empresa_codigo_webposto"]: p["id"]
+        for p in banco.listar_postos(con, so_ativos=False)
+    }
     novos: set[int] = set()
     unidades_ = dados.get("unidades", [])
     if not isinstance(unidades_, list):
@@ -279,14 +307,17 @@ def importar_units_json(con, caminho: Path, *, desativados: list[str] | None = N
     _validar_apelidos(con, [unidades_[i].get("apelido") for i, _c, _n in candidatos])
     registrados = _registrar_na_rede(con, [c for c in candidatos if c[0] not in fora], livres)
     criados, inseridos = 0, set()
+    ids_por_indice: dict[int, int] = {}
     with _desfazer_se_falhar(con, registrados, inseridos):
         for i, u in enumerate(unidades_):
             codigo = u["empresa_codigo"]
             if codigo in existentes:
+                ids_por_indice[i] = postos_por_codigo[codigo]
                 continue
             pid = banco.inserir_posto(con, u["nome"], u.get("apelido"), None, codigo,
                                       ativo=i not in fora)
             inseridos.add(i)
+            ids_por_indice[i] = pid
             adm = u.get("administradoras", {})
             tem_pagbank = any(a.get("nome") == "PAGBANK" for a in u.get("adquirentes", []))
             if u.get("premmia_ativo") or u.get("premmia_usuario_env") or u.get("premmia_senha_env"):
@@ -296,6 +327,20 @@ def importar_units_json(con, caminho: Path, *, desativados: list[str] | None = N
             banco.salvar_fonte(con, pid, "webposto", False, {})
             existentes.add(codigo)
             criados += 1
+        for i, u in enumerate(unidades_):
+            pid = ids_por_indice[i]
+            for conta in u.get("contas_extrato", []):
+                cd_conta = conta.get("cd_conta")
+                if cd_conta is None:
+                    continue
+                con.execute(
+                    """INSERT INTO conta_bancaria
+                       (posto_id, banco, agencia, conta_sufixo, cd_conta_webposto)
+                       VALUES (?,?,?,?,?) ON CONFLICT(banco, conta_sufixo) DO NOTHING""",
+                    (pid, conta["banco"].strip().upper(), conta.get("agencia"),
+                     conta["conta_sufixo"], cd_conta),
+                )
+        con.commit()
     return criados
 
 

@@ -43,5 +43,18 @@ def fiscal(con) -> Path:
     return _criar(raiz() / "fiscal")
 
 
+def extratos(con) -> Path:
+    """Acervo OFX: `<pasta da rede>/Extratos` se configurada e acessível; senão local."""
+    from apps.match import banco
+    pasta = banco.pasta_rede(con)
+    if pasta is not None:
+        try:
+            if Path(pasta).is_dir():
+                return _criar(Path(pasta) / "Extratos")
+        except OSError:
+            pass
+    return _criar(raiz() / "Extratos")
+
+
 def pacotes() -> Path:
     return _criar(raiz() / "pacotes")

@@ -7,6 +7,7 @@ from datetime import datetime
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 
 from apps.match import rotina
 from apps.match.canais import toast
@@ -17,6 +18,7 @@ logger = logging.getLogger(__name__)
 JOB_COLETA, JOB_REPESCAGEM, JOB_RECUPERACAO = "coleta", "repescagem", "recuperacao"
 JOB_FISCAL_CAPTURA, JOB_FISCAL_PENDENTES, JOB_FISCAL_MENSAL = "fiscal_captura", "fiscal_pendentes", "fiscal_mensal"
 JOB_FISCAL_RECUPERACAO = "fiscal_mensal_recuperacao"
+JOB_EXTRATOS, JOB_EXTRATOS_INICIO = "extratos", "extratos_inicio"
 HORA_ENVIO_FISCAL = 8
 _OPCOES = {"coalesce": True, "max_instances": 1, "misfire_grace_time": 3600}
 
@@ -94,6 +96,19 @@ def _job_fiscal_mensal(con_factory) -> None:
     _fiscal("mensal", rodar)
 
 
+def _job_extratos(con_factory) -> None:
+    from apps.match.extratos import entrada
+
+    def rodar():
+        con = con_factory()
+        try:
+            entrada.processar_pasta(con, agora())
+        finally:
+            con.close()
+
+    _fiscal("extratos", rodar)
+
+
 def _gatilho(hhmm: str) -> CronTrigger:
     h, m = hhmm.split(":")
     return CronTrigger(hour=int(h), minute=int(m), timezone=FUSO)
@@ -116,6 +131,8 @@ def reagendar(sched: BackgroundScheduler, con_factory) -> None:
                   args=[con_factory], id=JOB_FISCAL_PENDENTES, replace_existing=True, **_OPCOES)
     sched.add_job(_job_fiscal_mensal, _gatilho(f"{HORA_ENVIO_FISCAL:02d}:00"), args=[con_factory],
                   id=JOB_FISCAL_MENSAL, replace_existing=True, **_OPCOES)
+    sched.add_job(_job_extratos, IntervalTrigger(seconds=60, timezone=FUSO), args=[con_factory],
+                  id=JOB_EXTRATOS, replace_existing=True, **_OPCOES)
 
 
 def iniciar(con_factory, *, pausado: bool = False) -> BackgroundScheduler:
@@ -133,5 +150,7 @@ def iniciar(con_factory, *, pausado: bool = False) -> BackgroundScheduler:
     if agora().hour >= HORA_ENVIO_FISCAL:  # subiu depois do horário: confere o envio do mês uma vez
         sched.add_job(_job_fiscal_mensal, "date", run_date=datetime.now(FUSO), args=[con_factory],
                       id=JOB_FISCAL_RECUPERACAO, replace_existing=True, **_OPCOES)
+    sched.add_job(_job_extratos, "date", run_date=datetime.now(FUSO), args=[con_factory],
+                  id=JOB_EXTRATOS_INICIO, replace_existing=True, **_OPCOES)
     sched.start(paused=pausado)
     return sched

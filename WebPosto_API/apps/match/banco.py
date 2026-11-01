@@ -167,7 +167,50 @@ CREATE TABLE pacote_documento (
     PRIMARY KEY (pacote_id, documento_id));
 """
 
-_MIGRACOES = [(1, _SCHEMA_V1), (2, _SCHEMA_V2), (3, _SCHEMA_V3), (4, _SCHEMA_V4), (5, _SCHEMA_V5)]
+_SCHEMA_V6 = """
+CREATE TABLE conta_bancaria (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    posto_id INTEGER NOT NULL REFERENCES posto(id),
+    banco TEXT NOT NULL,
+    agencia TEXT,
+    conta_sufixo TEXT NOT NULL,
+    cd_conta_webposto INTEGER NOT NULL,
+    ativo INTEGER NOT NULL DEFAULT 1,
+    UNIQUE (banco, conta_sufixo));
+CREATE TABLE extrato_arquivo (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sha256 TEXT UNIQUE NOT NULL,
+    nome_original TEXT,
+    recebido_em TEXT,
+    banco TEXT,
+    agencia TEXT,
+    conta_sufixo TEXT,
+    conta_bancaria_id INTEGER REFERENCES conta_bancaria(id),
+    inicio TEXT,
+    fim TEXT,
+    situacao TEXT NOT NULL CHECK (situacao IN ('aguardando_vinculo','lido','recusado')),
+    motivo TEXT,
+    caminho_arquivado TEXT);
+CREATE TABLE extrato_linha (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    conta_bancaria_id INTEGER NOT NULL REFERENCES conta_bancaria(id),
+    arquivo_id INTEGER NOT NULL REFERENCES extrato_arquivo(id),
+    chave TEXT NOT NULL,
+    fitid TEXT,
+    data TEXT,
+    valor TEXT,
+    tipo TEXT,
+    descricao TEXT,
+    documento TEXT,
+    categoria TEXT,
+    importada_webposto INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (conta_bancaria_id, chave));
+"""
+
+_MIGRACOES = [
+    (1, _SCHEMA_V1), (2, _SCHEMA_V2), (3, _SCHEMA_V3), (4, _SCHEMA_V4),
+    (5, _SCHEMA_V5), (6, _SCHEMA_V6),
+]
 
 
 def _agora() -> str:
