@@ -18,7 +18,8 @@ def _json_canonico(resumo: dict) -> str:
     return json.dumps(resumo, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def criar(con, tipo: str, posto_id: int, conta_id: int | None, resumo: dict):
+def criar(con, tipo: str, posto_id: int, conta_id: int | None, resumo: dict, *,
+          commit: bool = True):
     resumo_json = _json_canonico(resumo)
     digest = hashlib.sha256(resumo_json.encode("utf-8")).hexdigest()
     ticket = secrets.token_urlsafe(9)
@@ -28,7 +29,8 @@ def criar(con, tipo: str, posto_id: int, conta_id: int | None, resumo: dict):
            VALUES (?,?,?,?,?,'pendente',?,?)""",
         (tipo, conta_id, posto_id, resumo_json, digest, _agora(), ticket),
     )
-    con.commit()
+    if commit:
+        con.commit()
     return con.execute("SELECT * FROM aprovacao WHERE id=?", (cur.lastrowid,)).fetchone()
 
 

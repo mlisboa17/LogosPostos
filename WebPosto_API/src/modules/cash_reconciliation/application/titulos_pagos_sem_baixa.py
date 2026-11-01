@@ -198,6 +198,7 @@ async def encontrar_candidatos_baixa(
     titulos_mock: list[dict[str, Any]] | None = None,
     contas_mock: list[dict[str, Any]] | None = None,
     fornecedores_mock: list[dict[str, Any]] | None = None,
+    falhar_em_erro_leitura: bool = False,
     apelidos_map: dict[str, list[str]] = APELIDOS_FORNECEDORES_PADRAO,
 ) -> PreviaBaixaTitulos:
     """Encontra candidatos a baixa de títulos por extratos (somente leitura)."""
@@ -231,7 +232,9 @@ async def encontrar_candidatos_baixa(
                 client=client,
             )
         except Exception as exc:
-            logger.warning("Não foi possível carregar contas: %s", exc)
+            if falhar_em_erro_leitura:
+                raise
+            logger.warning("Não foi possível carregar contas tipo=%s", type(exc).__name__)
             contas_cadastradas = []
     contas_ativas_map = {
         c["contaCodigo"]: c for c in contas_cadastradas if c.get("ativo", True)
@@ -249,7 +252,10 @@ async def encontrar_candidatos_baixa(
                 client=client,
             )
         except Exception as exc:
-            logger.warning("Não foi possível carregar fornecedores: %s", exc)
+            if falhar_em_erro_leitura:
+                raise
+            logger.warning("Não foi possível carregar fornecedores tipo=%s",
+                           type(exc).__name__)
             fornecedores_lista = []
     forn_map = {f["fornecedorCodigo"]: f for f in fornecedores_lista}
 
@@ -296,7 +302,7 @@ async def encontrar_candidatos_baixa(
             try:
                 extrato = ler_arquivo(p)
             except Exception as exc:
-                logger.warning("Falha ao ler extrato %s: %s", p, exc)
+                logger.warning("Falha ao ler extrato tipo=%s", type(exc).__name__)
                 continue
 
             for l in extrato.lancamentos:

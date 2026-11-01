@@ -40,6 +40,46 @@
   {% else %}<p>Nenhuma conta bancária vinculada.</p>{% endif %}
 </section>
 
+<section class="cartao">
+  <h2>Faltando no financeiro</h2>
+  {% for c in contas %}
+  {% if pode_conferir[c.id] %}
+  <form method="post" action="/extratos/analisar" class="linha">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="conta_id" value="{{ c.id }}">
+    <strong>{{ c.posto_apelido or c.posto_nome }} — {{ c.banco }} / conta final {{ c.conta_sufixo }}</strong>
+    <label>De <input type="date" name="de" required></label>
+    <label>Até <input type="date" name="ate" required></label>
+    <button type="submit">Conferir agora</button>
+  </form>
+  {% endif %}
+  {% endfor %}
+  {% if lancamentos_pendentes %}
+  {% for a in lancamentos_pendentes %}
+  <article>
+    <h3>{{ a.resumo.data }} — R$ {{ a.resumo.valor }} — {{ a.resumo.descricao }}</h3>
+    <p>{{ a.resumo.explicacao_pt }}</p>
+    <p>Tipo sugerido: {{ a.resumo.tipo_sugerido }} ·
+      Plano: {{ a.resumo.plano_conta.nome if a.resumo.plano_conta else "A classificar" }} ·
+      Centro: {{ a.resumo.centro_custo.nome if a.resumo.centro_custo else "A classificar" }}</p>
+    {% if pode_aprovar[a.id] %}
+    <form method="post" action="/extratos/aprovacoes/{{ a.ticket }}" class="linha">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button name="acao" value="aprovar" type="submit">Aprovar</button>
+      <button name="acao" value="recusar" type="submit" class="secundario">Recusar</button>
+    </form>
+    <form method="post" action="/extratos/aprovacoes/{{ a.ticket }}" class="linha">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <label>Plano de conta corrigido <input name="plano_conta" required></label>
+      <label>Centro de custo corrigido <input name="centro_custo" required></label>
+      <button name="acao" value="corrigir" type="submit">Corrigir</button>
+    </form>
+    {% endif %}
+  </article>
+  {% endfor %}
+  {% else %}<p>Nenhuma proposta pendente. Use “Conferir agora” para analisar um período.</p>{% endif %}
+</section>
+
 {% if aguardando %}
 <section class="cartao">
   <h2>Aguardando vínculo</h2>
@@ -109,7 +149,8 @@
   <ul>
     {% for a in historico %}
     <li>{{ a.resumo.posto.apelido or a.resumo.posto.nome }} —
-      {{ a.rotulo }}{% if a.resultado %}: {{ a.resultado }}{% endif %}</li>
+        {{ a.rotulo }}
+        {% if a.resultado %}: {{ a.resultado }}{% endif %}</li>
     {% endfor %}
   </ul>
   {% else %}<p>Nenhuma aprovação registrada.</p>{% endif %}

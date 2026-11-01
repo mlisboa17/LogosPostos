@@ -26,10 +26,24 @@ def _atende(canal, posto_id: int) -> bool:
     return not postos or posto_id in postos
 
 
-def _texto_previa(resumo: dict) -> str:
+def _texto_previa(resumo: dict, tipo: str = "importar_extrato") -> str:
     posto = resumo.get("posto") or {}
     conta = resumo.get("conta") or {}
     nome = posto.get("apelido") or posto.get("nome") or "Posto"
+    if tipo == "lancamento":
+        plano = resumo.get("plano_conta")
+        centro = resumo.get("centro_custo")
+        plano_nome = plano.get("nome", "") if isinstance(plano, dict) else plano or ""
+        centro_nome = centro.get("nome", "") if isinstance(centro, dict) else centro or ""
+        return "\n".join((
+            f"Logos Match — lançamento faltando no financeiro — {nome}",
+            f"Data: {resumo.get('data', '')} · Valor: R$ {resumo.get('valor', '')}",
+            f"Descrição: {resumo.get('descricao', '')}",
+            f"Tipo sugerido: {resumo.get('tipo_sugerido', '')}",
+            f"Plano de conta: {plano_nome}",
+            f"Centro de custo: {centro_nome}",
+            resumo.get("explicacao_pt", ""),
+        ))
     linhas = [
         f"Logos Match — aprovação de extrato — {nome}",
         f"Conta: {conta.get('banco', 'Banco')} / final {conta.get('conta_sufixo', '')}",
@@ -47,16 +61,26 @@ def _texto_previa(resumo: dict) -> str:
     return "\n".join(linhas)
 
 
-def notificar_aprovacao(con, resumo: dict, ticket: str, cliente=None) -> None:
+def notificar_aprovacao(con, resumo: dict, ticket: str, cliente=None,
+                        tipo: str = "importar_extrato") -> None:
     """Envia a prévia aos canais Telegram inscritos e associados ao posto."""
     posto_id = (resumo.get("posto") or {}).get("id")
+    if not isinstance(posto_id, int):
+        posto = con.execute(
+            """SELECT p.id, p.nome, p.apelido FROM aprovacao a
+               JOIN posto p ON p.id=a.posto_id WHERE a.ticket=?""",
+            (ticket,),
+        ).fetchone()
+        if posto is not None:
+            posto_id = posto["id"]
+            resumo = {**resumo, "posto": dict(posto)}
     if not isinstance(posto_id, int):
         return
     canais = con.execute(
         "SELECT * FROM canal WHERE ativo=1 AND tipo='telegram' ORDER BY id"
     ).fetchall()
     botoes = [("Aprovar", f"lm:a:{ticket}"), ("Recusar", f"lm:r:{ticket}")]
-    texto = _texto_previa(resumo)
+    texto = _texto_previa(resumo, tipo)
     for canal in canais:
         try:
             config = json.loads(canal["config_json"] or "{}")
@@ -169,9 +193,17 @@ def processar_lote(con_factory, canal, updates: list[dict],
             row = con.execute(
                 "SELECT id, tipo FROM aprovacao WHERE ticket=?", (ticket,)
             ).fetchone()
-            decidido, _resultado = aprovacoes.decidir(
-                con, ticket, aprovar, f"telegram:{user_id}", "telegram"
-            )
+            if row is not None and row["tipo"] == "lancamento":
+                from apps.match.extratos import camada2
+
+                decidido, _resultado = camada2.decidir(
+                    con, ticket, "aprovar" if aprovar else "recusar",
+                    quem=f"telegram:{user_id}", canal="telegram",
+                )
+            else:
+                decidido, _resultado = aprovacoes.decidir(
+                    con, ticket, aprovar, f"telegram:{user_id}", "telegram"
+                )
         finally:
             con.close()
 

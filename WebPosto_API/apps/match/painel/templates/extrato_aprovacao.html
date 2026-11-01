@@ -1,6 +1,28 @@
 {% extends "base.html" %}
 {% block titulo %}Prévia do extrato{% endblock %}
 {% block conteudo %}
+{% if aprovacao.tipo == "lancamento" %}
+<h1>Faltando no financeiro</h1>
+<p>Situação: {{ aprovacao.rotulo }}</p>
+<p>{{ aprovacao.resumo.data }} — R$ {{ aprovacao.resumo.valor }} — {{ aprovacao.resumo.descricao }}</p>
+<p>{{ aprovacao.resumo.explicacao_pt }}</p>
+<p>Tipo sugerido: {{ aprovacao.resumo.tipo_sugerido }} ·
+  Plano: {{ aprovacao.resumo.plano_conta.nome if aprovacao.resumo.plano_conta else "A classificar" }} ·
+  Centro: {{ aprovacao.resumo.centro_custo.nome if aprovacao.resumo.centro_custo else "A classificar" }}</p>
+{% if pode_decidir and aprovacao.situacao == "pendente" %}
+<form method="post" action="/extratos/aprovacoes/{{ aprovacao.ticket }}" class="linha">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <button name="acao" value="aprovar" type="submit">Aprovar</button>
+  <button name="acao" value="recusar" type="submit" class="secundario">Recusar</button>
+</form>
+<form method="post" action="/extratos/aprovacoes/{{ aprovacao.ticket }}" class="linha">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <label>Plano de conta corrigido <input name="plano_conta" required></label>
+  <label>Centro de custo corrigido <input name="centro_custo" required></label>
+  <button name="acao" value="corrigir" type="submit">Corrigir</button>
+</form>
+{% endif %}
+{% else %}
 <h1>Prévia de importação de extrato</h1>
 <p><strong>{{ aprovacao.resumo.posto.apelido or aprovacao.resumo.posto.nome }}</strong>
   — {{ aprovacao.resumo.conta.banco }} / conta final {{ aprovacao.resumo.conta.conta_sufixo }}</p>
@@ -22,6 +44,7 @@
   <button name="acao" value="aprovar" type="submit">Aprovar</button>
   <button name="acao" value="recusar" type="submit" class="secundario">Recusar</button>
 </form>
+{% endif %}
 {% endif %}
 <p><a href="/extratos">Voltar aos extratos</a></p>
 {% endblock %}

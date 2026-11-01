@@ -32,7 +32,7 @@ from apps.match import (acesso, agendador, banco, caminhos, coletas, credenciais
                         registro_rede, relatorio_xlsx, rotina, unidades)
 from apps.match.acesso import Acao, Perfil
 from apps.match.canais import envio
-from apps.match.extratos import aprovacoes, camada1, entrada, repositorio
+from apps.match.extratos import aprovacoes, camada1, camada2, entrada, repositorio
 from src.modules.cash_reconciliation import config as config_cr
 from src.modules.cash_reconciliation.adapters import pagbank_edi, webposto_caixas
 from src.modules.cash_reconciliation.domain.tempo import agora, formatar_data_hora, ontem
@@ -1187,15 +1187,30 @@ def _extratos_da_tela(ctx: Ctx):
     ).fetchall()
     historico = []
     pendentes = []
+    lancamentos_pendentes = []
     for row in aprovacoes_db:
         if not configurar and row["posto_id"] not in visiveis:
             continue
         item = dict(row)
         item["resumo"] = json.loads(row["resumo_json"])
+        if row["tipo"] == "lancamento":
+            posto = banco.obter_posto(ctx.con, row["posto_id"])
+            if posto:
+                item["resumo"]["posto"] = {
+                    "id": posto["id"], "nome": posto["nome"], "apelido": posto["apelido"],
+                }
         item["rotulo"] = _ROTULO_APROVACAO.get(row["situacao"], row["situacao"])
+        if row["tipo"] == "lancamento":
+            if row["situacao"] == "aprovada":
+                item["rotulo"] = ("Corrigido" if row["resultado"] == "Corrigido."
+                                  else "Aprovado — aguardando liberação")
+            elif row["situacao"] == "recusada":
+                item["rotulo"] = "Recusado"
         historico.append(item)
         if row["tipo"] == "importar_extrato" and row["situacao"] == "pendente":
             pendentes.append(item)
+        if row["tipo"] == "lancamento" and row["situacao"] == "pendente":
+            lancamentos_pendentes.append(item)
     aguardando = [a for a in arquivos if a["situacao"] == "aguardando_vinculo"]
     postos_vinculo = banco.listar_postos(ctx.con, so_ativos=False) if configurar else []
     postos_config = ctx.con.execute(
@@ -1203,22 +1218,58 @@ def _extratos_da_tela(ctx: Ctx):
     ).fetchall() if configurar else []
     if not configurar:
         postos_config = []
-    return contas, arquivos, pendentes, historico, aguardando, postos_vinculo, postos_config
+    return (contas, arquivos, pendentes, historico, aguardando, postos_vinculo,
+            postos_config, lancamentos_pendentes)
+
+
+def _pagina_extratos(ctx: Ctx, *, erro=None, mensagem=None):
+    (contas, arquivos, pendentes, historico, aguardando,
+     postos_vinculo, postos_config, lancamentos_pendentes) = _extratos_da_tela(ctx)
+    return _pagina(
+        ctx, "extratos.html", contas=contas, arquivos=arquivos, pendentes=pendentes,
+        historico=historico, aguardando=aguardando, postos_vinculo=postos_vinculo,
+        postos_config=postos_config, lancamentos_pendentes=lancamentos_pendentes,
+        pasta=caminhos.extratos(ctx.con), pode_configurar=ctx.pode(Acao.CONFIGURAR),
+        pode_abrir=ctx.pode(Acao.CONFIGURAR),
+        pode_aprovar={r["id"]: ctx.pode(Acao.COLETAR, r["posto_id"])
+                      for r in pendentes + lancamentos_pendentes},
+        pode_conferir={c["id"]: ctx.pode(Acao.COLETAR, c["posto_id"]) for c in contas},
+        erro=erro, mensagem=mensagem,
+    )
 
 
 @router.get("/extratos")
 async def extratos_tela(ctx: Ctx = Depends(_ctx)):
     ctx.exigir(Acao.VER)
-    (contas, arquivos, pendentes, historico, aguardando,
-     postos_vinculo, postos_config) = _extratos_da_tela(ctx)
-    return _pagina(
-        ctx, "extratos.html", contas=contas, arquivos=arquivos, pendentes=pendentes,
-        historico=historico, aguardando=aguardando, postos_vinculo=postos_vinculo,
-        postos_config=postos_config,
-        pasta=caminhos.extratos(ctx.con), pode_configurar=ctx.pode(Acao.CONFIGURAR),
-        pode_abrir=ctx.pode(Acao.CONFIGURAR),
-        pode_aprovar={r["id"]: ctx.pode(Acao.COLETAR, r["posto_id"]) for r in pendentes},
-        erro=None, mensagem=None,
+    return _pagina_extratos(ctx)
+
+
+@router.post("/extratos/analisar")
+async def extratos_analisar(ctx: Ctx = Depends(_ctx_post)):
+    conta_id = _int(ctx.form, "conta_id")
+    inicio, fim = _txt(ctx.form, "de"), _txt(ctx.form, "ate")
+    if not conta_id:
+        raise Recusado(400, "Escolha uma conta bancária.")
+    conta = repositorio.conta_por_id(ctx.con, conta_id)
+    if conta is None:
+        raise Recusado(404, "Conta bancária não encontrada.")
+    ctx.exigir(Acao.COLETAR, conta["posto_id"])
+    try:
+        data_de, data_ate = date.fromisoformat(inicio), date.fromisoformat(fim)
+    except ValueError:
+        return _pagina_extratos(ctx, erro="Informe um período válido.")
+    try:
+        factory = ctx.request.app.state.con_factory
+        propostas = await run_in_threadpool(
+            _com_conexao,
+            factory,
+            lambda con: camada2.analisar(con, conta_id, data_de, data_ate),
+        )
+    except Exception as exc:
+        logger.warning("Conferência financeira de extrato falhou tipo=%s", type(exc).__name__)
+        return _pagina_extratos(ctx, erro=explicar.erro_pt(exc))
+    return _pagina_extratos(
+        ctx, mensagem=f"{len(propostas)} proposta(s) nova(s) de lançamento."
     )
 
 
@@ -1231,7 +1282,19 @@ async def extrato_aprovacao(ticket: str, ctx: Ctx = Depends(_ctx)):
     ctx.exigir(Acao.VER, row["posto_id"])
     item = dict(row)
     item["resumo"] = json.loads(row["resumo_json"])
+    if row["tipo"] == "lancamento":
+        posto = banco.obter_posto(ctx.con, row["posto_id"])
+        if posto:
+            item["resumo"]["posto"] = {
+                "id": posto["id"], "nome": posto["nome"], "apelido": posto["apelido"],
+            }
     item["rotulo"] = _ROTULO_APROVACAO.get(row["situacao"], row["situacao"])
+    if row["tipo"] == "lancamento":
+        if row["situacao"] == "aprovada":
+            item["rotulo"] = ("Corrigido" if row["resultado"] == "Corrigido."
+                              else "Aprovado — aguardando liberação")
+        elif row["situacao"] == "recusada":
+            item["rotulo"] = "Recusado"
     return _pagina(ctx, "extrato_aprovacao.html", aprovacao=item,
                    pode_decidir=ctx.pode(Acao.COLETAR, row["posto_id"]))
 
@@ -1279,19 +1342,32 @@ async def extratos_decidir(ticket: str, ctx: Ctx = Depends(_ctx_post)):
     if row is None:
         raise Recusado(404, "Aprovação não encontrada.")
     ctx.exigir(Acao.COLETAR, row["posto_id"])
-    if row["tipo"] != "importar_extrato":
-        raise Recusado(400, "Tipo de aprovação inválido para esta ação.")
     acao = _txt(ctx.form, "acao")
-    if acao not in ("aprovar", "recusar"):
-        raise Recusado(400, "Escolha aprovar ou recusar.")
-    ok, mensagem = aprovacoes.decidir(
-        ctx.con, ticket, acao == "aprovar", f"usuario:{ctx.uid}", "painel"
-    )
+    if row["tipo"] == "lancamento":
+        if acao not in ("aprovar", "recusar", "corrigir"):
+            raise Recusado(400, "Escolha aprovar, recusar ou corrigir.")
+        try:
+            ok, mensagem = camada2.decidir(
+                ctx.con, ticket, acao,
+                plano_conta=_txt(ctx.form, "plano_conta"),
+                centro_custo=_txt(ctx.form, "centro_custo"),
+                quem=f"usuario:{ctx.uid}",
+            )
+        except ValueError as exc:
+            raise Recusado(
+                400, "Informe o plano de conta e o centro de custo corrigidos."
+            ) from exc
+    else:
+        if row["tipo"] != "importar_extrato" or acao not in ("aprovar", "recusar"):
+            raise Recusado(400, "Escolha aprovar ou recusar.")
+        ok, mensagem = aprovacoes.decidir(
+            ctx.con, ticket, acao == "aprovar", f"usuario:{ctx.uid}", "painel"
+        )
     if not ok:
         return _ir("/extratos?resolvido=1")
     acesso.registrar(ctx.con, ctx.uid, f"{acao}_aprovacao_extrato",
                      f"aprovacao={row['id']} posto={row['posto_id']}")
-    if acao == "aprovar":
+    if acao == "aprovar" and row["tipo"] == "importar_extrato":
         factory = ctx.request.app.state.con_factory
 
         def executar(factory_, aprovacao_id):

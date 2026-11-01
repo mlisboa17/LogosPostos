@@ -293,6 +293,7 @@ async def identificar_despesas_sem_lancamento(
     contas_mock: Sequence[dict[str, Any]] | None = None,
     client: httpx.AsyncClient | None = None,
     previa_baixa: PreviaBaixaTitulos | None = None,
+    falhar_em_erro_leitura: bool = False,
 ) -> ResumoDespesasAvulsas:
     """Identifica débitos do extrato sem registro correspondente no webPosto."""
 
@@ -308,7 +309,7 @@ async def identificar_despesas_sem_lancamento(
                 try:
                     extratos.append(ler_arquivo(p))
                 except Exception as exc:
-                    logger.warning("Falha ao ler extrato %s: %s", p, exc)
+                    logger.warning("Falha ao ler extrato tipo=%s", type(exc).__name__)
 
     debitos_extrato: list[dict[str, Any]] = []
     fitids_vistos: set[tuple[str, str]] = set()
@@ -390,7 +391,10 @@ async def identificar_despesas_sem_lancamento(
                 )
                 movimentos_brutos.extend(movs)
             except Exception as exc:
-                logger.warning("Erro ao consultar movimentos de conta (%s): %s", c_cod, exc)
+                if falhar_em_erro_leitura:
+                    raise
+                logger.warning("Erro ao consultar movimentos de conta tipo=%s",
+                               type(exc).__name__)
 
     # 3.3 Catálogos para classificação (Planos de Conta, Centros de Custo, Fornecedores)
     if planos_mock is not None:
@@ -404,6 +408,8 @@ async def identificar_despesas_sem_lancamento(
                 client=client,
             )
         except Exception:
+            if falhar_em_erro_leitura:
+                raise
             planos_lista = []
     planos_map = {p["planoContaCodigo"]: p["descricao"] for p in planos_lista}
 
@@ -418,6 +424,8 @@ async def identificar_despesas_sem_lancamento(
                 client=client,
             )
         except Exception:
+            if falhar_em_erro_leitura:
+                raise
             centros_lista = []
     cc_map = {c["centroCustoCodigo"]: c["descricao"] for c in centros_lista}
 
@@ -432,6 +440,8 @@ async def identificar_despesas_sem_lancamento(
                 client=client,
             )
         except Exception:
+            if falhar_em_erro_leitura:
+                raise
             fornecedores_lista = []
     forn_map = {f["fornecedorCodigo"]: f for f in fornecedores_lista}
 
@@ -556,10 +566,15 @@ async def identificar_despesas_sem_lancamento(
                 client=client,
                 titulos_mock=list(titulos_brutos),
                 contas_mock=list(contas_mock) if contas_mock is not None else None,
-                fornecedores_mock=list(fornecedores_lista) if fornecedores_mock is None else list(fornecedores_mock),
+                fornecedores_mock=(list(fornecedores_lista) if fornecedores_mock is None
+                                   else list(fornecedores_mock)),
+                falhar_em_erro_leitura=falhar_em_erro_leitura,
             )
         except Exception as exc:
-            logger.warning("Erro ao executar previa de baixa de títulos: %s", exc)
+            if falhar_em_erro_leitura:
+                raise
+            logger.warning("Erro ao executar previa de baixa de títulos tipo=%s",
+                           type(exc).__name__)
             previa_baixa = None
 
     candidatos_baixa_por_fitid: dict[tuple[str, str], list[TituloCandidato]] = {}

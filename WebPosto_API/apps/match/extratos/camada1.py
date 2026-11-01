@@ -308,4 +308,21 @@ def _executar(con: sqlite3.Connection, aprovacao_id: int) -> tuple[bool, str]:
     )
     con.commit()
     _notificar(con, aprovacao["posto_id"], f"{mensagem}\n{AVISO_DIAS_IGNORADOS}")
+    from apps.match.extratos import camada2
+
+    for periodo in resumo["periodos"]:
+        try:
+            camada2.analisar(
+                con, conta["id"], date.fromisoformat(periodo["de"]),
+                date.fromisoformat(periodo["ate"]),
+            )
+        except Exception as exc:
+            con.execute(
+                "UPDATE aprovacao SET resultado=? WHERE id=?",
+                (f"{mensagem}\nFalha na conferência financeira: {explicar.erro_pt(exc)}",
+                 aprovacao_id),
+            )
+            con.commit()
+            logger.warning("Conferência financeira após importação falhou tipo=%s",
+                           type(exc).__name__)
     return True, mensagem

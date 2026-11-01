@@ -10,7 +10,7 @@ from types import SimpleNamespace
 import pytest
 
 from apps.match import banco
-from apps.match.extratos import aprovacoes, camada1
+from apps.match.extratos import aprovacoes, camada1, camada2
 from src.modules.cash_reconciliation.adapters.webposto_escrita_ofx import (
     registrar_envio_historico,
 )
@@ -20,6 +20,7 @@ from src.modules.cash_reconciliation.domain.tempo import FUSO
 @pytest.fixture
 def con(tmp_path, monkeypatch):
     monkeypatch.setenv("LOGOS_MATCH_DIR", str(tmp_path))
+    monkeypatch.setattr(camada2, "analisar", lambda *args: [])
     c = banco.conectar(tmp_path / "camada1.db")
     yield c
     c.close()
