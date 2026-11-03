@@ -1,4 +1,5 @@
 from typing import AsyncGenerator
+from pathlib import Path
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -30,15 +31,17 @@ def _role(value: object) -> str | None:
     }.get(value.strip().casefold())
 
 
-async def get_current_user(request: Request) -> Dict:
-    """Dependency: extrai usuário do cookie de access token e valida."""
+async def _authenticate_user(request: Request, *, allow_demo: bool) -> Dict:
+    demo_allowed = allow_demo and (
+        settings.debug or settings.environment in {"development", "demo", "staging"}
+    )
     token = request.cookies.get("access_token")
     if not token:
         auth_header = request.headers.get("Authorization")
         if auth_header and auth_header.startswith("Bearer "):
             token = auth_header.split(" ", 1)[1].strip()
     if not token:
-        if settings.debug or settings.environment in {"development", "demo", "staging"}:
+        if demo_allowed:
             return {
                 "sub": "diretor_demo",
                 "role": "diretor",
@@ -49,16 +52,16 @@ async def get_current_user(request: Request) -> Dict:
     try:
         payload = decode_token(token)
     except PyJWTError:
-        if settings.debug or settings.environment in {"development", "demo", "staging"}:
+        if demo_allowed:
             return {
                 "sub": "diretor_demo",
                 "role": "diretor",
                 "company_id": None,
                 "name": "Diretor (Demo Cockpit)",
             }
-        raise HTTPException(status_code=401, detail="Invalid token")
+        raise HTTPException(status_code=401, detail="Invalid token") from None
     if payload.get("token_type") not in (None, "access") or not payload.get("sub"):
-        if settings.debug or settings.environment in {"development", "demo", "staging"}:
+        if demo_allowed:
             return {
                 "sub": "diretor_demo",
                 "role": "diretor",
@@ -75,6 +78,36 @@ async def get_current_user(request: Request) -> Dict:
     ):
         raise HTTPException(status_code=401, detail="Invalid token")
     return {**payload, "role": role, "company_id": company_id}
+
+
+async def get_current_user(request: Request) -> Dict:
+    """Dependency: extrai usuário do cookie de access token e valida."""
+    return await _authenticate_user(request, allow_demo=True)
+
+
+async def get_authenticated_user(request: Request) -> Dict:
+    """JWT existente, sem identidade de demonstração para acesso ao ERP."""
+    return await _authenticate_user(request, allow_demo=False)
+
+
+async def get_erp_read_user(user: Dict = Depends(get_authenticated_user)) -> Dict:
+    # O catálogo e o proxy legados não comprovam escopo por empresa.
+    if user.get("role") not in {"diretor", "auditor"}:
+        raise HTTPException(status_code=403, detail="Perfil sem acesso ao ERP sem escopo por empresa.")
+    return user
+
+
+async def get_erp_write_user(user: Dict = Depends(get_authenticated_user)) -> Dict:
+    if user.get("role") != "diretor":
+        raise HTTPException(status_code=403, detail="Somente diretor pode alterar produtos no ERP.")
+    from src.modules.cash_reconciliation.adapters.webposto_escrita_despesa import (
+        verificar_travas_despesa,
+    )
+
+    autorizado, _ = verificar_travas_despesa(Path(__file__).resolve().parents[3] / ".env")
+    if not autorizado:
+        raise HTTPException(status_code=403, detail="Escrita bloqueada pelas travas físicas do ERP.")
+    return user
 
 
 async def get_tv_user(request: Request) -> Dict:

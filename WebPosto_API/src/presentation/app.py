@@ -8,6 +8,7 @@ Uso:
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import sys
@@ -60,13 +61,18 @@ from src.infrastructure.config.settings import settings
 from src.infrastructure.health.checks import run_health_checks
 from src.infrastructure.services.cache_service import get_cache_service
 from src.presentation.background_jobs import create_job, get_job, run_job
-from src.interfaces.http.dependencies import get_current_user
+from src.interfaces.http.dependencies import (
+    get_current_user,
+    get_erp_read_user,
+    get_erp_write_user,
+)
 from src.shared.log_buffer import install_log_buffer, recent_logs
 from src.shared.logger import setup_logging
 
 ROOT = _ROOT
 THEME_DIR = ROOT / "theme"
 ENV_PATH = ROOT / ".env"
+logger = logging.getLogger(__name__)
 
 
 def _load_dotenv() -> None:
@@ -712,7 +718,11 @@ def create_unified_app() -> FastAPI:
             raise HTTPException(404, "static/revisao_classificacao.html não encontrado")
         return FileResponse(p, media_type="text/html; charset=utf-8")
 
-    @app.get("/api/v1/proxy/{endpoint:path}", tags=["gateway"])
+    @app.get(
+        "/api/v1/proxy/{endpoint:path}",
+        tags=["gateway"],
+        dependencies=[Depends(get_erp_read_user)],
+    )
     async def webposto_proxy_v1(
         endpoint: str,
         request: Request,
@@ -732,8 +742,11 @@ def create_unified_app() -> FastAPI:
         if not path.upper().startswith("/INTEGRACAO"):
             path = f"/INTEGRACAO/{path.lstrip('/')}"
 
-        fwd: Dict[str, Any] = dict(request.query_params)
-        fwd.pop("api_key", None)
+        fwd: Dict[str, Any] = {
+            key: value
+            for key, value in request.query_params.items()
+            if key.casefold() not in {"api_key", "chave"}
+        }
 
         base = normalize_base(_env("WEBPOSTO_BASE_URL", settings.webposto_base_url))
         url = f"{base}{path}"
@@ -751,23 +764,25 @@ def create_unified_app() -> FastAPI:
                 timeout=_wp_http_timeout(15.0), verify=True
             ) as client:
                 response = await client.get(url, params=params)
-        except httpx.RequestError as exc:
+        except httpx.RequestError:
             stale = cache.get_json(ck + ":stale")
             if stale is not None:
                 stale["cache_hit"] = True
                 stale["stale"] = True
                 return stale
-            raise HTTPException(status_code=502, detail=f"Rede: {exc!s}") from exc
+            logger.warning("Falha de rede no proxy ERP.")
+            raise HTTPException(status_code=502, detail="Fonte ERP indisponível.") from None
 
         elapsed_ms = int((time.perf_counter() - t0) * 1000)
         if response.status_code != 200:
-            detail = response.text[:500] if response.text else "Erro na API Quality"
-            raise HTTPException(status_code=response.status_code, detail=detail)
+            logger.warning("Resposta de erro no proxy ERP: status=%s", response.status_code)
+            raise HTTPException(status_code=response.status_code, detail="Erro na fonte ERP.")
 
         try:
             body = response.json()
-        except Exception:
-            body = {"raw": response.text}
+        except ValueError:
+            logger.warning("Resposta inválida no proxy ERP.")
+            raise HTTPException(status_code=502, detail="Resposta inválida da fonte ERP.") from None
 
         payload = {
             "status_code": response.status_code,
@@ -925,6 +940,7 @@ def create_unified_app() -> FastAPI:
         "/api/v1/webposto/grupos-produto",
         response_model=GruposProdutoResponse,
         tags=["webposto", "produtos"],
+        dependencies=[Depends(get_erp_read_user)],
     )
     async def get_webposto_grupos_produto(
         api_key: Optional[str] = Query(None, alias="api_key"),
@@ -977,11 +993,12 @@ def create_unified_app() -> FastAPI:
             )
         except AuthError:
             raise HTTPException(status_code=401, detail="Chave WebPosto inválida.")
-        except Exception as exc:
+        except Exception:
+            logger.warning("Falha ao listar grupos do ERP.")
             raise HTTPException(
                 status_code=503,
-                detail=f"Não foi possível listar grupos: {exc!s}",
-            )
+                detail="Não foi possível listar grupos.",
+            ) from None
         cache.set_json(ck, result.model_dump(mode="json"), ttl=300)
         return result
 
@@ -989,6 +1006,7 @@ def create_unified_app() -> FastAPI:
         "/api/v1/webposto/produtos",
         response_model=PaginatedProdutosResponse,
         tags=["webposto", "produtos"],
+        dependencies=[Depends(get_erp_read_user)],
     )
     async def get_webposto_produtos(
         pagina: int = Query(1, ge=1, description="Página (1-based)"),
@@ -1108,11 +1126,12 @@ def create_unified_app() -> FastAPI:
                 status_code=401,
                 detail="Chave WebPosto inválida ou sem permissão em PRODUTO.",
             )
-        except Exception as exc:
+        except Exception:
+            logger.warning("Falha ao listar produtos do ERP.")
             raise HTTPException(
                 status_code=503,
-                detail=f"Serviço WebPosto temporariamente indisponível: {exc!s}",
-            )
+                detail="Serviço WebPosto temporariamente indisponível.",
+            ) from None
 
         cache.set_json(ck, result.model_dump(mode="json"), ttl=300 if todos else 60)
         return result
@@ -1121,6 +1140,7 @@ def create_unified_app() -> FastAPI:
         "/api/v1/webposto/produtos/{produto_id}",
         response_model=WebPostoProdutoSchema,
         tags=["webposto", "produtos"],
+        dependencies=[Depends(get_erp_read_user)],
     )
     async def get_webposto_produto_por_id(
         produto_id: int,
@@ -1136,8 +1156,9 @@ def create_unified_app() -> FastAPI:
             produto = await obter_produto(client, produto_id)
         except AuthError:
             raise HTTPException(status_code=401, detail="Chave WebPosto inválida.")
-        except Exception as exc:
-            raise HTTPException(status_code=502, detail=str(exc))
+        except Exception:
+            logger.warning("Falha ao consultar produto do ERP.")
+            raise HTTPException(status_code=502, detail="Fonte ERP indisponível.") from None
         if produto is None:
             raise HTTPException(status_code=404, detail=f"Produto {produto_id} não encontrado")
         return produto
@@ -1146,6 +1167,7 @@ def create_unified_app() -> FastAPI:
         "/api/v1/webposto/produtos",
         response_model=ProdutoCrudResponse,
         tags=["webposto", "produtos"],
+        dependencies=[Depends(get_erp_write_user)],
     )
     async def post_webposto_produto(
         body: ProdutoCreateRequest,
@@ -1161,15 +1183,17 @@ def create_unified_app() -> FastAPI:
             return await criar_produto(client, body)
         except AuthError:
             raise HTTPException(status_code=401, detail="Chave WebPosto inválida.")
-        except BadRequestError as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
-        except Exception as exc:
-            raise HTTPException(status_code=502, detail=str(exc))
+        except BadRequestError:
+            raise HTTPException(status_code=400, detail="Cadastro recusado pela fonte ERP.") from None
+        except Exception:
+            logger.warning("Falha ao cadastrar produto no ERP.")
+            raise HTTPException(status_code=502, detail="Fonte ERP indisponível.") from None
 
     @app.put(
         "/api/v1/webposto/produtos/{produto_id}",
         response_model=ProdutoCrudResponse,
         tags=["webposto", "produtos"],
+        dependencies=[Depends(get_erp_write_user)],
     )
     async def put_webposto_produto(
         produto_id: int,
@@ -1186,12 +1210,11 @@ def create_unified_app() -> FastAPI:
             return await atualizar_produto(client, produto_id, body)
         except AuthError:
             raise HTTPException(status_code=401, detail="Chave WebPosto inválida.")
-        except BadRequestError as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
-        except Exception as exc:
-            raise HTTPException(status_code=502, detail=str(exc))
+        except (BadRequestError, ValueError):
+            raise HTTPException(status_code=400, detail="Atualização de produto inválida.") from None
+        except Exception:
+            logger.warning("Falha ao atualizar produto no ERP.")
+            raise HTTPException(status_code=502, detail="Fonte ERP indisponível.") from None
 
     @app.get("/api/config")
     async def api_config():
