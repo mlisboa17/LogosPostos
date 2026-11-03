@@ -1,0 +1,106 @@
+{
+  "capture": {
+    "captured_at": "2026-11-03T14:32:05-03:00",
+    "endpoint": "/INTEGRACAO/EMPRESAS",
+    "method": "GET",
+    "http_status": 200,
+    "request_count": 1,
+    "authentication": "CHAVE query parameter; value omitted",
+    "pagination_followup": false
+  },
+  "sanitization": {
+    "record_filter": "Only rows whose original empresaCodigo is one of the six explicitly scoped/excluded codes are retained.",
+    "removed_record_count": 0,
+    "removed_record_fields": [
+      "centroCustoPrincipal",
+      "latitude",
+      "longitude",
+      "sigla",
+      "tipoLogradouro",
+      "ultimoUsuarioAlteracao"
+    ],
+    "retained_fields": "Only requested identity, address, tax-regime, and status fields; names and types preserved.",
+    "raw_payload_saved": false
+  },
+  "response": {
+    "ultimoCodigo": 11495,
+    "resultados": [
+      {
+        "empresaCodigo": 5555,
+        "cnpj": "04.284.939/0001-86",
+        "razao": "AUTO POSTO CASA CAIADA LTDA",
+        "fantasia": "AP CASA CAIADA",
+        "logradouro": "AVENIDA GOVERNADOR CARLOS DE LIMA",
+        "endereco": "AVE AVENIDA GOVERNADOR CARLOS DE LIMA",
+        "bairro": "CASA CAIADA",
+        "numero": "2350",
+        "cep": "53.040-000",
+        "cidade": "OLINDA",
+        "estado": "PE",
+        "empresaCodigoExterno": null,
+        "tipoImposto": "R",
+        "codigo": 5555
+      },
+      {
+        "empresaCodigo": 11495,
+        "cnpj": "03.008.754/0001-86",
+        "razao": "RIO DOCE COMERCIO E SERVICOS LTDA",
+        "fantasia": "POSTO VIP",
+        "logradouro": "AVENIDA BRASIL",
+        "endereco": "AVE AVENIDA BRASIL",
+        "bairro": "RIO DOCE",
+        "numero": "2701",
+        "cep": "53.070-380",
+        "cidade": "OLINDA",
+        "estado": "PE",
+        "empresaCodigoExterno": null,
+        "tipoImposto": "R",
+        "codigo": 11495
+      }
+    ]
+  },
+  "record_field_types": {
+    "bairro": [
+      "string"
+    ],
+    "cep": [
+      "string"
+    ],
+    "cidade": [
+      "string"
+    ],
+    "cnpj": [
+      "string"
+    ],
+    "codigo": [
+      "integer"
+    ],
+    "empresaCodigo": [
+      "integer"
+    ],
+    "empresaCodigoExterno": [
+      "null"
+    ],
+    "endereco": [
+      "string"
+    ],
+    "estado": [
+      "string"
+    ],
+    "fantasia": [
+      "string"
+    ],
+    "logradouro": [
+      "string"
+    ],
+    "numero": [
+      "string"
+    ],
+    "razao": [
+      "string"
+    ],
+    "tipoImposto": [
+      "string"
+    ]
+  }
+}

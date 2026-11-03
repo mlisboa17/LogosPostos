@@ -27,7 +27,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, List, Optional
 
-from src.core.company_scope import is_company_identity_validated, is_new_process_company
+from src.core.company_scope import (
+    is_company_identity_validated,
+    is_new_process_company,
+    validate_new_process_company_codes,
+)
 
 from ..adapters.sqlite_master_data_repository import SqliteMasterDataRepository
 from ..domain.models import (
@@ -51,6 +55,7 @@ from ..domain.models import (
     ValidacaoCompatibilidadeDespesaResult,
 )
 from .plano_contas_sync_service import PlanoContasSyncService
+from .webposto_empresas_adapter import normalizar_empresa, parse_empresas_response
 
 logger = logging.getLogger(__name__)
 
@@ -662,6 +667,42 @@ class MasterDataService:
 
         logger.info("Sincronização incremental Master Data concluída: %s", contagens)
         return contagens
+
+    def importar_empresas_webposto(self, resposta: Any) -> dict[str, Any]:
+        """Importa uma página já coletada, sem executar chamadas de rede."""
+        envelope = parse_empresas_response(resposta)
+        codigos = [registro.empresa_codigo for registro in envelope.resultados]
+        if len(codigos) != len(set(codigos)):
+            raise ValueError("Resposta contém empresaCodigo duplicado.")
+        validate_new_process_company_codes(codigos)
+
+        empresas: list[MasterEmpresa] = []
+        identidades_esperadas: dict[int, Optional[tuple[str, str, str]]] = {}
+        for registro in envelope.resultados:
+            existente = self.repository.obter_empresa(registro.empresa_codigo)
+            if existente is None:
+                raise ValueError(
+                    f"Empresa {registro.empresa_codigo} não existe no Master Data; "
+                    "não é seguro criar flags que a origem não fornece."
+                )
+            identidades_esperadas[registro.empresa_codigo] = (
+                existente.cnpj,
+                existente.razao_social,
+                existente.nome_fantasia,
+            )
+            normalizada = normalizar_empresa(registro, existente)
+            empresas.append(normalizada.master)
+
+        persistencia = self.repository.upsert_empresas_bulk(
+            empresas,
+            identidades_esperadas=identidades_esperadas,
+            origem_auditoria="webposto_integracao_empresas",
+        )
+        return {
+            "recebidas": len(envelope.resultados),
+            "ultimoCodigo": envelope.ultimo_codigo,
+            **persistencia,
+        }
 
     def preparar_consulta_conta_bb_casa_caiada(self) -> dict[str, Any]:
         """Prepara o contrato e a especificação da requisição read-only para consulta de contas no webPosto.

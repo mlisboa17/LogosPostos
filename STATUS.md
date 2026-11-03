@@ -5,6 +5,40 @@ Repositório canônico: C:\Projetos\LOGOS\LogosPostos · branch feature/cash-aud
 PR a abrir: https://github.com/mlisboa17/LogosPostos/pull/new/feature/cash-audit-fechamento
 Histórico de sprints: um prompt por sprint em docs/prompts/ (SPRINT_05 ... SPRINT_12, PREMMIA_00, TELEGRAM_00)
 
+# F0-MD-03 — Proteção de Banco e Fechamento do Sincronizador — 03/11/2026
+
+- Proteção central em `WebPosto_API/tests/conftest.py`, instalada antes dos imports/coleta: evento de auditoria `sqlite3.connect` bloqueia o diretório SQLite persistente, caminhos relativos/normalizados, URIs e aliases identificados como o mesmo arquivo. A tentativa causa falha explícita do pytest antes da abertura, inclusive por SQLAlchemy/aiosqlite, sem redirecionamento silencioso.
+- Master Data mantém injeção explícita de bancos temporários; cada fixture agora usa diretório único por UUID, sem apagar diretórios de outra execução. Adaptador, atomicidade, idempotência e restrições de identidade `74014` preservados.
+- `obter_ultima_sincronizacao` agora considera somente `APPLY` bem-sucedido do tipo solicitado. Logs `DRY_RUN` permanecem preservados e não renovam a idade operacional do catálogo. Regressões reproduzem seis simulações posteriores, preservam os dez logs sintéticos e comprovam que catálogo vencido continua bloqueado.
+- Validação: 22 testes direcionados aprovados; suíte final Master Data + revisão de classificação, **140 aprovados** (108 Master Data e 32 revisão). Perfil apenas do subprocesso: `ENVIRONMENT=test`, `DEBUG=false`, cache remoto mockado; duas expectativas HTTP de 401 falharam no perfil inicial de demonstração, sem relação com as alterações, e passaram no perfil estrito. Avisos de worker assíncrono tratados como erro; restaram apenas oito deprecações preexistentes.
+- Todas as execuções ocorreram com trava Windows de leitura no arquivo persistente. SHA-256 final `A9029F15E2E523B617CC3BF5D29C5352C7DBE22EBE9685E730C9F22E5FD23EB3`, tamanho 688.128 bytes e timestamp 19:01:50.8179738Z permanecem iguais ao início; nenhum WAL/SHM apareceu. Nenhum registro persistente foi alterado/excluído/restaurado.
+- Diff revisado e `git diff --check` aprovado. Sem mudança de schema/arquitetura, escrita WebPosto, alteração de `.env`, commit ou push. Parecer: **PRONTO PARA COMMIT**; os logs históricos de simulação permanecem como evidência, sem efeito no indicador corrigido.
+
+# F0-MD-02C — Captura Oficial Sanitizada de Empresas — 03/11/2026
+
+- Uma única GET a `/INTEGRACAO/EMPRESAS`, autenticada por `CHAVE` na query (valor omitido), retornou HTTP 200 às 14:32:05 -03; dois registros (`5555`, `11495`), sem retry ou paginação adicional.
+- Fixture sanitizada em `WebPosto_API/tests/unit/master_data/fixtures/empresas_response_sanitized.json`, mantendo envelope (`resultados`, `ultimoCodigo`), campos/tipos relevantes e valores nulos. Campos adicionais não necessários foram removidos; payload bruto não foi salvo.
+- Comparação read-only com Master Data local: os dois registros correspondem em código empresarial, CNPJ, razão social e nome fantasia (comparação textual sem distinção de caixa). Nenhum cadastro foi atualizado; SQLite permaneceu inalterado.
+- `empresaCodigoExterno` veio nulo; `codWeb`, inscrição estadual, situação cadastral e significado de `tipoImposto` permanecem não comprovados. A amostra cobre somente `5555` e `11495`, não valida outras empresas nem a paginação completa.
+- Nenhuma escrita no WebPosto, alteração de `.env` ou mudança de banco. O adaptador offline foi implementado separadamente na F0-MD-02D, sem inferir equivalência entre `codigo` e `codWeb`.
+
+# F0-MD-02D — Adaptador Offline de Empresas — 03/11/2026
+
+- Adaptador valida o envelope da fixture e preserva aliases, valores nulos e campos extras na representação de origem. Mapeia somente `empresaCodigo`, `razao`, `fantasia` e `cnpj`; ignora `codigo`, `empresaCodigoExterno` e `tipoImposto` para identidade.
+- Integração no `MasterDataService` limita a empresas do escopo atual, bloqueia identidades conflitantes e usa o repositório existente para gravar lote e auditoria atomicamente. Não remove empresas ausentes de páginas parciais.
+- Campos ausentes/nulos preservam dados existentes. `cod_web`, confiabilidade e permissões existentes não são promovidos nem substituídos; empresa ausente do Master Data é rejeitada para não inventar flags operacionais que a API não fornece.
+- Testes offline do adaptador: fixture oficial, normalização, nulos/ausências, CNPJ conflitante, escopo, identidade pendente, idempotência/auditoria, rollback e página vazia com histórico preservado. Regressões direcionadas (`test_master_data_01/02`): 50 aprovados.
+- Suíte Master Data ampla: 82 aprovados e 6 falhas em verificações que esperavam mensagens de validação posteriores, mas recebem primeiro o bloqueio existente da identidade pendente `74014`; nenhum desses caminhos de bloqueio foi alterado nesta entrega. Pendência para alinhamento dos testes existentes.
+- `git diff --check` aprovado. Nenhuma chamada externa, escrita WebPosto ou alteração de `.env`. Embora os testes usem bancos temporários, o SQLite persistente foi observado no início com 684.032 bytes e ao final com 688.128 bytes; auditoria lida em modo read-only não esclarece a causa. Não houve tentativa de restauração ou escrita; a origem da mudança permanece pendente e bloqueia aprovação final.
+
+# F0-MD-02E — Correção e Validação Final do Adaptador — 03/11/2026
+
+- As seis falhas eram testes de barreiras posteriores (hash da aprovação, timeout, plano-pai, plano desconhecido e classificação pendente) executados com a empresa `74014`; a regra atual corretamente bloqueia essa identidade pendente antes dessas verificações. Os testes agora usam `11495` e conta permitida `65321` onde precisam alcançar a validação posterior. Nenhuma regra de segurança ou restrição de `74014` foi alterada.
+- O teste dry-run de sincronização agora injeta repositório temporário. Na primeira execução ampla, ele construía o repositório padrão, apontado para o SQLite persistente.
+- Validação final offline: 6 testes afetados aprovados; suíte Master Data completa, 88 aprovados; `git diff --check` aprovado. Os testes de rollback atômico e idempotência do adaptador estão incluídos na suíte.
+- SQLite persistente: `WebPosto_API/data/master_data/master_data.sqlite3`, 688.128 bytes. Hash passou de `599737A639F101FF1A629CC839FC9734B4336F861D706CFA3C9DD048EE702310` para `A9029F15E2E523B617CC3BF5D29C5352C7DBE22EBE9685E730C9F22E5FD23EB3`; timestamp avançou de 17:44:42Z para 19:01:50Z. No primeiro registro havia WAL vazio e SHM de 32.768 bytes; após a primeira suíte, ambos não foram encontrados. A primeira execução ampla invocou o repositório padrão, que abre transação `BEGIN IMMEDIATE` e inicializa o esquema no SQLite persistente; é uma origem provável da mudança física, mas não prova alteração lógica nem atribuição exclusiva. Processos Python observados eram servidores Serena; não foi possível verificar handles de arquivo. Origem e impacto lógico: **NÃO DETERMINADOS**. As execuções após o isolamento mantiveram hash e timestamp estáveis. Não houve restauração nem conexão manual adicional para apurar o conteúdo.
+- Parecer: **BLOQUEADO** até determinar a origem/impacto lógico do SQLite persistente; nenhuma restauração ou escrita adicional autorizada.
+
 # F0-ENV-03 — Identidade e Acesso Histórico — 03/11/2026
 
 - [Política central](WebPosto_API/src/core/company_scope.py) separa escopo de novos processos de restrições de identidade; não concede autorização financeira.

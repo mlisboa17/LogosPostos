@@ -1,9 +1,50 @@
 import asyncio
+import os
+import sys
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
 from uuid import uuid4
 
 import pytest
+
+_SQLITE_PERSISTENT_DIR = (
+    Path(__file__).resolve().parents[1] / "data" / "master_data"
+).resolve()
+_SQLITE_PERSISTENT_DB = _SQLITE_PERSISTENT_DIR / "master_data.sqlite3"
+
+
+def _bloquear_sqlite_persistente(event: str, args: tuple[object, ...]) -> None:
+    if event != "sqlite3.connect":
+        return
+    database_arg = args[0]
+    if not isinstance(database_arg, (str, bytes, os.PathLike)):
+        pytest.fail("Teste tentou abrir SQLite com caminho inválido.", pytrace=False)
+    database = os.fsdecode(database_arg)
+    if database in ("", ":memory:"):
+        return
+    if database.startswith("file:"):
+        uri = urlsplit(database)
+        database = unquote(uri.path)
+        if uri.netloc and uri.netloc != "localhost":
+            database = f"//{uri.netloc}{database}"
+        elif os.name == "nt" and len(database) > 2 and database[0] == "/" and database[2] == ":":
+            database = database[1:]
+    caminho = Path(database).resolve()
+    if caminho.is_relative_to(_SQLITE_PERSISTENT_DIR) or (
+        caminho.exists()
+        and _SQLITE_PERSISTENT_DB.exists()
+        and caminho.samefile(_SQLITE_PERSISTENT_DB)
+    ):
+        pytest.fail(
+            "Teste tentou acessar o SQLite persistente. Injete um banco em tmp_path.",
+            pytrace=False,
+        )
+
+
+# O evento ocorre antes da abertura, inclusive durante imports/coleta e no aiosqlite.
+sys.addaudithook(_bloquear_sqlite_persistente)
+
 from dotenv import load_dotenv
 
 _ENV = Path(__file__).resolve().parents[1] / ".env"

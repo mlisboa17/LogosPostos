@@ -287,7 +287,11 @@ def test_09_mesmo_comprovante_duplicado_bloqueado(tmp_path):
 
 def test_10_comprovante_com_valor_alterado_invalida_aprovacao():
     """Alteração de valor pós-aprovação quebra o hash canônico e invalida aprovação."""
-    item = _gerar_item_base(valor=Decimal("626.00"))
+    item = _gerar_item_base(
+        unidade_codigo=11495,
+        conta_codigo=65321,
+        valor=Decimal("626.00"),
+    )
     # Modificação do valor sem re-aprovação
     item.comprovante.valor = Decimal("700.00")
 
@@ -299,7 +303,7 @@ def test_10_comprovante_com_valor_alterado_invalida_aprovacao():
 
 def test_11_conta_bancaria_alterada_invalida_aprovacao():
     """Alteração da conta financeira pós-aprovação invalida aprovação."""
-    item = _gerar_item_base(conta_codigo=86248)
+    item = _gerar_item_base(unidade_codigo=11495, conta_codigo=65321)
     item.conta_financeira_codigo = 86188  # PagBank
 
     with pytest.raises(BarreiraDespesaErro) as exc:
@@ -375,13 +379,13 @@ async def test_16_tratamento_timeout_resultado_desconhecido(tmp_path):
     caminho_env = tmp_path / ".env.test"
     caminho_env.write_text("WEBPOSTO_WRITES=1\nLOGOS_ERP_ESCRITA=1\n", encoding="utf-8")
 
-    item = _gerar_item_base()
+    item = _gerar_item_base(unidade_codigo=11495, conta_codigo=65321)
     unidade = Unidade(
-        empresa_codigo=74014,
-        nome="POSTO DOZE FILIAL II",
+        empresa_codigo=11495,
+        nome="POSTO VIP LTDA",
         chave_env="WEBPOSTO_TEST_KEY",
         destinos=(),
-        apelido="Doze",
+        apelido="VIP",
     )
 
     client_mock = AsyncMock()

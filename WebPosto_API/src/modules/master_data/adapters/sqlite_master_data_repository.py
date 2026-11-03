@@ -252,66 +252,146 @@ class SqliteMasterDataRepository:
 
     def upsert_empresa(self, empresa: MasterEmpresa, *, origem_auditoria: str = "sync") -> None:
         with self._transacao() as conn:
-            anterior_row = conn.execute(
-                "SELECT * FROM master_empresas WHERE empresa_codigo = ?", (empresa.empresa_codigo,)
-            ).fetchone()
-            anterior_json = json.dumps(dict(anterior_row)) if anterior_row else None
-            acao = "ATUALIZACAO" if anterior_row else "INSERCAO"
+            self._upsert_empresa_conn(conn, empresa, origem_auditoria)
 
-            conn.execute(
-                """
-                INSERT INTO master_empresas (
-                    empresa_codigo, cod_web, razao_social, nome_fantasia,
-                    cnpj, ativo, autorizado_despesa, usa_mais_pagamentos,
-                    conta_cofre_padrao, confiabilidade, origem_dado, atualizado_em
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(empresa_codigo) DO UPDATE SET
-                    cod_web = excluded.cod_web,
-                    razao_social = excluded.razao_social,
-                    nome_fantasia = excluded.nome_fantasia,
-                    cnpj = excluded.cnpj,
-                    ativo = excluded.ativo,
-                    autorizado_despesa = excluded.autorizado_despesa,
-                    usa_mais_pagamentos = excluded.usa_mais_pagamentos,
-                    conta_cofre_padrao = excluded.conta_cofre_padrao,
-                    confiabilidade = excluded.confiabilidade,
-                    origem_dado = excluded.origem_dado,
-                    atualizado_em = excluded.atualizado_em;
-                """,
-                (
-                    empresa.empresa_codigo,
-                    empresa.cod_web,
-                    empresa.razao_social,
-                    empresa.nome_fantasia,
-                    empresa.cnpj,
-                    1 if empresa.ativo else 0,
-                    1 if empresa.autorizado_despesa else 0,
-                    1 if empresa.usa_mais_pagamentos else 0,
-                    empresa.conta_cofre_padrao,
-                    empresa.confiabilidade.value,
-                    empresa.origem_dado,
-                    empresa.atualizado_em.isoformat(),
-                ),
-            )
+    def upsert_empresas_bulk(
+        self,
+        empresas: list[MasterEmpresa],
+        *,
+        identidades_esperadas: dict[int, Optional[tuple[str, str, str]]],
+        origem_auditoria: str = "sync",
+    ) -> dict[str, int]:
+        """Persiste um lote e sua auditoria em uma única transação."""
+        codigos = [empresa.empresa_codigo for empresa in empresas]
+        if len(codigos) != len(set(codigos)):
+            raise ValueError("Lote contém empresaCodigo duplicado.")
+        if set(identidades_esperadas) != set(codigos):
+            raise ValueError("Snapshot de identidade não corresponde ao lote.")
 
-            conn.execute(
-                """
-                INSERT INTO master_data_audit_log (
-                    tipo_entidade, identificador, empresa_codigo, acao,
-                    dados_anteriores_json, dados_novos_json, origem, timestamp
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
-                """,
-                (
-                    "EMPRESA",
-                    str(empresa.empresa_codigo),
-                    empresa.empresa_codigo,
-                    acao,
-                    anterior_json,
-                    empresa.model_dump_json(),
+        contagens = {"inseridas": 0, "atualizadas": 0, "inalteradas": 0}
+        with self._transacao() as conn:
+            for empresa in empresas:
+                anterior = conn.execute(
+                    "SELECT cnpj, razao_social, nome_fantasia "
+                    "FROM master_empresas WHERE empresa_codigo = ?",
+                    (empresa.empresa_codigo,),
+                ).fetchone()
+                identidade_atual = (
+                    (anterior["cnpj"], anterior["razao_social"], anterior["nome_fantasia"])
+                    if anterior
+                    else None
+                )
+                if identidade_atual != identidades_esperadas[empresa.empresa_codigo]:
+                    raise ValueError(
+                        f"Identidade da empresa {empresa.empresa_codigo} mudou durante a importação."
+                    )
+
+                resultado = self._upsert_empresa_conn(
+                    conn,
+                    empresa,
                     origem_auditoria,
-                    datetime.now(timezone.utc).isoformat(),
-                ),
+                    ignorar_inalterada=True,
+                )
+                contagens[resultado] += 1
+        return contagens
+
+    def _upsert_empresa_conn(
+        self,
+        conn: sqlite3.Connection,
+        empresa: MasterEmpresa,
+        origem_auditoria: str,
+        *,
+        ignorar_inalterada: bool = False,
+    ) -> str:
+        anterior_row = conn.execute(
+            "SELECT * FROM master_empresas WHERE empresa_codigo = ?", (empresa.empresa_codigo,)
+        ).fetchone()
+        if ignorar_inalterada and anterior_row:
+            valores_atuais = (
+                anterior_row["cod_web"],
+                anterior_row["razao_social"],
+                anterior_row["nome_fantasia"],
+                anterior_row["cnpj"],
+                bool(anterior_row["ativo"]),
+                bool(anterior_row["autorizado_despesa"]),
+                bool(anterior_row["usa_mais_pagamentos"]),
+                anterior_row["conta_cofre_padrao"],
+                anterior_row["confiabilidade"],
+                anterior_row["origem_dado"],
+                anterior_row["atualizado_em"],
             )
+            valores_novos = (
+                empresa.cod_web,
+                empresa.razao_social,
+                empresa.nome_fantasia,
+                empresa.cnpj,
+                empresa.ativo,
+                empresa.autorizado_despesa,
+                empresa.usa_mais_pagamentos,
+                empresa.conta_cofre_padrao,
+                empresa.confiabilidade.value,
+                empresa.origem_dado,
+                empresa.atualizado_em.isoformat(),
+            )
+            if valores_atuais == valores_novos:
+                return "inalteradas"
+
+        anterior_json = json.dumps(dict(anterior_row)) if anterior_row else None
+        acao = "ATUALIZACAO" if anterior_row else "INSERCAO"
+        conn.execute(
+            """
+            INSERT INTO master_empresas (
+                empresa_codigo, cod_web, razao_social, nome_fantasia,
+                cnpj, ativo, autorizado_despesa, usa_mais_pagamentos,
+                conta_cofre_padrao, confiabilidade, origem_dado, atualizado_em
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(empresa_codigo) DO UPDATE SET
+                cod_web = excluded.cod_web,
+                razao_social = excluded.razao_social,
+                nome_fantasia = excluded.nome_fantasia,
+                cnpj = excluded.cnpj,
+                ativo = excluded.ativo,
+                autorizado_despesa = excluded.autorizado_despesa,
+                usa_mais_pagamentos = excluded.usa_mais_pagamentos,
+                conta_cofre_padrao = excluded.conta_cofre_padrao,
+                confiabilidade = excluded.confiabilidade,
+                origem_dado = excluded.origem_dado,
+                atualizado_em = excluded.atualizado_em;
+            """,
+            (
+                empresa.empresa_codigo,
+                empresa.cod_web,
+                empresa.razao_social,
+                empresa.nome_fantasia,
+                empresa.cnpj,
+                1 if empresa.ativo else 0,
+                1 if empresa.autorizado_despesa else 0,
+                1 if empresa.usa_mais_pagamentos else 0,
+                empresa.conta_cofre_padrao,
+                empresa.confiabilidade.value,
+                empresa.origem_dado,
+                empresa.atualizado_em.isoformat(),
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO master_data_audit_log (
+                tipo_entidade, identificador, empresa_codigo, acao,
+                dados_anteriores_json, dados_novos_json, origem, timestamp
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+            """,
+            (
+                "EMPRESA",
+                str(empresa.empresa_codigo),
+                empresa.empresa_codigo,
+                acao,
+                anterior_json,
+                empresa.model_dump_json(),
+                origem_auditoria,
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+        return "atualizadas" if anterior_row else "inseridas"
 
     def obter_empresa(self, empresa_codigo: int) -> Optional[MasterEmpresa]:
         conexao = self._conectar()
@@ -858,12 +938,13 @@ class SqliteMasterDataRepository:
         return cur.lastrowid
 
     def obter_ultima_sincronizacao(self, tipo_entidade: str = "PLANOS_CONTA") -> Optional[dict[str, Any]]:
+        """Retorna a última aplicação bem-sucedida, sem promover logs de simulação."""
         conexao = self._conectar()
         try:
             row = conexao.execute(
                 """
                 SELECT * FROM master_sincronizacao_log
-                WHERE tipo_entidade = ? AND sucesso = 1
+                WHERE tipo_entidade = ? AND sucesso = 1 AND modo = 'APPLY'
                 ORDER BY id DESC LIMIT 1;
                 """,
                 (tipo_entidade,),

@@ -339,7 +339,7 @@ def test_10_plano_pai_bloqueado(service_isolado):
     assert "conta-pai" in res_148303.mensagem
 
     # No adaptador de despesas, validar_aprovacao_para_escrita também bloqueia
-    item_pai = _criar_item_despesa(29021)
+    item_pai = _criar_item_despesa(29021, unidade_codigo=11495, conta_codigo=65321)
     with pytest.raises(BarreiraDespesaErro) as exc:
         validar_aprovacao_para_escrita(item_pai, master_data_service=service_isolado)
     assert "conta-pai" in str(exc.value)
@@ -368,7 +368,7 @@ def test_12_plano_desconhecido_bloqueado(service_isolado):
     assert res.sucesso is False
     assert "não encontrado no catálogo" in res.mensagem
 
-    item = _criar_item_despesa(999999)
+    item = _criar_item_despesa(999999, unidade_codigo=11495, conta_codigo=65321)
     with pytest.raises(BarreiraDespesaErro) as exc:
         validar_aprovacao_para_escrita(item, master_data_service=service_isolado)
     assert "não encontrado no catálogo" in str(exc.value)
@@ -421,6 +421,15 @@ def test_14_catalogo_vencido_bloqueado(service_isolado):
     assert res.sucesso is False
     assert "Catálogo de planos de contas desatualizado" in res.mensagem
 
+    dry_run = sync_svc.sincronizar(modo="dry-run", dados_oficiais=_carregar_catalogo_oficial())
+    assert dry_run.sucesso is True
+    assert service_isolado.obter_ultima_sincronizacao_planos()["iniciado_em"] == data_antiga
+    res_apos_simulacao = service_isolado.validar_plano_para_despesa(
+        158764, max_dias_desatualizado=30
+    )
+    assert res_apos_simulacao.sucesso is False
+    assert "Catálogo de planos de contas desatualizado" in res_apos_simulacao.mensagem
+
 
 # 15. Preservação do plano ausente sem exclusão
 def test_15_preservacao_plano_ausente_sem_exclusao(service_isolado):
@@ -446,7 +455,7 @@ def test_15_preservacao_plano_ausente_sem_exclusao(service_isolado):
 
 
 # 16. Ausência total de POST, PUT, PATCH e DELETE contra o ERP
-def test_16_ausencia_total_post_put_patch_delete(monkeypatch):
+def test_16_ausencia_total_post_put_patch_delete(monkeypatch, repo_isolado):
     import httpx
 
     def _metodo_proibido(*args, **kwargs):
@@ -458,13 +467,13 @@ def test_16_ausencia_total_post_put_patch_delete(monkeypatch):
     monkeypatch.setattr(httpx.Client, "delete", _metodo_proibido)
 
     # Execução de sincronização offline e online (mocked get)
-    sync_svc = PlanoContasSyncService()
+    sync_svc = PlanoContasSyncService(repository=repo_isolado)
     res = sync_svc.sincronizar(modo="dry-run", dados_oficiais=_carregar_catalogo_oficial())
     assert res.sucesso is True
 
 
-# 17. Modo dry-run não altera a base de dados
-def test_17_dry_run_nao_altera_banco(repo_isolado):
+# 17. Modo dry-run preserva o catálogo e registra somente a simulação local
+def test_17_dry_run_nao_altera_catalogo(repo_isolado):
     sync_svc = PlanoContasSyncService(repository=repo_isolado)
     dados = _carregar_catalogo_oficial()
 
@@ -477,6 +486,46 @@ def test_17_dry_run_nao_altera_banco(repo_isolado):
     # Nenhuma linha foi inserida em master_planos_conta
     planos_db = repo_isolado.listar_planos_conta()
     assert len(planos_db) == 0
+    assert repo_isolado.obter_ultima_sincronizacao() is None
+    conn = repo_isolado._conectar()
+    try:
+        logs = conn.execute("SELECT modo FROM master_sincronizacao_log").fetchall()
+        assert [row["modo"] for row in logs] == ["DRY_RUN"]
+    finally:
+        conn.close()
+
+
+def test_ultima_sincronizacao_ignora_simulacoes_falhas_e_outros_tipos(repo_isolado):
+    agora = datetime.now(timezone.utc).isoformat()
+    base = {
+        "tipo_entidade": "PLANOS_CONTA",
+        "iniciado_em": agora,
+        "finalizado_em": agora,
+        "sucesso": True,
+        "modo": "APPLY",
+        "origem": "teste_isolado",
+    }
+    primeira = repo_isolado.registrar_sincronizacao_log(base)
+    segunda = repo_isolado.registrar_sincronizacao_log(base)
+    for _ in range(6):
+        repo_isolado.registrar_sincronizacao_log({**base, "modo": "DRY_RUN"})
+    for updates in (
+        {"sucesso": False},
+        {"tipo_entidade": "EMPRESAS"},
+    ):
+        repo_isolado.registrar_sincronizacao_log({**base, **updates})
+    ultima = repo_isolado.obter_ultima_sincronizacao()
+    assert ultima["id"] == segunda
+    assert ultima["id"] != primeira
+    assert ultima["modo"] == "APPLY"
+    conn = repo_isolado._conectar()
+    try:
+        assert conn.execute("SELECT count(*) FROM master_sincronizacao_log").fetchone()[0] == 10
+        assert conn.execute(
+            "SELECT count(*) FROM master_sincronizacao_log WHERE modo = 'DRY_RUN'"
+        ).fetchone()[0] == 6
+    finally:
+        conn.close()
 
 
 # 18. Conta 198966 (SAÍDAS PENDENTES DE CLASSIFICAÇÃO): folha, ativa, observada, porém bloqueada para lançamento real
@@ -509,7 +558,7 @@ def test_18_saidas_pendentes_classificacao_bloqueada_para_lancamento(service_iso
     assert res_val.sucesso is False
     assert "classificação pendente" in res_val.mensagem or "fila de revisão" in res_val.mensagem
 
-    item = _criar_item_despesa(198966)
+    item = _criar_item_despesa(198966, unidade_codigo=11495, conta_codigo=65321)
     with pytest.raises(BarreiraDespesaErro) as exc:
         validar_aprovacao_para_escrita(item, master_data_service=service_isolado)
     assert "classificação pendente" in str(exc.value) or "fila de revisão" in str(exc.value)

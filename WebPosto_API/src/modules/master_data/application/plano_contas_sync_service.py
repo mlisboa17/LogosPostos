@@ -191,6 +191,7 @@ class PlanoContasSyncService:
         - Protegido por lock de concorrência.
         - Transação atômica com rollback automático em caso de exceção.
         - Idempotência absoluta para execuções repetidas.
+        - DRY_RUN preserva o catálogo e mantém apenas o log de simulação.
         """
         modo_normalizado = modo.strip().upper().replace("-", "_")
         if modo_normalizado not in ("DRY_RUN", "APPLY"):
@@ -299,7 +300,7 @@ class PlanoContasSyncService:
                 "hashCatalogo": hash_catalogo,
             }
 
-            # 4. Modo DRY_RUN: não toca no SQLite
+            # 4. Modo DRY_RUN: preserva o catálogo e registra a simulação
             if modo_normalizado == "DRY_RUN":
                 fim_iso = datetime.now(timezone.utc).isoformat()
                 log_entry = {
