@@ -5,6 +5,14 @@ Repositório canônico: C:\Projetos\LOGOS\LogosPostos · branch feature/cash-aud
 PR a abrir: https://github.com/mlisboa17/LogosPostos/pull/new/feature/cash-audit-fechamento
 Histórico de sprints: um prompt por sprint em docs/prompts/ (SPRINT_05 ... SPRINT_12, PREMMIA_00, TELEGRAM_00)
 
+# GIT-PUSH-PREP-01 — Higienização sem Reescrita — 03/11/2026
+
+- Decisão explícita: preservar integralmente o histórico publicado e os dez commits locais existentes. Os artefatos gerados `_archive/sprints_e_relatorios/reflex_run_debug.log` e `validation_result.txt` foram retirados somente do versionamento atual; cópias locais permanecem preservadas e ignoradas.
+- Busca de dependências encontrou apenas referências documentais; nenhum consumidor funcional identificado. `.gitignore` passa a ignorar exclusivamente esses dois nomes em qualquer diretório, sem regra genérica que oculte logs ou relatórios legítimos.
+- Limitação histórica aceita: metadados de perfil local continuam recuperáveis nos commits anteriores, inclusive na referência remota conhecida. Esta higienização não elimina conteúdo do histórico nem representa sanitização retroativa.
+- Escopo de validação: comparação da árvore restrita às duas exclusões, `.gitignore` e esta atualização; código funcional, `.env`, bancos e demais arquivos preservados. Diff check e regras de ignore verificados; testes funcionais não repetidos porque não há alteração de código.
+- Referência remota consultada sem fetch: `a6bf1c8ea1a7adf37b7dd3a596db347e2db06e09`, ancestral do HEAD; não avançou em relação à referência conhecida. Preparação para push normal somente mediante autorização posterior. Sem reescrita, reset, rebase, merge, push ou PR.
+
 # LOGOS-SEC-01 — Autenticação das Rotas ERP — 03/11/2026
 
 - Vulnerabilidade confirmada na incorporação de rotas em `WebPosto_API/src/interfaces/http/app.py`: quatro GETs (proxy, grupos, catálogo e produto individual) e POST/PUT de produtos alcançavam credenciais do servidor sem sessão. Reprodução local anterior à correção chegou à consulta simulada de produto, retornando 404 em vez de 401 nas duas fábricas de aplicação; nenhuma chamada externa.

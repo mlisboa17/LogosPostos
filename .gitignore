@@ -30,4 +30,6 @@ pytest_temp/
 WebPosto_API/pytest_temp/
 _test_tmp/
 **/_test_tmp/
-
+# Generated debug/validation artifacts; keep other logs and reports visible.
+reflex_run_debug.log
+validation_result.txt
