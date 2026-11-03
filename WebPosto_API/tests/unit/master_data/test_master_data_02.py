@@ -75,7 +75,10 @@ def test_01_identidade_empresas_e_cnpjs_oficiais(service):
     """Valida que todas as empresas autorizadas possuem dados oficiais corretos."""
     # 74014 - Posto Doze
     res_doze = service.resolver_empresa(74014)
-    assert res_doze.sucesso is True
+    assert res_doze.sucesso is False
+    assert res_doze.empresa_in_scope is True
+    assert res_doze.identidade_validada is False
+    assert res_doze.operacao_autorizada is False
     assert res_doze.empresa.cnpj == "52.308.604/0002-84"
     assert res_doze.empresa.confiabilidade == ConfiabilidadeCadastro.CONFIRMADO
     assert res_doze.empresa.autorizado_despesa is True
@@ -96,7 +99,10 @@ def test_01_identidade_empresas_e_cnpjs_oficiais(service):
 
     # 118508 - Conveniência 24h
     res_conv = service.resolver_empresa(118508)
-    assert res_conv.sucesso is True
+    assert res_conv.sucesso is False
+    assert res_conv.empresa_in_scope is True
+    assert res_conv.identidade_validada is False
+    assert res_conv.operacao_autorizada is False
     assert res_conv.empresa.cnpj == "08.106.946/0003-70"
     # CNPJ pendente de consulta oficial /INTEGRACAO/EMPRESAS, não deve ser CONFIRMADO
     assert res_conv.empresa.confiabilidade == ConfiabilidadeCadastro.PENDENTE
@@ -117,6 +123,39 @@ def test_02_bloqueio_empresa_5558_posto_real(service):
     assert emp.cod_web == 7
     assert emp.autorizado_despesa is False
     assert emp.cnpj == "24.156.978/0001-05"
+
+
+def test_03_empresa_46433_fora_do_escopo_de_novos_processos(service):
+    res_doze = service.resolver_empresa(46433)
+
+    assert res_doze.sucesso is False
+    assert res_doze.bloqueada is True
+    assert res_doze.empresa is None
+    assert "fora do escopo de novos processos" in res_doze.mensagem
+
+
+@pytest.mark.parametrize("confiabilidade", [
+    ConfiabilidadeCadastro.PENDENTE, ConfiabilidadeCadastro.INFERIDO,
+    ConfiabilidadeCadastro.HISTORICO,
+])
+def test_identidade_nao_confirmada_bloqueia_operacao_no_master_data(service, confiabilidade):
+    empresa = service.repository.obter_empresa(5555)
+    service.repository.upsert_empresa(empresa.model_copy(update={"confiabilidade": confiabilidade}))
+    resultado = service.resolver_empresa(5555)
+    assert resultado.empresa_in_scope
+    assert not resultado.identidade_validada
+    assert not resultado.operacao_autorizada
+    assert resultado.bloqueada
+
+
+def test_identidade_confirmada_nao_supera_permissao_cadastral(service):
+    empresa = service.repository.obter_empresa(5555)
+    service.repository.upsert_empresa(empresa.model_copy(update={"autorizado_despesa": False}))
+    resultado = service.resolver_empresa(5555)
+    assert resultado.empresa_in_scope
+    assert resultado.identidade_validada
+    assert not resultado.operacao_autorizada
+    assert resultado.bloqueada
 
 
 # ==============================================================================
@@ -310,8 +349,8 @@ def _criar_item_aprovado(
 def test_11_expense_hunter_validacao_com_master_data_sucesso(service):
     """Valida que o Expense Hunter aprova operação perfeitamente compatível no Master Data."""
     item = _criar_item_aprovado(
-        unidade_codigo=74014,
-        conta_codigo=86248,  # BB Depósito Direto do Doze (permitida para débito)
+        unidade_codigo=11495,
+        conta_codigo=65321,
         plano_codigo=29018,  # Combustível (presente no catálogo)
         centro_codigo=21650,  # 04.0.1 Loja
     )
@@ -352,8 +391,8 @@ def test_14_expense_hunter_bloqueio_conta_cruzada(service):
 def test_15_expense_hunter_bloqueio_plano_contas_invalido(service):
     """Valida que o Expense Hunter bloqueia plano de contas inexistente no catálogo."""
     item = _criar_item_aprovado(
-        unidade_codigo=74014,
-        conta_codigo=86248,
+        unidade_codigo=11495,
+        conta_codigo=65321,
         plano_codigo=999999,  # Inexistente
     )
     with pytest.raises(BarreiraDespesaErro) as exc:
@@ -364,8 +403,8 @@ def test_15_expense_hunter_bloqueio_plano_contas_invalido(service):
 def test_16_expense_hunter_bloqueio_centro_custo_incompativel(service):
     """Valida que o Expense Hunter bloqueia centro de custo incompatível (ex: 7295 com PRO_LABORE)."""
     item = _criar_item_aprovado(
-        unidade_codigo=74014,
-        conta_codigo=86248,
+        unidade_codigo=11495,
+        conta_codigo=65321,
         centro_codigo=7295,  # PISTA
         plano_codigo=29021,  # PRO LABORE -> induz validação semântica de centro incompatível
     )

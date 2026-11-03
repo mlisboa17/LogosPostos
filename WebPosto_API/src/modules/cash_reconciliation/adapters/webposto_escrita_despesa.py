@@ -38,6 +38,11 @@ from dotenv import load_dotenv
 from dotenv.main import DotEnv
 from unittest.mock import patch
 
+from src.core.company_scope import (
+    NEW_PROCESS_COMPANY_CODES,
+    validate_sensitive_company_restrictions,
+)
+
 from ..domain.comprovante import (
     ItemFilaDespesa,
     OperacaoFinanceira,
@@ -108,7 +113,7 @@ UNIDADES_AUTORIZADAS_DESPESA: dict[int, dict[str, str]] = {
     5555: {"nome": "AP CASA CAIADA", "apelido": "Casa Caiada"},
     118508: {"nome": "CONVENIENCIA 24 HORAS", "apelido": "Conv 24h"},
 }
-EMPRESAS_AUTORIZADAS_SET: frozenset[int] = frozenset(UNIDADES_AUTORIZADAS_DESPESA.keys())
+EMPRESAS_AUTORIZADAS_SET: frozenset[int] = NEW_PROCESS_COMPANY_CODES
 
 # Contas financeiras autorizadas por unidade (comprovadas no cadastro oficial units.json e sampleRow V1/CONTAS)
 # Posto Doze (74014): BB Depósito Direto (86248), BB Cofre (86081), PagBank (86188)
@@ -349,6 +354,10 @@ def validar_aprovacao_para_escrita(
 
     # Validação de empresa
     cod_empresa = validar_unidade_autorizada(item.unidade_codigo, unidades_cadastradas)
+    try:
+        validate_sensitive_company_restrictions(cod_empresa)
+    except ValueError as exc:
+        raise BarreiraDespesaErro(str(exc)) from exc
 
     # Validação via MasterDataService (MASTER-DATA-02)
     if master_data_service is not None:

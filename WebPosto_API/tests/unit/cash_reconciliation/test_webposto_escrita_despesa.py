@@ -66,13 +66,13 @@ from src.modules.cash_reconciliation.adapters.webposto_escrita_despesa import (
 
 
 @pytest.fixture
-def unidade_doze() -> Unidade:
+def unidade_vip() -> Unidade:
     return Unidade(
-        empresa_codigo=74014,
-        nome="POSTO DOZE FILIAL II",
-        chave_env="WEBPOSTO_KEY_DOZE",
+        empresa_codigo=11495,
+        nome="POSTO VIP",
+        chave_env="WEBPOSTO_KEY_VIP",
         destinos=(),
-        apelido="Doze",
+        apelido="VIP",
     )
 
 
@@ -103,8 +103,8 @@ def env_travado(tmp_path: Path) -> Path:
 
 def _item_aprovado_base(
     operacao: OperacaoFinanceira,
-    empresa_cod: int = 74014,
-    empresa_nome: str = "POSTO DOZE FILIAL II",
+    empresa_cod: int = 11495,
+    empresa_nome: str = "POSTO VIP",
     valor: Decimal = Decimal("350.00"),
     versao: int = 1,
 ) -> ItemFilaDespesa:
@@ -115,7 +115,7 @@ def _item_aprovado_base(
         criado_em="2026-10-18T10:00:00",
         unidade_codigo=empresa_cod,
         unidade_nome=empresa_nome,
-        unidade_apelido="Doze" if empresa_cod == 74014 else "Casa Caiada",
+        unidade_apelido="VIP" if empresa_cod == 11495 else "Casa Caiada",
         operacao_financeira=operacao.value,
         comprovante=DadosComprovante(
             valor=valor,
@@ -127,7 +127,7 @@ def _item_aprovado_base(
         sugestao_plano_nome="PEDREIRO",
         sugestao_fornecedor_codigo=9012,
         sugestao_fornecedor_nome="Oficina ABC",
-        conta_financeira_codigo=86248,
+        conta_financeira_codigo=65321,
         debito_casado_fitid="FIT-12345",
         titulo_casado_codigo=55001,
         status=StatusDespesa.APROVADO.value,
@@ -146,9 +146,9 @@ def _item_aprovado_base(
 # ---------------------------------------------------------------------------
 @pytest.mark.asyncio
 async def test_01_conta_a_pagar_valida(
-    tmp_path: Path, unidade_doze: Unidade, env_liberado: Path, monkeypatch
+    tmp_path: Path, unidade_vip: Unidade, env_liberado: Path, monkeypatch
 ):
-    monkeypatch.setenv("WEBPOSTO_KEY_DOZE", "chave_secreta")
+    monkeypatch.setenv("WEBPOSTO_KEY_VIP", "chave_secreta")
     item = _item_aprovado_base(OperacaoFinanceira.NOVA_CONTA_A_PAGAR)
 
     chamadas = []
@@ -157,7 +157,7 @@ async def test_01_conta_a_pagar_valida(
         chamadas.append(request)
         if request.url.path == "/INTEGRACAO/V1/TITULOS_PAGAR" and request.method == "POST":
             body = json.loads(request.content.decode("utf-8"))
-            assert body["empresaCodigo"] == 74014
+            assert body["empresaCodigo"] == 11495
             assert body["fornecedorCodigo"] == 9012
             assert body["valorParcela"] == 350.0
             assert body["numeroTitulo"] == "NF-1001"
@@ -170,7 +170,7 @@ async def test_01_conta_a_pagar_valida(
 
     res = await executar_lancamento_despesa(
         item,
-        unidade_doze,
+        unidade_vip,
         caminho_env=env_liberado,
         banco_idempotencia=tmp_path / "idemp.sqlite3",
         diretorio_auditoria=tmp_path / "auditoria",
@@ -190,16 +190,16 @@ async def test_01_conta_a_pagar_valida(
 # ---------------------------------------------------------------------------
 @pytest.mark.asyncio
 async def test_02_movimento_debito_valido(
-    tmp_path: Path, unidade_doze: Unidade, env_liberado: Path, monkeypatch
+    tmp_path: Path, unidade_vip: Unidade, env_liberado: Path, monkeypatch
 ):
-    monkeypatch.setenv("WEBPOSTO_KEY_DOZE", "chave_secreta")
+    monkeypatch.setenv("WEBPOSTO_KEY_VIP", "chave_secreta")
     item = _item_aprovado_base(OperacaoFinanceira.DESPESA_JA_PAGA)
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/INTEGRACAO/V1/MOVIMENTOS_CONTA" and request.method == "POST":
             body = json.loads(request.content.decode("utf-8"))
             assert body["contaMovimentoTipo"] == "DEBITO"
-            assert body["conta"] == 86248
+            assert body["conta"] == 65321
             assert body["valor"] == 350.0
             return httpx.Response(201, text="")  # OpenAPI: corpo pode ser vazio
         elif request.url.path == "/INTEGRACAO/V1/MOVIMENTOS_CONTA" and request.method == "GET":
@@ -223,7 +223,7 @@ async def test_02_movimento_debito_valido(
 
     res = await executar_lancamento_despesa(
         item,
-        unidade_doze,
+        unidade_vip,
         caminho_env=env_liberado,
         banco_idempotencia=tmp_path / "idemp.sqlite3",
         diretorio_auditoria=tmp_path / "auditoria",
@@ -241,16 +241,16 @@ async def test_02_movimento_debito_valido(
 # ---------------------------------------------------------------------------
 @pytest.mark.asyncio
 async def test_03_baixa_titulo_valida(
-    tmp_path: Path, unidade_doze: Unidade, env_liberado: Path, monkeypatch
+    tmp_path: Path, unidade_vip: Unidade, env_liberado: Path, monkeypatch
 ):
-    monkeypatch.setenv("WEBPOSTO_KEY_DOZE", "chave_secreta")
+    monkeypatch.setenv("WEBPOSTO_KEY_VIP", "chave_secreta")
     item = _item_aprovado_base(OperacaoFinanceira.TITULO_EXISTENTE)
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/INTEGRACAO/V1/TITULOS_PAGAR/PAGAR" and request.method == "PATCH":
             body = json.loads(request.content.decode("utf-8"))
             assert body["tituloPagarCodigo"] == [55001]
-            assert body["contaCodigo"] == 86248
+            assert body["contaCodigo"] == 65321
             return httpx.Response(204)  # 204 No Content
         elif request.url.path == "/INTEGRACAO/V1/TITULOS_PAGAR" and request.method == "GET":
             # Confirmação pós-baixa
@@ -272,7 +272,7 @@ async def test_03_baixa_titulo_valida(
 
     res = await executar_lancamento_despesa(
         item,
-        unidade_doze,
+        unidade_vip,
         caminho_env=env_liberado,
         banco_idempotencia=tmp_path / "idemp.sqlite3",
         diretorio_auditoria=tmp_path / "auditoria",
@@ -514,7 +514,7 @@ def test_12_operacao_diferente_da_aprovada():
 # ---------------------------------------------------------------------------
 @pytest.mark.asyncio
 async def test_13_registro_ja_existente_idempotencia(
-    tmp_path: Path, unidade_doze: Unidade, env_liberado: Path
+    tmp_path: Path, unidade_vip: Unidade, env_liberado: Path
 ):
     banco = tmp_path / "idemp.sqlite3"
     idemp = IdempotenciaDespesas(banco)
@@ -531,7 +531,7 @@ async def test_13_registro_ja_existente_idempotencia(
     with pytest.raises(BarreiraDespesaErro, match="Operação já em andamento ou concluída"):
         await executar_lancamento_despesa(
             item,
-            unidade_doze,
+            unidade_vip,
             caminho_env=env_liberado,
             banco_idempotencia=banco,
             client=client,
@@ -544,9 +544,9 @@ async def test_13_registro_ja_existente_idempotencia(
 # ---------------------------------------------------------------------------
 @pytest.mark.asyncio
 async def test_14_timeout_em_post(
-    tmp_path: Path, unidade_doze: Unidade, env_liberado: Path, monkeypatch
+    tmp_path: Path, unidade_vip: Unidade, env_liberado: Path, monkeypatch
 ):
-    monkeypatch.setenv("WEBPOSTO_KEY_DOZE", "chave_secreta")
+    monkeypatch.setenv("WEBPOSTO_KEY_VIP", "chave_secreta")
     item = _item_aprovado_base(OperacaoFinanceira.NOVA_CONTA_A_PAGAR)
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -559,7 +559,7 @@ async def test_14_timeout_em_post(
     ):
         await executar_lancamento_despesa(
             item,
-            unidade_doze,
+            unidade_vip,
             caminho_env=env_liberado,
             banco_idempotencia=tmp_path / "idemp.sqlite3",
             client=client,
@@ -574,9 +574,9 @@ async def test_14_timeout_em_post(
 # ---------------------------------------------------------------------------
 @pytest.mark.asyncio
 async def test_15_timeout_em_patch(
-    tmp_path: Path, unidade_doze: Unidade, env_liberado: Path, monkeypatch
+    tmp_path: Path, unidade_vip: Unidade, env_liberado: Path, monkeypatch
 ):
-    monkeypatch.setenv("WEBPOSTO_KEY_DOZE", "chave_secreta")
+    monkeypatch.setenv("WEBPOSTO_KEY_VIP", "chave_secreta")
     item = _item_aprovado_base(OperacaoFinanceira.TITULO_EXISTENTE)
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -589,7 +589,7 @@ async def test_15_timeout_em_patch(
     ):
         await executar_lancamento_despesa(
             item,
-            unidade_doze,
+            unidade_vip,
             caminho_env=env_liberado,
             banco_idempotencia=tmp_path / "idemp.sqlite3",
             client=client,
@@ -604,9 +604,9 @@ async def test_15_timeout_em_patch(
 # ---------------------------------------------------------------------------
 @pytest.mark.asyncio
 async def test_16_retry_bloqueado_apos_timeout(
-    tmp_path: Path, unidade_doze: Unidade, env_liberado: Path, monkeypatch
+    tmp_path: Path, unidade_vip: Unidade, env_liberado: Path, monkeypatch
 ):
-    monkeypatch.setenv("WEBPOSTO_KEY_DOZE", "chave_secreta")
+    monkeypatch.setenv("WEBPOSTO_KEY_VIP", "chave_secreta")
     banco = tmp_path / "idemp.sqlite3"
     item = _item_aprovado_base(OperacaoFinanceira.NOVA_CONTA_A_PAGAR)
 
@@ -619,7 +619,7 @@ async def test_16_retry_bloqueado_apos_timeout(
     with pytest.raises(WebPostoErro):
         await executar_lancamento_despesa(
             item,
-            unidade_doze,
+            unidade_vip,
             caminho_env=env_liberado,
             banco_idempotencia=banco,
             client=client_timeout,
@@ -637,7 +637,7 @@ async def test_16_retry_bloqueado_apos_timeout(
     ):
         await executar_lancamento_despesa(
             item,
-            unidade_doze,
+            unidade_vip,
             caminho_env=env_liberado,
             banco_idempotencia=banco,
             client=client_normal,
@@ -667,9 +667,9 @@ def test_17_duas_tentativas_simultaneas(tmp_path: Path):
 # ---------------------------------------------------------------------------
 @pytest.mark.asyncio
 async def test_18_http_201_sem_identificador(
-    tmp_path: Path, unidade_doze: Unidade, env_liberado: Path, monkeypatch
+    tmp_path: Path, unidade_vip: Unidade, env_liberado: Path, monkeypatch
 ):
-    monkeypatch.setenv("WEBPOSTO_KEY_DOZE", "chave_secreta")
+    monkeypatch.setenv("WEBPOSTO_KEY_VIP", "chave_secreta")
     item = _item_aprovado_base(OperacaoFinanceira.NOVA_CONTA_A_PAGAR)
 
     # Retorna 201 mas corpo sem ID
@@ -679,7 +679,7 @@ async def test_18_http_201_sem_identificador(
 
     res = await executar_lancamento_despesa(
         item,
-        unidade_doze,
+        unidade_vip,
         caminho_env=env_liberado,
         banco_idempotencia=tmp_path / "idemp.sqlite3",
         client=client,
@@ -696,9 +696,9 @@ async def test_18_http_201_sem_identificador(
 # ---------------------------------------------------------------------------
 @pytest.mark.asyncio
 async def test_19_http_204_confirmacao_get(
-    tmp_path: Path, unidade_doze: Unidade, env_liberado: Path, monkeypatch
+    tmp_path: Path, unidade_vip: Unidade, env_liberado: Path, monkeypatch
 ):
-    monkeypatch.setenv("WEBPOSTO_KEY_DOZE", "chave_secreta")
+    monkeypatch.setenv("WEBPOSTO_KEY_VIP", "chave_secreta")
     item = _item_aprovado_base(OperacaoFinanceira.TITULO_EXISTENTE)
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -723,7 +723,7 @@ async def test_19_http_204_confirmacao_get(
 
     res = await executar_lancamento_despesa(
         item,
-        unidade_doze,
+        unidade_vip,
         caminho_env=env_liberado,
         banco_idempotencia=tmp_path / "idemp.sqlite3",
         client=client,
@@ -739,9 +739,9 @@ async def test_19_http_204_confirmacao_get(
 # ---------------------------------------------------------------------------
 @pytest.mark.asyncio
 async def test_20_consulta_posterior_inconclusiva(
-    tmp_path: Path, unidade_doze: Unidade, env_liberado: Path, monkeypatch
+    tmp_path: Path, unidade_vip: Unidade, env_liberado: Path, monkeypatch
 ):
-    monkeypatch.setenv("WEBPOSTO_KEY_DOZE", "chave_secreta")
+    monkeypatch.setenv("WEBPOSTO_KEY_VIP", "chave_secreta")
     item = _item_aprovado_base(OperacaoFinanceira.DESPESA_JA_PAGA)
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -756,7 +756,7 @@ async def test_20_consulta_posterior_inconclusiva(
 
     res = await executar_lancamento_despesa(
         item,
-        unidade_doze,
+        unidade_vip,
         caminho_env=env_liberado,
         banco_idempotencia=tmp_path / "idemp.sqlite3",
         client=client,
@@ -785,9 +785,9 @@ def test_21_anexo_preparado_corretamente():
 # ---------------------------------------------------------------------------
 @pytest.mark.asyncio
 async def test_22_falha_de_anexo_sem_repetir_lancamento(
-    tmp_path: Path, unidade_doze: Unidade, env_liberado: Path, monkeypatch
+    tmp_path: Path, unidade_vip: Unidade, env_liberado: Path, monkeypatch
 ):
-    monkeypatch.setenv("WEBPOSTO_KEY_DOZE", "chave_secreta")
+    monkeypatch.setenv("WEBPOSTO_KEY_VIP", "chave_secreta")
     item = _item_aprovado_base(OperacaoFinanceira.NOVA_CONTA_A_PAGAR)
 
     # Cria arquivo físico de comprovante
@@ -807,7 +807,7 @@ async def test_22_falha_de_anexo_sem_repetir_lancamento(
 
     res = await executar_lancamento_despesa(
         item,
-        unidade_doze,
+        unidade_vip,
         caminho_env=env_liberado,
         banco_idempotencia=tmp_path / "idemp.sqlite3",
         diretorio_auditoria=tmp_path / "auditoria",
@@ -827,13 +827,13 @@ async def test_22_falha_de_anexo_sem_repetir_lancamento(
 # 23. Flags em zero bloqueiam escrita
 # ---------------------------------------------------------------------------
 @pytest.mark.asyncio
-async def test_23_flags_em_zero_bloqueiam_escrita(unidade_doze: Unidade, env_travado: Path):
+async def test_23_flags_em_zero_bloqueiam_escrita(unidade_vip: Unidade, env_travado: Path):
     item = _item_aprovado_base(OperacaoFinanceira.NOVA_CONTA_A_PAGAR)
 
     with pytest.raises(BarreiraDespesaErro, match="Lançamento bloqueado pelas travas de escrita"):
         await executar_lancamento_despesa(
             item,
-            unidade_doze,
+            unidade_vip,
             caminho_env=env_travado,
             client=httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(200))),
         )
@@ -844,7 +844,7 @@ async def test_23_flags_em_zero_bloqueiam_escrita(unidade_doze: Unidade, env_tra
 # ---------------------------------------------------------------------------
 @pytest.mark.asyncio
 async def test_24_ausencia_chamadas_externas(
-    tmp_path: Path, unidade_doze: Unidade, env_liberado: Path, monkeypatch
+    tmp_path: Path, unidade_vip: Unidade, env_liberado: Path, monkeypatch
 ):
     chamadas_reais = []
 
@@ -863,11 +863,11 @@ async def test_24_ausencia_chamadas_externas(
             lambda r: httpx.Response(201, json={"tituloPagarCodigo": 123})
         )
     )
-    monkeypatch.setenv("WEBPOSTO_KEY_DOZE", "chave_secreta")
+    monkeypatch.setenv("WEBPOSTO_KEY_VIP", "chave_secreta")
 
     res = await executar_lancamento_despesa(
         item,
-        unidade_doze,
+        unidade_vip,
         caminho_env=env_liberado,
         banco_idempotencia=tmp_path / "idemp.sqlite3",
         client=client,

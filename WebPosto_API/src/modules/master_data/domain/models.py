@@ -174,6 +174,9 @@ class ResolucaoEmpresaResult(BaseModel):
     empresa: Optional[MasterEmpresa] = None
     mensagem: str
     bloqueada: bool = False
+    empresa_in_scope: bool = False
+    identidade_validada: bool = False
+    operacao_autorizada: bool = False
 
 
 class ResolucaoContaResult(BaseModel):

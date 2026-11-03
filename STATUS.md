@@ -1,9 +1,29 @@
-# STATUS — LOGOS Auditoria (atualizado em 27/10/2026)
+# STATUS — LOGOS Auditoria (atualizado em 03/11/2026)
 
 Repositório canônico: C:\Projetos\LOGOS\LogosPostos · branch feature/cash-audit-fechamento
 Última entrega de código: Sprint Cash Audit (01-03) · branch feature/cash-audit-fechamento, sem merge
 PR a abrir: https://github.com/mlisboa17/LogosPostos/pull/new/feature/cash-audit-fechamento
 Histórico de sprints: um prompt por sprint em docs/prompts/ (SPRINT_05 ... SPRINT_12, PREMMIA_00, TELEGRAM_00)
+
+# F0-ENV-03 — Identidade e Acesso Histórico — 03/11/2026
+
+- [Política central](WebPosto_API/src/core/company_scope.py) separa escopo de novos processos de restrições de identidade; não concede autorização financeira.
+- Master Data expõe `empresa_in_scope`, `identidade_validada` e `operacao_autorizada`. Identidade não confirmada bloqueia novas despesas sem substituir aprovação, RBAC, controles de conta, hash, idempotência ou travas de escrita.
+- `118508` e `74014` continuam no escopo de coleta/revisão, mas bloqueadas para operações sensíveis, inclusive nas barreiras de despesas sem Master Data e de inclusão/exclusão de cartões. O cadastro legado `CONFIRMADO` de `74014` não supera a pendência F0-ID; liberação depende de evidência e nova alteração controlada da política, não de inclusão na allowlist.
+- `46433` e `5558` continuam excluídas de novos processos. Leitura de recebimentos persistidos, conferências e pendências não depende da allowlist operacional. Fechamento e reincidência aceitam `gravado=true` para leitura estritamente local, respeitando o RBAC existente e sem completar lacunas pela API.
+- Relatórios com `gravado=true&unidade=...` e sua exportação preservam acesso a registros sem cadastro operacional; identificam explicitamente a ausência de metadados. Nenhum registro histórico foi alterado.
+- Configuração operacional inválida continua falhando de forma explícita; carregamento histórico separado não libera novos processos.
+- Reexecução direcionada em 03/11: 135 testes aprovados, cobrindo política de identidade, acesso histórico e consumidores Master Data, configuração e comprovantes; inclui exportação histórica XLSX e negações RBAC.
+- Validação offline final: 252 testes aprovados. Dois testes excluídos: leitura das travas do `.env` real e timeout de cache parcial (falha 200 versus 504 reproduzida no HTTP do `HEAD`, não corrigida nesta tarefa). Mypy nos dez arquivos de aplicação alterados: 19 erros, contra 24 com fontes do `HEAD` via shadow files temporários; nenhum erro novo de tipagem.
+- Nenhuma API externa, escrita no WebPosto, alteração de `.env`, migração ou mudança em banco operacional. Testes usam dados sintéticos e persistência temporária isolada.
+
+# F0-ENV-01 — Escopo de Empresas para Novos Processos
+
+- Allowlist central aplicada a novos processos: `5555`, `11495`, `118508` e `74014`.
+- Empresas `46433` e `5558` ficam fora do escopo de novos processos; registros e históricos existentes não foram removidos.
+- Master Data, configuração do Cash Reconciliation e unidades injetadas no processamento de comprovantes validam o escopo.
+- As configurações WebPosto requeridas já estavam alinhadas nos arquivos `.env`; nenhum segredo foi copiado ou alterado. `.env` permanece ignorado pelo Git.
+- Nenhuma API, banco de dados ou serviço externo foi acessado ou modificado. Testes offline direcionados: 24 aprovados.
 
 # CASH-AUDIT-03 — Auditoria Multi-Dias, Rateio por Frentista e Filtros Isolados — 27/10/2026
 

@@ -4,6 +4,8 @@ import json
 import os
 from pathlib import Path
 
+from src.core.company_scope import validate_new_process_company_codes
+
 from ..domain.models import ContaCompartilhada, Unidade
 
 ARQUIVO = Path(__file__).with_name("units.json")
@@ -11,8 +13,25 @@ DIAS_TOLERANCIA_CONSOLIDACAO_PADRAO = 2
 
 
 def carregar_unidades(caminho: Path = ARQUIVO) -> dict[int, Unidade]:
+    return _carregar_unidades(caminho, novos_processos=True)
+
+
+def carregar_unidades_historicas(caminho: Path = ARQUIVO) -> dict[int, Unidade]:
+    """Le metadados sem aplicar escopo de novos processos; nao autoriza operacoes."""
+    return _carregar_unidades(caminho, novos_processos=False)
+
+
+def _carregar_unidades(caminho: Path, *, novos_processos: bool) -> dict[int, Unidade]:
     dados = json.loads(Path(caminho).read_text(encoding="utf-8"))
-    return {u["empresa_codigo"]: Unidade.model_validate(u) for u in dados["unidades"]}
+    if not isinstance(dados, dict) or not isinstance(dados.get("unidades"), list):
+        raise ValueError("Configuração inválida de unidades.")
+    unidades = dados["unidades"]
+    if any(not isinstance(u, dict) or "empresa_codigo" not in u for u in unidades):
+        raise ValueError("Configuração inválida de unidade: empresa_codigo ausente.")
+    if novos_processos:
+        validate_new_process_company_codes(u["empresa_codigo"] for u in unidades)
+    modelos = [Unidade.model_validate(u) for u in unidades]
+    return {u.empresa_codigo: u for u in modelos}
 
 
 def carregar_contas_compartilhadas(caminho: Path = ARQUIVO) -> dict[str, ContaCompartilhada]:

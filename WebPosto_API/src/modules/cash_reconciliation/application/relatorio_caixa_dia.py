@@ -53,8 +53,8 @@ def _funcionario(codigo: int | None, nomes: dict[int, str]) -> str:
     return f"{nome} ({codigo})" if nome else f"funcionário {codigo}"
 
 
-def _setor(unidade: Unidade, centro_custo: int | None) -> str:
-    if unidade.empresa_codigo == 11495:
+def _setor(unidade: Unidade | None, centro_custo: int | None) -> str:
+    if unidade is not None and unidade.empresa_codigo == 11495:
         return {
             7295: "PISTA",
             21650: "CONVENIÊNCIA",
@@ -62,7 +62,7 @@ def _setor(unidade: Unidade, centro_custo: int | None) -> str:
             24423: "FOOD",
             18713: "ajuste de NF",
         }.get(centro_custo, "setor não identificado")
-    if unidade.empresa_codigo == 118508 and centro_custo == 24423:
+    if unidade is not None and unidade.empresa_codigo == 118508 and centro_custo == 24423:
         return "FOOD"
     return "setor único" if centro_custo is None else f"centro {centro_custo}"
 
@@ -404,7 +404,7 @@ async def consultar_dados_atuais(unidade: Unidade, dia: date):
 
 def gerar_relatorio_caixa_dia(
     registro: ResultadoDiario,
-    unidade: Unidade,
+    unidade: Unidade | None,
     *,
     situacao_robo: str = "não informada",
     nomes_funcionarios: dict[int, str] | None = None,
@@ -422,7 +422,7 @@ def gerar_relatorio_caixa_dia(
     nomes = _mapa_nomes(registro, nomes_funcionarios)
     fechamento = registro.fechamento
     caixas = fechamento.caixas if fechamento else ()
-    nome_unidade = unidade.apelido or unidade.nome
+    nome_unidade = (unidade.apelido or unidade.nome) if unidade else f"Empresa {registro.empresa_codigo}"
     rotulos_caixas = {
         a.caixa.codigo: identificar_caixa(
             nome_unidade, a.caixa, [c.caixa for c in caixas], nomes, curto=True,
@@ -441,9 +441,11 @@ def gerar_relatorio_caixa_dia(
     linhas = [
         f"# Relatório do caixa — {nome_unidade}",
         "",
-        f"- Unidade: {nome_unidade} ({unidade.empresa_codigo})",
+        f"- Unidade: {nome_unidade} ({registro.empresa_codigo})",
         f"- Dia: {formatar_data(registro.dia)}",
     ]
+    if unidade is None:
+        linhas.append("- Cadastro operacional indisponível; identificação pelo código histórico persistido.")
     instante_consulta = dados_consultados_em or registro.proveniencia.executado_em or agora()
     linhas.extend([
         f"- Dados {'consultados' if dados_consultados_em else 'registrados'} em: "
@@ -523,9 +525,9 @@ def gerar_relatorio_caixa_dia(
         for sangria in auditoria.sangrias:
             if sangria.conta_codigo is not None:
                 destino = f"conta webPosto {sangria.conta_codigo}"
-            elif unidade.empresa_codigo == 118508:
+            elif registro.empresa_codigo == 118508:
                 destino = "repassada ao Casa Caiada (RN-SANGRIA-002)"
-            elif unidade.empresa_codigo == 5555:
+            elif registro.empresa_codigo == 5555:
                 destino = "assumida no cofre (RN-SANGRIA-003)"
             else:
                 destino = "sem conta de destino"

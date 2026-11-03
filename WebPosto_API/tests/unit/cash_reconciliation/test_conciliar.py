@@ -1,6 +1,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 
+from src.core.company_scope import NEW_PROCESS_COMPANY_CODES
 from src.modules.cash_reconciliation.adapters.ofx_reader import Extrato
 from src.modules.cash_reconciliation.application.conciliar import conciliar
 from src.modules.cash_reconciliation.config import carregar_unidades
@@ -67,7 +68,7 @@ def test_fluxo_direto_e_cofre():
 
 def test_config_real_carrega_e_nao_tem_segredos():
     unidades = carregar_unidades()
-    assert set(unidades) == {74014, 11495, 5555, 118508}
+    assert set(unidades) == NEW_PROCESS_COMPANY_CODES
     assert unidades[74014].destino(86248).tipo is TipoDestino.DEPOSITO_DIRETO
     assert all(u.chave_env.startswith("WEBPOSTO_API_KEY_") for u in unidades.values())
     assert all(not d.conta_sufixo for u in unidades.values() for d in u.destinos)

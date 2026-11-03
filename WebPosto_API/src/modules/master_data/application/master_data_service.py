@@ -27,6 +27,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, List, Optional
 
+from src.core.company_scope import is_company_identity_validated, is_new_process_company
+
 from ..adapters.sqlite_master_data_repository import SqliteMasterDataRepository
 from ..domain.models import (
     ConfiabilidadeCadastro,
@@ -922,46 +924,40 @@ class MasterDataService:
     # ==========================================
 
     def resolver_empresa(self, empresa_codigo: int) -> ResolucaoEmpresaResult:
-        """Resolve e valida se a empresa está autorizada no escopo do Expense Hunter."""
-        # Verificação explícita da empresa 5558
-        if empresa_codigo == 5558:
-            return ResolucaoEmpresaResult(
-                sucesso=False,
-                empresa=self.repository.obter_empresa(5558),
-                mensagem="Empresa 5558 (Posto Real) está excluída do escopo do Expense Hunter (decisão do dono).",
-                bloqueada=True,
-            )
-
+        """Valida escopo, identidade e permissao cadastral para novas despesas."""
         empresa = self.repository.obter_empresa(empresa_codigo)
-        if not empresa:
-            return ResolucaoEmpresaResult(
-                sucesso=False,
-                empresa=None,
-                mensagem=f"Empresa código {empresa_codigo} não cadastrada no Master Data.",
-                bloqueada=True,
-            )
-
-        if not empresa.ativo:
-            return ResolucaoEmpresaResult(
-                sucesso=False,
-                empresa=empresa,
-                mensagem=f"Empresa {empresa.nome_fantasia} ({empresa_codigo}) está inativa.",
-                bloqueada=True,
-            )
-
-        if not empresa.autorizado_despesa:
-            return ResolucaoEmpresaResult(
-                sucesso=False,
-                empresa=empresa,
-                mensagem=f"Empresa {empresa.nome_fantasia} ({empresa_codigo}) não está autorizada para lançamentos de despesa.",
-                bloqueada=True,
-            )
-
+        empresa_in_scope = is_new_process_company(empresa_codigo)
+        identidade_validada = is_company_identity_validated(
+            empresa_codigo,
+            cadastro_confirmado=(
+                empresa is not None
+                and empresa.confiabilidade == ConfiabilidadeCadastro.CONFIRMADO
+            ),
+        )
+        operacao_autorizada = False
+        if empresa_codigo == 5558:
+            mensagem = "Empresa 5558 (Posto Real) está excluída do escopo do Expense Hunter (decisão do dono)."
+        elif empresa is not None and not empresa.ativo:
+            mensagem = f"Empresa {empresa.nome_fantasia} ({empresa_codigo}) está inativa."
+        elif not empresa_in_scope:
+            mensagem = f"Empresa código {empresa_codigo} está fora do escopo de novos processos."
+        elif empresa is None:
+            mensagem = f"Empresa código {empresa_codigo} não cadastrada no Master Data."
+        elif not identidade_validada:
+            mensagem = f"Empresa {empresa_codigo} com identidade pendente para operação sensível."
+        elif not empresa.autorizado_despesa:
+            mensagem = f"Empresa {empresa.nome_fantasia} ({empresa_codigo}) não está autorizada para lançamentos de despesa."
+        else:
+            mensagem = "Empresa autorizada."
+            operacao_autorizada = True
         return ResolucaoEmpresaResult(
-            sucesso=True,
+            sucesso=operacao_autorizada,
             empresa=empresa,
-            mensagem="Empresa autorizada.",
-            bloqueada=False,
+            mensagem=mensagem,
+            bloqueada=not operacao_autorizada,
+            empresa_in_scope=empresa_in_scope,
+            identidade_validada=identidade_validada,
+            operacao_autorizada=operacao_autorizada,
         )
 
     def resolver_conta_financeira(

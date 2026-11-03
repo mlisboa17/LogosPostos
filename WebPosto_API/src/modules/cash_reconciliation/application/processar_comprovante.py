@@ -20,7 +20,12 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Sequence
+
+from src.core.company_scope import (
+    is_new_process_company,
+    validate_new_process_company_codes,
+)
 
 from ..adapters.extrato_reader import ExtratoBancario, LancamentoBancario, ler_arquivo
 from ..adapters.gemini_comprovantes import GeminiExtractor
@@ -47,6 +52,8 @@ from ..domain.comprovante import (
     TransicaoFila,
 )
 from ..domain.tempo import agora, hoje
+from ..config import carregar_unidades
+from ..domain.models import Unidade
 
 logger = logging.getLogger(__name__)
 
@@ -321,12 +328,15 @@ async def processar_comprovante_recebido(
     # Carregar cadastro de unidades
     unidades_map: dict[int, Unidade] = {}
     if unidades is not None:
-        unidades_map = {u.empresa_codigo: u for u in unidades}
+        unidades_lista = list(unidades)
+        validate_new_process_company_codes(u.empresa_codigo for u in unidades_lista)
+        unidades_map = {u.empresa_codigo: u for u in unidades_lista}
     else:
         try:
             unidades_map = carregar_unidades()
-        except Exception:
-            pass
+        except (OSError, ValueError):
+            logger.exception("Falha ao carregar a configuração de unidades.")
+            raise
 
     # 6. Casamento com débitos dos extratos com PROTEÇÃO DE FITID E CONTA BANCÁRIA
     itens_atuais_fila = carregar_fila(caminho_fila)
@@ -412,13 +422,13 @@ async def processar_comprovante_recebido(
 
     # SE NÃO HOUVER EVIDÊNCIA CONFIÁVEL: NÃO APLICAR FALLBACK PARA O DOZE!
     # Posto Real (5558 / codWeb 7) está fora do escopo do Expense Hunter (CNPJ desativado)
-    if unidade_encontrada and getattr(unidade_encontrada, "empresa_codigo", None) in (5558, 7):
+    if unidade_encontrada and not is_new_process_company(unidade_encontrada.empresa_codigo):
         unidade_encontrada = None
 
     if unidade_encontrada:
         unidade_cod = unidade_encontrada.empresa_codigo
         unidade_nome = unidade_encontrada.nome
-        unidade_apelido = unidade_encontrada.apelido
+        unidade_apelido = unidade_encontrada.apelido or unidade_encontrada.nome
     else:
         unidade_cod = None
         unidade_nome = "EMPRESA_INDEFINIDA"

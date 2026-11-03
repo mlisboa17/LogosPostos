@@ -28,6 +28,8 @@ from dotenv import load_dotenv
 from dotenv.main import DotEnv
 from unittest.mock import patch
 
+from src.core.company_scope import validate_sensitive_company_restrictions
+
 from ..domain.acoes_recebimentos import AcaoRecebimento
 from ..domain.models import Unidade
 from ..domain.tempo import agora, formatar_data
@@ -504,6 +506,10 @@ async def incluir_cartao(
     travas_ok, motivo_travas = verificar_travas_cartao(caminho_env)
     if not travas_ok:
         raise BarreiraCartaoErro(f"Escrita bloqueada pelas travas: {motivo_travas}")
+    try:
+        validate_sensitive_company_restrictions(unidade.empresa_codigo)
+    except ValueError as exc:
+        raise BarreiraCartaoErro(str(exc)) from exc
 
     chaves_invalidas = set(payload.keys()) - CAMPOS_PERMITIDOS_SPEC
     if chaves_invalidas:
@@ -574,6 +580,10 @@ async def excluir_cartao(
     travas_ok, motivo_travas = verificar_travas_cartao(caminho_env)
     if not travas_ok:
         raise BarreiraCartaoErro(f"Exclusão bloqueada pelas travas: {motivo_travas}")
+    try:
+        validate_sensitive_company_restrictions(unidade.empresa_codigo)
+    except ValueError as exc:
+        raise BarreiraCartaoErro(str(exc)) from exc
 
     if not cartao_id or int(cartao_id) <= 0:
         raise BarreiraCartaoErro(f"ID de cartão inválido para exclusão: {cartao_id}")

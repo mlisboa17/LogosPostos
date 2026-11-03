@@ -31,7 +31,11 @@ from ..application.relatorio_caixa_dia import (
 from ..application.painel_diretor import PainelDiretorErro, obter_unidades_painel
 from ..application.resumo_diario import conferencia_para_registro
 from ..application.serializacao import serializar_fechamento
-from ..config import ARQUIVO as ARQUIVO_CONFIG_UNIDADES, carregar_unidades
+from ..config import (
+    ARQUIVO as ARQUIVO_CONFIG_UNIDADES,
+    carregar_unidades,
+    carregar_unidades_historicas,
+)
 from ..domain.fechamento import ResultadoAuditoria
 from ..domain.models import Proveniencia
 from ..domain.pendencias import Pendencia, calcular_prazo_pendencia
@@ -138,8 +142,6 @@ async def decidir_lancamento_logos(
 
 
 def _conferencia(unidade: int, inicio: date, fim: date, usuario: dict):
-    if unidade not in carregar_unidades():
-        raise HTTPException(status_code=404, detail="Unidade não encontrada.")
     require_unit_access(usuario, unidade)
     if fim > agora().date() - timedelta(days=2):
         raise HTTPException(status_code=422, detail="A data final deve ser até anteontem (hoje − 2 dias, Recife).")
@@ -220,8 +222,6 @@ def _escopo_pendencias(usuario: dict, unidade: int | None) -> int | None:
         return propria
     if papel not in {"diretor", "auditor"}:
         raise HTTPException(status_code=403, detail="Perfil sem acesso à fila de pendências.")
-    if unidade is not None and unidade not in carregar_unidades():
-        raise HTTPException(status_code=404, detail="Unidade não encontrada.")
     return unidade
 
 
@@ -313,7 +313,7 @@ def _compor_relatorio_caixa_dia(unidade: int, dia: date, *, incluir_codigo_inter
         raise HTTPException(status_code=500, detail="Falha ao ler auditoria persistida.") from None
     if registro is None:
         raise HTTPException(status_code=404, detail="Não há resultado persistido para a unidade e o dia.")
-    configuracao = carregar_unidades()[unidade]
+    configuracao = carregar_unidades_historicas().get(unidade)
     estado = saude_robo.carregar_estado()
     if estado is None or estado.dia_processado != dia or unidade not in estado.unidades_processadas:
         situacao = "não processado / estado não persistido"
@@ -342,7 +342,7 @@ def _compor_relatorio_caixa_dia(unidade: int, dia: date, *, incluir_codigo_inter
         conferencia=conferencia,
         incluir_codigo_interno=incluir_codigo_interno,
     )
-    return texto, configuracao.apelido or configuracao.nome
+    return texto, (configuracao.apelido or configuracao.nome) if configuracao else f"Empresa {unidade}"
 
 
 async def _compor_relatorio_caixa_atual(unidade: int, dia: date, *, incluir_codigo_interno: bool = False) -> tuple[str, str]:
@@ -391,6 +391,12 @@ async def obter_relatorio_caixa_dia(
     gravado: bool = Query(default=False),
     current_user: dict = Depends(get_current_user),
 ) -> dict:
+    if gravado and unidade is not None:
+        require_unit_access(current_user, unidade)
+        markdown, nome = _compor_relatorio_caixa_dia(unidade, dia)
+        return {"dia": dia.isoformat(), "relatorios": [
+            {"unidade": unidade, "nome": nome, "markdown": markdown}
+        ]}
     unidades = carregar_unidades()
     papel = current_user.get("role")
     if unidade is not None:
@@ -457,13 +463,12 @@ async def exportar_relatorio_caixa_dia(
     gravado: bool = Query(default=False),
     current_user: dict = Depends(get_current_user),
 ) -> Response:
-    unidades = carregar_unidades()
-    if unidade not in unidades:
-        raise HTTPException(status_code=404, detail="Unidade não encontrada.")
     require_unit_access(current_user, unidade)
     if gravado:
         markdown, _ = _compor_relatorio_caixa_dia(unidade, dia, incluir_codigo_interno=True)
     else:
+        if unidade not in carregar_unidades():
+            raise HTTPException(status_code=404, detail="Unidade não encontrada.")
         markdown, _ = await _compor_relatorio_caixa_atual(unidade, dia, incluir_codigo_interno=True)
     return Response(
         planilha_relatorio_caixa_dia(markdown),
@@ -481,8 +486,6 @@ async def obter_recebimentos(
     dia: date = Query(...),
     current_user: dict = Depends(get_current_user),
 ) -> ResultadoRecebimentos:
-    if unidade not in carregar_unidades():
-        raise HTTPException(status_code=404, detail="Unidade não encontrada.")
     require_unit_access(current_user, unidade)
     try:
         persistido = carregar_dia(unidade, dia)
@@ -490,6 +493,8 @@ async def obter_recebimentos(
         raise HTTPException(status_code=500, detail="Falha ao ler auditoria persistida.") from None
     if persistido is not None:
         return persistido.recebimentos
+    if unidade not in carregar_unidades():
+        raise HTTPException(status_code=404, detail="Unidade não encontrada.")
     return await conciliar_recebimentos(unidade, dia)
 
 
@@ -615,6 +620,7 @@ async def obter_fechamento(
     pdv_codigo: int | None = Query(default=None),
     tipo_data: str | None = Query(default="movimento"),
     consolidado: bool | None = Query(default=False),
+    gravado: bool = Query(default=False),
     current_user: dict = Depends(get_current_user),
 ) -> dict:
     if fim < inicio or (fim - inicio).days > 30:
@@ -623,15 +629,16 @@ async def obter_fechamento(
             detail="O período deve ser válido e conter no máximo 31 dias.",
         )
 
-    unidades = carregar_unidades()
-    if unidade not in unidades:
-        raise HTTPException(status_code=404, detail="Unidade não encontrada.")
     require_unit_access(current_user, unidade)
+    if not gravado and unidade not in carregar_unidades():
+        raise HTTPException(status_code=404, detail="Unidade não encontrada.")
 
     try:
         prazo = asyncio.get_running_loop().time() + TIMEOUT_FECHAMENTO
         dias = [inicio + timedelta(days=indice) for indice in range((fim - inicio).days + 1)]
         persistidos = {dia: carregar_dia(unidade, dia) for dia in dias}
+        if gravado and any(p is None or p.fechamento is None for p in persistidos.values()):
+            raise HTTPException(status_code=404, detail="Não há fechamento persistido para todo o período.")
         if not any(persistidos.values()):
             resultado = await _auditar_com_limite(unidade, inicio, fim, prazo)
             caixas_filtradas = resultado.caixas
@@ -720,6 +727,7 @@ async def obter_fechamento(
 async def obter_reincidencia(
     unidade: int = Query(...),
     mes: str = Query(...),
+    gravado: bool = Query(default=False),
     current_user: dict = Depends(get_current_user),
 ) -> dict:
     try:
@@ -729,10 +737,10 @@ async def obter_reincidencia(
     except ValueError:
         raise HTTPException(status_code=422, detail="O mês deve estar no formato AAAA-MM.") from None
 
-    unidades = carregar_unidades()
-    if unidade not in unidades:
-        raise HTTPException(status_code=404, detail="Unidade não encontrada.")
     require_unit_access(current_user, unidade)
+    unidades = {} if gravado else carregar_unidades()
+    if not gravado and unidade not in unidades:
+        raise HTTPException(status_code=404, detail="Unidade não encontrada.")
 
     quantidade_dias = calendar.monthrange(inicio.year, inicio.month)[1]
     fim_mes = inicio + timedelta(days=quantidade_dias - 1)
@@ -772,7 +780,7 @@ async def obter_reincidencia(
         )
         nomes = (
             await buscar_nomes_funcionarios(unidades[unidade], inicio, fim)
-            if codigos
+            if codigos and not gravado
             else {}
         )
         return agregar_reincidencia(

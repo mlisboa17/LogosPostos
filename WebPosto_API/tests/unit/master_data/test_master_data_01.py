@@ -330,7 +330,7 @@ def test_20_nenhuma_chamada_externa_nos_testes(service, monkeypatch):
     monkeypatch.setattr(socket, "create_connection", bloqueio_conexao)
 
     # Executa operações locais com segurança total
-    emp = service.resolver_empresa(74014)
+    emp = service.resolver_empresa(5555)
     assert emp.sucesso
     plano = service.resolver_plano_contas(29021)
     assert plano.sucesso

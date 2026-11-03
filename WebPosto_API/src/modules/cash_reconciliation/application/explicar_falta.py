@@ -7,7 +7,7 @@ from ..domain.models import Unidade
 from .resumo_diario import identificar_caixa, moeda_br
 
 
-def explicar_falta(registro: ResultadoDiario, unidade: Unidade, nomes=None) -> tuple[ExplicacaoCaixa, ...]:
+def explicar_falta(registro: ResultadoDiario, unidade: Unidade | None, nomes=None) -> tuple[ExplicacaoCaixa, ...]:
     caixas = [a.caixa for a in registro.fechamento.caixas] if registro.fechamento else []
     partes = {p.referencia: p for p in registro.partes_falta}
     for adq in registro.recebimentos.adquirentes:
@@ -67,8 +67,9 @@ def explicar_falta(registro: ResultadoDiario, unidade: Unidade, nomes=None) -> t
         if not falta:
             continue
         cx = auditoria.caixa
-        rotulo = identificar_caixa(unidade.apelido or unidade.nome, cx, caixas, nomes, curto=True)
-        rotulo_sem_nomes = identificar_caixa(unidade.apelido or unidade.nome, cx, caixas, curto=True)
+        nome_unidade = (unidade.apelido or unidade.nome) if unidade else f"Empresa {registro.empresa_codigo}"
+        rotulo = identificar_caixa(nome_unidade, cx, caixas, nomes, curto=True)
+        rotulo_sem_nomes = identificar_caixa(nome_unidade, cx, caixas, curto=True)
         evidencias = tuple(
             p.model_copy(update={"correcao": p.correcao.replace(rotulo_sem_nomes, rotulo)})
             for p in partes.values() if p.caixa_codigo == cx.codigo
