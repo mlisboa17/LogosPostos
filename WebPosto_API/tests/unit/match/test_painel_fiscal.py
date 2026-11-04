@@ -147,3 +147,18 @@ def test_aprovar_pacote_pela_tela(cli, cenario, con, monkeypatch):
     assert "Pacote enviado." in r.text and len(enviados) == 1
     r = cli.post(f"/pacotes/{pid}/reenviar", data={"csrf": csrf})
     assert r.status_code == 200 and len(enviados) == 2
+
+
+def test_zip_com_senha_vira_aviso_e_nao_erro(cli, cenario, monkeypatch):
+    csrf = _logar(cli, "admin")
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("protegida.xml", b"<x/>")
+
+    def recusa(self, nome, pwd=None):
+        raise RuntimeError("File is encrypted, password required for extraction")
+
+    monkeypatch.setattr(zipfile.ZipFile, "read", recusa)
+    r = _importar(cli, csrf, cenario["e1"], "senha.zip", buf.getvalue())
+    assert r.status_code == 200
+    assert "protegida.xml (protegido por senha ou compactação não suportada)" in r.text

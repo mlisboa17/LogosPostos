@@ -136,7 +136,8 @@ async def notas_planilha(ctx: Ctx = Depends(_ctx), empresa_id: int = 0, competen
         raise Recusado(400, "Competência inválida.")
     from apps.match.fiscal import planilha
     destino = caminhos.pacotes() / "planilhas" / f"Resumo_{empresa_id}_{competencia}.xlsx"
-    planilha.gerar_planilha(ctx.con, empresa_id, competencia, destino)
+    await run_in_threadpool(_com_conexao, ctx.request.app.state.con_factory,
+                            lambda con: planilha.gerar_planilha(con, empresa_id, competencia, destino))
     return FileResponse(destino, filename=destino.name)
 
 
@@ -306,10 +307,37 @@ def _xmls_do_upload(nome: str, bruto: bytes, recusados: list[str]) -> list[tuple
                 if total > MAX_UPLOAD:
                     recusados.append(f"{nome} (conteúdo grande demais)")
                     return saida
-                saida.append((info.filename, z.read(info)))
+                try:
+                    saida.append((info.filename, z.read(info)))
+                except (RuntimeError, NotImplementedError, zipfile.BadZipFile):
+                    recusados.append(f"{info.filename} (protegido por senha ou compactação não suportada)")
     except zipfile.BadZipFile:
         recusados.append(nome)
     return saida
+
+
+def _processar_importacao(con, empresa_id: int, uploads: list[tuple[str, bytes]],
+                          recusados: list[str]) -> tuple[int, int]:
+    """Lê, confere o CNPJ e grava cada nota. Roda numa thread com conexão própria."""
+    empresa = repo.obter_empresa(con, empresa_id)
+    base = caminhos.fiscal(con)
+    novas = existentes = 0
+    for nome_arquivo, bruto in uploads:
+        for nome, xml in _xmls_do_upload(nome_arquivo, bruto, recusados):
+            try:
+                doc = ler(xml)
+            except XmlInvalido:
+                recusados.append(nome)
+                continue
+            if repo.so_digitos(doc.destinatario_cnpj) != empresa["cnpj"]:
+                recusados.append(f"{nome} (nota de outro CNPJ: {doc.destinatario_cnpj or 'sem destinatário'})")
+                continue
+            caminho = acervo.gravar(base, empresa["cnpj"], doc, xml, "importado")
+            if repo.gravar_documento(con, empresa_id, doc, caminho, hashlib.sha256(xml).hexdigest(), "importado"):
+                novas += 1
+            else:
+                existentes += 1
+    return novas, existentes
 
 
 @router.get("/importar")
@@ -322,10 +350,8 @@ async def importar_form(ctx: Ctx = Depends(_ctx)):
 async def importar(ctx: Ctx = Depends(_ctx_post)):
     ctx.exigir(Acao.VER_FISCAL)
     empresa_id = _exigir_empresa(ctx, _int(ctx.form, "empresa_id"))
-    empresa = repo.obter_empresa(ctx.con, empresa_id)
-    base = caminhos.fiscal(ctx.con)
-    novas = existentes = 0
     recusados: list[str] = []
+    uploads: list[tuple[str, bytes]] = []
     for arquivo in ctx.form.getlist("arquivos"):
         if isinstance(arquivo, str):
             continue
@@ -333,21 +359,10 @@ async def importar(ctx: Ctx = Depends(_ctx_post)):
         if len(bruto) > MAX_UPLOAD:
             recusados.append(f"{arquivo.filename} (maior que 50 MB)")
             continue
-        for nome, xml in _xmls_do_upload(arquivo.filename or "arquivo", bruto, recusados):
-            try:
-                doc = ler(xml)
-            except XmlInvalido:
-                recusados.append(nome)
-                continue
-            if repo.so_digitos(doc.destinatario_cnpj) != empresa["cnpj"]:
-                recusados.append(f"{nome} (nota de outro CNPJ: {doc.destinatario_cnpj or 'sem destinatário'})")
-                continue
-            caminho = acervo.gravar(base, empresa["cnpj"], doc, xml, "importado")
-            if repo.gravar_documento(ctx.con, empresa_id, doc, caminho, hashlib.sha256(xml).hexdigest(),
-                                     "importado"):
-                novas += 1
-            else:
-                existentes += 1
+        uploads.append((arquivo.filename or "arquivo", bruto))
+    fabrica = ctx.request.app.state.con_factory  # sqlite3: conexão própria na thread
+    novas, existentes = await run_in_threadpool(
+        _com_conexao, fabrica, lambda con: _processar_importacao(con, empresa_id, uploads, recusados))
     acesso.registrar(ctx.con, ctx.uid, "importar_notas", f"empresa={empresa_id} novas={novas}")
     resumo = (f"{novas} notas importadas, {existentes} já {'existia' if existentes == 1 else 'existiam'}, "
               f"{len(recusados)} não reconhecidas.")

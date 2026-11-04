@@ -100,9 +100,8 @@ ALTER TABLE instalacao ADD COLUMN pasta_rede TEXT;
 """
 
 # v5: módulo Notas Fiscais + perfil contabilidade. O CHECK de usuario.perfil só muda recriando a
-# tabela; FKs desligadas durante a troca (executescript roda fora de transação).
+# tabela (FKs desligadas por _migrar durante a troca).
 _SCHEMA_V5 = """
-PRAGMA foreign_keys=OFF;
 CREATE TABLE usuario_novo (
     id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT NOT NULL, login TEXT NOT NULL UNIQUE,
     senha_hash TEXT NOT NULL,
@@ -113,7 +112,6 @@ INSERT INTO usuario_novo SELECT id, nome, login, senha_hash, perfil, ativo, cria
     ultimo_acesso_em, tentativas_falhas, bloqueado_ate FROM usuario;
 DROP TABLE usuario;
 ALTER TABLE usuario_novo RENAME TO usuario;
-PRAGMA foreign_keys=ON;
 CREATE TABLE empresa (
     id INTEGER PRIMARY KEY AUTOINCREMENT, cnpj TEXT NOT NULL UNIQUE, razao_social TEXT NOT NULL,
     apelido TEXT, municipio TEXT, uf TEXT, posto_id INTEGER REFERENCES posto(id),
@@ -278,13 +276,31 @@ def _agora() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _aplicar(con: sqlite3.Connection, versao: int, sql: str) -> None:
+    """Uma migração é tudo ou nada: queda de energia no meio deixa o banco na versão anterior.
+
+    FKs ficam desligadas durante a troca (recriar tabela referenciada) e são conferidas no fim.
+    """
+    con.commit()
+    con.execute("PRAGMA foreign_keys=OFF")
+    try:
+        con.executescript(f"BEGIN;\n{sql}\nINSERT INTO schema_version(version) VALUES ({int(versao)});\nCOMMIT;")
+    except sqlite3.Error:
+        if con.in_transaction:
+            con.rollback()
+        raise
+    finally:
+        con.execute("PRAGMA foreign_keys=ON")
+    if con.execute("PRAGMA foreign_key_check").fetchone() is not None:
+        raise sqlite3.IntegrityError(f"migração {versao} deixou referências quebradas")
+
+
 def _migrar(con: sqlite3.Connection) -> None:
     con.execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY)")
     atual = con.execute("SELECT COALESCE(MAX(version), 0) FROM schema_version").fetchone()[0]
     for versao, sql in _MIGRACOES:
         if versao > atual:
-            con.executescript(sql)
-            con.execute("INSERT INTO schema_version(version) VALUES (?)", (versao,))
+            _aplicar(con, versao, sql)
     id_instalacao(con)  # garante a linha de configuração (horários da rotina)
     con.commit()
 

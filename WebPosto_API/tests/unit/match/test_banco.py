@@ -137,3 +137,29 @@ def test_migracao_3_de_banco_v2(tmp_path):
             banco.abrir_execucao(con, "invalida", None, "2026-10-17")
     finally:
         con.close()
+
+
+def test_migracao_interrompida_nao_quebra_o_banco(tmp_path, monkeypatch):
+    """Queda no meio da v5 (simulada por SQL inválido no fim) não pode deixar o banco sem abrir."""
+    import sqlite3
+    caminho = tmp_path / "v4.db"
+    raw = sqlite3.connect(str(caminho))
+    raw.execute("CREATE TABLE schema_version (version INTEGER PRIMARY KEY)")
+    raw.executescript(banco._SCHEMA_V1 + banco._SCHEMA_V2 + banco._SCHEMA_V3 + banco._SCHEMA_V4)
+    raw.executemany("INSERT INTO schema_version(version) VALUES (?)", [(1,), (2,), (3,), (4,)])
+    raw.execute("INSERT INTO usuario(nome, login, senha_hash, perfil, criado_em) "
+                "VALUES ('Adm', 'adm', 'h', 'administrador', 'x')")
+    raw.commit()
+    raw.close()
+    originais = list(banco._MIGRACOES)
+    monkeypatch.setattr(banco, "_MIGRACOES", originais[:4] + [(5, banco._SCHEMA_V5 + "\nISTO NAO E SQL;")])
+    with pytest.raises(sqlite3.Error):
+        banco.conectar(caminho)
+    monkeypatch.setattr(banco, "_MIGRACOES", originais)
+    con = banco.conectar(caminho)
+    try:
+        assert con.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == originais[-1][0]
+        assert con.execute("SELECT login FROM usuario").fetchone()[0] == "adm"
+        assert con.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+    finally:
+        con.close()
