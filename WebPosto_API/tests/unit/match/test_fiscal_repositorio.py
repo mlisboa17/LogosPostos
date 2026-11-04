@@ -30,7 +30,7 @@ def _doc(nome):
 
 
 def test_banco_novo_na_versao_5(con):
-    assert con.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 9
+    assert con.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == banco._MIGRACOES[-1][0]
 
 
 def test_migra_v4_preserva_usuarios_e_aceita_contabilidade(tmp_path):

@@ -2,17 +2,24 @@
 {% block titulo %}Empresas{% endblock %}
 {% block conteudo %}
 <h1>Empresas (notas fiscais)</h1>
-<p class="dica">As NF-e vêm do webPosto pela chave cadastrada no posto ligado à empresa. Notas de serviço (NFS-e) entram por Importar nesta versão.</p>
+<p class="dica">As NF-e vêm do webPosto pela chave cadastrada no posto ligado à empresa. O certificado A1 é usado para buscar as notas de serviço (NFS-e) no sistema nacional; ele fica cifrado neste computador e a senha fica no cofre do Windows.</p>
 <table>
-  <thead><tr><th>Empresa</th><th>CNPJ</th><th>Município</th><th>Posto</th><th>Última captura</th><th></th></tr></thead>
+  <thead><tr><th>Empresa</th><th>CNPJ</th><th>Município</th><th>Posto</th><th>Certificado A1</th><th>Última captura</th><th></th></tr></thead>
   <tbody>
   {% for l in empresas %}
     <tr><td>{{ l.e.razao_social }}{% if l.e.apelido %} <small>({{ l.e.apelido }})</small>{% endif %}</td>
       <td>{{ l.e.cnpj }}</td><td>{{ l.e.municipio or "" }}/{{ l.e.uf or "" }}</td>
       <td>{% for p in postos %}{% if p.id == l.e.posto_id %}{{ p.apelido or p.nome }}{% endif %}{% endfor %}</td>
+      <td>{% if l.cert %}{{ "❌ vencido" if l.cert.dias_restantes < 0 else ("⚠" if l.cert.dias_restantes <= 30 else "✅") }} vale até {{ l.cert.valido_ate.strftime("%d/%m/%Y") }} ({{ l.cert.dias_restantes }} dias){% if l.cert.da_matriz %}<br><small>certificado da matriz</small>{% endif %}{% else %}— sem certificado{% endif %}
+        <form method="post" action="/empresas/{{ l.e.id }}/certificado" enctype="multipart/form-data" class="certificado">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <label>Arquivo .pfx ou .p12 <input id="cert-arquivo-{{ l.e.id }}" type="file" name="arquivo" accept=".pfx,.p12" required></label>
+          <label>Senha do certificado <input id="cert-senha-{{ l.e.id }}" type="password" name="senha" autocomplete="off" required></label>
+          <button type="submit">{{ "Trocar certificado" if l.cert else "Enviar certificado" }}</button>
+        </form></td>
       <td>{% if l.ultima %}{{ l.ultima.iniciada_em|data_hora }} · {{ {"ok": "✅", "erro": "❌", "sem_chave": "⚠ sem chave"}.get(l.ultima.situacao, l.ultima.situacao) }} {{ l.ultima.qtd_novas }} nova(s){% if l.ultima.qtd_pendentes %}, {{ l.ultima.qtd_pendentes }} sem XML{% endif %}{% if l.ultima.erro_texto %}<br><small>{{ l.ultima.erro_texto }}</small>{% endif %}{% else %}—{% endif %}</td>
       <td><form method="post" action="/empresas/{{ l.e.id }}/capturar"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit">Capturar agora</button></form></td></tr>
-  {% else %}<tr><td colspan="6">Nenhuma empresa cadastrada.</td></tr>{% endfor %}
+  {% else %}<tr><td colspan="7">Nenhuma empresa cadastrada.</td></tr>{% endfor %}
   </tbody>
 </table>
 <section class="cartao estreito">

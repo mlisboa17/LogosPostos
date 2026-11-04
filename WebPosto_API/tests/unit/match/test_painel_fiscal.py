@@ -162,3 +162,24 @@ def test_zip_com_senha_vira_aviso_e_nao_erro(cli, cenario, monkeypatch):
     r = _importar(cli, csrf, cenario["e1"], "senha.zip", buf.getvalue())
     assert r.status_code == 200
     assert "protegida.xml (protegido por senha ou compactação não suportada)" in r.text
+
+
+def test_enviar_certificado_pela_tela(cli, cenario):
+    from tests.unit.match.test_fiscal_certificados import gerar_pfx
+    csrf = _logar(cli, "admin")
+    url = f"/empresas/{cenario['e1']}/certificado"
+    pfx = gerar_pfx(f"POSTO DOZE COMERCIO:{CNPJ}")
+    errado = cli.post(url, data={"csrf": csrf, "senha": "nao-e-essa"}, files=[("arquivo", ("a.pfx", pfx))])
+    assert errado.status_code == 400 and "Senha errada" in errado.text
+    ok = cli.post(url, data={"csrf": csrf, "senha": "senha-do-teste"}, files=[("arquivo", ("a.pfx", pfx))])
+    assert ok.status_code == 200
+    assert "Certificado salvo: POSTO DOZE COMERCIO" in ok.text and "senha-do-teste" not in ok.text
+    assert "vale até" in cli.get("/empresas").text
+
+
+def test_contabilidade_nao_envia_certificado(cli, cenario):
+    from tests.unit.match.test_fiscal_certificados import gerar_pfx
+    csrf = _logar(cli, "conta")
+    r = cli.post(f"/empresas/{cenario['e1']}/certificado", data={"csrf": csrf, "senha": "senha-do-teste"},
+                 files=[("arquivo", ("a.pfx", gerar_pfx(f"X:{CNPJ}")))])
+    assert r.status_code == 403

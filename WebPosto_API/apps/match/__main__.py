@@ -169,6 +169,7 @@ def chaves_conhecidas(con) -> list[str]:
     chaves = [f"{p['id']}/{k}" for p in banco.listar_postos(con, so_ativos=False)
               for k in _CHAVES_POSTO]
     chaves += [f"canal/{c['id']}/{k}" for c in banco.listar_canais(con) for k in _CHAVES_CANAL]
+    chaves += [f"empresa/{r[0]}/a1" for r in con.execute("SELECT id FROM empresa")]  # senha do certificado A1
     return chaves
 
 

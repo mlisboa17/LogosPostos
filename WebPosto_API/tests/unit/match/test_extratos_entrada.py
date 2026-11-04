@@ -292,7 +292,7 @@ def test_migracao_6_de_banco_v5_preserva_dados(tmp_path):
 
     migrado = banco.conectar(caminho)
     try:
-        assert migrado.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 9
+        assert migrado.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == banco._MIGRACOES[-1][0]
         assert migrado.execute("SELECT nome FROM posto").fetchone()[0] == "Posto legado"
         assert migrado.execute("SELECT razao_social FROM empresa").fetchone()[0] == "Empresa"
         tabelas = {r[0] for r in migrado.execute(

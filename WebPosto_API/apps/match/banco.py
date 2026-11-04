@@ -245,9 +245,20 @@ ALTER TABLE instalacao ADD COLUMN formato_tipo_debito_confirmado TEXT
 ALTER TABLE aprovacao ADD COLUMN reproposta_em TEXT;
 """
 
+# v10: certificado A1 por empresa (arquivo cifrado com DPAPI; senha no Credential Manager).
+_SCHEMA_V10 = """
+CREATE TABLE certificado (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, empresa_id INTEGER NOT NULL REFERENCES empresa(id),
+    arquivo TEXT NOT NULL, titular TEXT NOT NULL, titular_cnpj TEXT NOT NULL, da_matriz INTEGER NOT NULL,
+    valido_de TEXT NOT NULL, valido_ate TEXT NOT NULL, impressao_digital TEXT NOT NULL,
+    ativo INTEGER NOT NULL DEFAULT 1, enviado_em TEXT NOT NULL);
+CREATE INDEX certificado_empresa ON certificado(empresa_id, ativo);
+"""
+
 _MIGRACOES = [
     (1, _SCHEMA_V1), (2, _SCHEMA_V2), (3, _SCHEMA_V3), (4, _SCHEMA_V4),
     (5, _SCHEMA_V5), (6, _SCHEMA_V6), (7, _SCHEMA_V7), (8, _SCHEMA_V8), (9, _SCHEMA_V9),
+    (10, _SCHEMA_V10),
 ]
 
 

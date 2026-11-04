@@ -16,7 +16,7 @@ from starlette.concurrency import run_in_threadpool
 
 from apps.match import acesso, banco, caminhos
 from apps.match.acesso import Acao
-from apps.match.fiscal import captura, envio_mensal, repositorio as repo
+from apps.match.fiscal import captura, certificados, envio_mensal, repositorio as repo
 from apps.match.painel.rotas import (Ctx, Recusado, _com_conexao, _ctx, _ctx_post, _em_segundo_plano, _int,
                                      _ints, _ir, _pagina, _txt)
 from src.modules.cash_reconciliation.domain.tempo import hoje
@@ -144,7 +144,8 @@ async def notas_planilha(ctx: Ctx = Depends(_ctx), empresa_id: int = 0, competen
 # ---------------------------------------------------------------- empresas
 
 def _pagina_empresas(ctx: Ctx, status: int = 200, **dados):
-    linhas = [{"e": e, "ultima": repo.ultima_captura(ctx.con, e["id"])} for e in repo.listar_empresas(ctx.con)]
+    linhas = [{"e": e, "ultima": repo.ultima_captura(ctx.con, e["id"]),
+               "cert": certificados.situacao(ctx.con, e["id"])} for e in repo.listar_empresas(ctx.con)]
     return _pagina(ctx, "fiscal_empresas.html", status, empresas=linhas, postos=banco.listar_postos(ctx.con, False),
                    **dados)
 
@@ -171,6 +172,27 @@ async def salvar_empresa(ctx: Ctx = Depends(_ctx_post)):
         return _pagina_empresas(ctx, 400, erro="Não foi possível salvar: confira se o CNPJ já está cadastrado.")
     acesso.registrar(ctx.con, ctx.uid, "salvar_empresa", cnpj)
     return _ir("/empresas")
+
+
+@router.post("/empresas/{empresa_id}/certificado")
+async def enviar_certificado(empresa_id: int, ctx: Ctx = Depends(_ctx_post)):
+    ctx.exigir(Acao.GERIR_FISCAL)
+    if repo.obter_empresa(ctx.con, empresa_id) is None:
+        raise Recusado(404, "Empresa não encontrada.")
+    arquivo, senha = ctx.form.get("arquivo"), _txt(ctx.form, "senha", cru=True)
+    if arquivo is None or isinstance(arquivo, str) or not senha:
+        return _pagina_empresas(ctx, 400, erro="Escolha o arquivo do certificado (.pfx ou .p12) e digite a senha.")
+    pfx = await arquivo.read(certificados.MAX_BYTES + 1)
+    try:
+        info = certificados.salvar(ctx.con, empresa_id, pfx, senha)
+    except certificados.CertificadoInvalido as exc:
+        return _pagina_empresas(ctx, 400, erro=str(exc))
+    finally:
+        senha = ""
+    acesso.registrar(ctx.con, ctx.uid, "enviar_certificado", f"empresa={empresa_id} cnpj={info.cnpj}")
+    matriz = " Certificado da matriz: vale para esta filial." if info.da_matriz else ""
+    return _pagina_empresas(ctx, mensagem=f"Certificado salvo: {info.titular}, vale até "
+                                          f"{info.valido_ate:%d/%m/%Y} ({info.dias_restantes} dias).{matriz}")
 
 
 @router.post("/empresas/{empresa_id}/capturar")

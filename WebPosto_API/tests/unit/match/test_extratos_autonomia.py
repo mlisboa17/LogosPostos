@@ -331,7 +331,7 @@ def test_migracao_7_para_8_preserva_dados(tmp_path):
 
     migrado = banco.conectar(caminho)
     try:
-        assert migrado.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 9
+        assert migrado.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == banco._MIGRACOES[-1][0]
         assert migrado.execute("SELECT nome FROM posto").fetchone()[0] == "Posto Legado"
         assert migrado.execute("SELECT COUNT(*) FROM autonomia").fetchone()[0] == 0
         colunas = {row["name"] for row in migrado.execute("PRAGMA table_info(autonomia)")}

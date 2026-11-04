@@ -58,3 +58,8 @@ def extratos(con) -> Path:
 
 def pacotes() -> Path:
     return _criar(raiz() / "pacotes")
+
+
+def certificados() -> Path:
+    """Certificados A1 cifrados (DPAPI do usuário). Sempre local: nunca na pasta da rede."""
+    return _criar(raiz() / "certificados")

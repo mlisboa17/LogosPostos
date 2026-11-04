@@ -578,7 +578,7 @@ def test_migracao_7_preserva_dados_de_v6(tmp_path):
 
     c = banco.conectar(caminho)
     try:
-        assert c.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 9
+        assert c.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == banco._MIGRACOES[-1][0]
         assert c.execute("SELECT nome, enviar_extratos_webposto FROM posto").fetchone()[:] == (
             "Legado", 0,
         )

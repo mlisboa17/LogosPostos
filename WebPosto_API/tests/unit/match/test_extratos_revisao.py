@@ -166,7 +166,7 @@ def test_migracao_8_para_9_preserva_dados(tmp_path, monkeypatch):
     raw.close()
     con = banco.conectar(caminho)
     try:
-        assert con.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 9
+        assert con.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == banco._MIGRACOES[-1][0]
         assert con.execute("SELECT nome FROM posto").fetchone()[0] == "Legado"
         assert banco.formato_debito(con) is None
     finally:

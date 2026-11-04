@@ -487,3 +487,16 @@ def test_cli_liberar_postos_pasta_inacessivel_sem_postos(monkeypatch, capsys, tm
         con.close()
     assert m.main(["--liberar-postos"]) == 1
     assert capsys.readouterr().out.strip() == rr.MSG_INDISPONIVEL
+
+
+def test_apagar_credenciais_inclui_senha_do_certificado(keyring_falso, capsys):
+    from apps.match import credenciais
+    from apps.match.fiscal import repositorio as repo
+    con = banco.conectar()
+    try:
+        eid = repo.salvar_empresa(con, "52308604000284", "POSTO DOZE", "doze", None, "PE", None)
+    finally:
+        con.close()
+    credenciais.salvar(f"empresa/{eid}/a1", "senha-do-pfx")
+    assert m.main(["--apagar-credenciais"]) == 0
+    assert credenciais.ler(f"empresa/{eid}/a1") is None
