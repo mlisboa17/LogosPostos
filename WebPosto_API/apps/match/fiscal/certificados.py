@@ -72,8 +72,8 @@ def _fmt(cnpj: str) -> str:
     return f"{cnpj[:2]}.{cnpj[2:5]}.{cnpj[5:8]}/{cnpj[8:12]}-{cnpj[12:]}" if len(cnpj) == 14 else cnpj
 
 
-def validar(pfx: bytes, senha: str, cnpj_empresa: str) -> tuple[InfoCertificado, str, datetime]:
-    """Confere senha, tipo (e-CNPJ), titular e validade. Devolve info, impressão digital e início."""
+def validar(pfx: bytes, senha: str, cnpj_empresa: str | None = None) -> tuple[InfoCertificado, str, datetime]:
+    """Confere senha, tipo (e-CNPJ), titular e validade. Sem `cnpj_empresa`, vale o do certificado."""
     if not pfx or len(pfx) > MAX_BYTES:
         raise CertificadoInvalido("Arquivo vazio ou grande demais para um certificado A1.")
     try:
@@ -91,6 +91,7 @@ def validar(pfx: bytes, senha: str, cnpj_empresa: str) -> tuple[InfoCertificado,
     if len(documento) == 11:
         raise CertificadoInvalido("Este é um certificado de pessoa (e-CPF). Para buscar as notas da empresa "
                                   "é preciso o certificado da empresa (e-CNPJ).")
+    cnpj_empresa = cnpj_empresa or documento
     if documento != cnpj_empresa and documento[:8] != cnpj_empresa[:8]:
         raise CertificadoInvalido(f"Este certificado é do CNPJ {_fmt(documento)}, mas a empresa é "
                                   f"{_fmt(cnpj_empresa)}. Escolha o arquivo certo.")
@@ -124,6 +125,15 @@ def salvar(con, empresa_id: int, pfx: bytes, senha: str) -> InfoCertificado:
     for nome in anteriores:  # o histórico fica no banco; o arquivo antigo não serve mais
         (caminhos.certificados() / nome).unlink(missing_ok=True)
     return info
+
+
+def criar_empresa_pelo_certificado(con, pfx: bytes, senha: str) -> tuple[int, InfoCertificado]:
+    """Lê CNPJ e razão social do próprio certificado; cria a empresa se ela ainda não existir."""
+    info, _, _ = validar(pfx, senha)
+    existente = repo.empresa_por_cnpj(con, info.cnpj)
+    empresa_id = existente["id"] if existente else repo.salvar_empresa(
+        con, info.cnpj, info.titular, None, None, None, None)
+    return empresa_id, salvar(con, empresa_id, pfx, senha)
 
 
 def situacao(con, empresa_id: int) -> InfoCertificado | None:

@@ -6,7 +6,7 @@ import io
 import json
 import re
 import zipfile
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path, PurePosixPath
 
@@ -16,12 +16,12 @@ from starlette.concurrency import run_in_threadpool
 
 from apps.match import acesso, banco, caminhos
 from apps.match.acesso import Acao
-from apps.match.fiscal import captura, certificados, envio_mensal, repositorio as repo
+from apps.match.fiscal import captura, captura_nfse, certificados, envio_mensal, repositorio as repo
 from apps.match.painel.rotas import (Ctx, Recusado, _com_conexao, _ctx, _ctx_post, _em_segundo_plano, _int,
-                                     _ints, _ir, _pagina, _txt)
+                                     _ints, _ir, _itens_configuracao, _pagina, _txt)
 from src.modules.cash_reconciliation.domain.tempo import hoje
 from src.modules.fiscal_docs import acervo, pdf
-from src.modules.fiscal_docs.modelos import XmlInvalido
+from src.modules.fiscal_docs.modelos import FUSO, XmlInvalido
 from src.modules.fiscal_docs.parser import ler
 
 router = APIRouter()
@@ -78,7 +78,12 @@ async def notas(ctx: Ctx = Depends(_ctx), empresa_id: str = "", inicio: str = ""
         valor_max=_decimal(valor_max))
     docs = repo.buscar_documentos(ctx.con, filtro)
     total = sum((Decimal(d["valor_total"]) for d in docs), Decimal(0))
+    fim_mes_passado = hoje_.replace(day=1) - timedelta(days=1)
+    atalhos = [("Mês passado", fim_mes_passado.replace(day=1), fim_mes_passado),
+               ("Este mês", hoje_.replace(day=1), hoje_), ("Últimos 30 dias", hoje_ - timedelta(days=30), hoje_)]
     return _pagina(ctx, "fiscal_notas.html", docs=docs, total=total, empresas=repo.listar_empresas(ctx.con, visiveis),
+                   atalhos=[(n, a.isoformat(), b.isoformat()) for n, a, b in atalhos],
+                   pode_buscar=ctx.pode(Acao.GERIR_FISCAL),
                    f={"empresa_id": escolhida, "inicio": ini.isoformat(), "fim": fi.isoformat(),
                       "fornecedor": fornecedor, "tipo": tipo, "situacao": situacao, "combustivel": combustivel,
                       "valor_min": valor_min, "valor_max": valor_max},
@@ -139,6 +144,72 @@ async def notas_planilha(ctx: Ctx = Depends(_ctx), empresa_id: int = 0, competen
     await run_in_threadpool(_com_conexao, ctx.request.app.state.con_factory,
                             lambda con: planilha.gerar_planilha(con, empresa_id, competencia, destino))
     return FileResponse(destino, filename=destino.name)
+
+
+# ---------------------------------------------------------------- caminho guiado
+
+def _linha_comecar(con, e) -> dict:
+    ultima = repo.ultima_captura(con, e["id"], captura_nfse.FONTE)
+    if ultima is None:
+        resultado = "—"
+    elif ultima["situacao"] == "erro":
+        resultado = f"❌ {ultima['erro_texto']}"
+    elif ultima["qtd_novas"]:
+        resultado = f"✅ {ultima['qtd_novas']} nota(s) nova(s)."
+    else:
+        resultado = captura_nfse.MSG_NENHUMA
+    proxima = repo.nsu_de(con, e["id"])["proxima_consulta_em"]
+    if proxima and datetime.fromisoformat(proxima) > datetime.now(timezone.utc):
+        proxima = datetime.fromisoformat(proxima).astimezone(FUSO).strftime("%d/%m/%Y %H:%M")
+    else:
+        proxima = None
+    return {"e": e, "cert": certificados.situacao(con, e["id"]), "ultima": ultima, "resultado": resultado,
+            "proxima": proxima}
+
+
+def pagina_comecar(ctx: Ctx, status: int = 200, buscando: bool = False, **dados):
+    linhas = [_linha_comecar(ctx.con, e) for e in repo.listar_empresas(ctx.con)]
+    total = ctx.con.execute("SELECT COUNT(*) FROM documento WHERE tipo='nfse'").fetchone()[0]
+    return _pagina(ctx, "comecar.html", status, empresas=linhas, total_nfse=total,
+                   tem_certificado=any(l["cert"] for l in linhas),
+                   buscando=buscando or captura_nfse.em_andamento(), **dados)
+
+
+@router.get("/comecar")
+async def comecar(ctx: Ctx = Depends(_ctx), buscando: int = 0):
+    ctx.exigir(Acao.GERIR_FISCAL)
+    return pagina_comecar(ctx, buscando=bool(buscando))
+
+
+@router.post("/comecar/certificado")
+async def comecar_certificado(ctx: Ctx = Depends(_ctx_post)):
+    ctx.exigir(Acao.GERIR_FISCAL)
+    arquivo, senha = ctx.form.get("arquivo"), _txt(ctx.form, "senha", cru=True)
+    if arquivo is None or isinstance(arquivo, str) or not senha:
+        return pagina_comecar(ctx, 400, erro="Escolha o arquivo do certificado (.pfx ou .p12) e digite a senha.")
+    pfx = await arquivo.read(certificados.MAX_BYTES + 1)
+    try:
+        empresa_id, info = certificados.criar_empresa_pelo_certificado(ctx.con, pfx, senha)
+    except certificados.CertificadoInvalido as exc:
+        return pagina_comecar(ctx, 400, erro=str(exc))
+    finally:
+        senha = ""
+    acesso.registrar(ctx.con, ctx.uid, "enviar_certificado", f"empresa={empresa_id} cnpj={info.cnpj}")
+    return pagina_comecar(ctx, mensagem=f"Certificado de {info.titular} salvo, vale até "
+                                        f"{info.valido_ate:%d/%m/%Y}. Agora clique em Buscar notas de serviço.")
+
+
+@router.post("/comecar/buscar")
+async def comecar_buscar(ctx: Ctx = Depends(_ctx_post)):
+    ctx.exigir(Acao.GERIR_FISCAL)
+    _em_segundo_plano("busca-nfse", captura_nfse.buscar_todas, ctx.request.app.state.con_factory)
+    acesso.registrar(ctx.con, ctx.uid, "buscar_nfse", "")
+    return _ir("/comecar?buscando=1")
+
+
+@router.get("/configuracoes")
+async def configuracoes(ctx: Ctx = Depends(_ctx)):
+    return _pagina(ctx, "configuracoes.html", itens=_itens_configuracao(ctx))
 
 
 # ---------------------------------------------------------------- empresas

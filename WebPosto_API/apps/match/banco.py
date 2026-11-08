@@ -255,10 +255,18 @@ CREATE TABLE certificado (
 CREATE INDEX certificado_empresa ON certificado(empresa_id, ativo);
 """
 
+# v11: até onde a busca de cada empresa chegou em cada fonte (ex.: NSU do ADN).
+_SCHEMA_V11 = """
+CREATE TABLE fila_fiscal (
+    empresa_id INTEGER NOT NULL REFERENCES empresa(id), fonte TEXT NOT NULL,
+    ultimo_nsu INTEGER NOT NULL DEFAULT 0, proxima_consulta_em TEXT,
+    PRIMARY KEY (empresa_id, fonte));
+"""
+
 _MIGRACOES = [
     (1, _SCHEMA_V1), (2, _SCHEMA_V2), (3, _SCHEMA_V3), (4, _SCHEMA_V4),
     (5, _SCHEMA_V5), (6, _SCHEMA_V6), (7, _SCHEMA_V7), (8, _SCHEMA_V8), (9, _SCHEMA_V9),
-    (10, _SCHEMA_V10),
+    (10, _SCHEMA_V10), (11, _SCHEMA_V11),
 ]
 
 

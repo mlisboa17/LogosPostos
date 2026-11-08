@@ -183,3 +183,93 @@ def test_contabilidade_nao_envia_certificado(cli, cenario):
     r = cli.post(f"/empresas/{cenario['e1']}/certificado", data={"csrf": csrf, "senha": "senha-do-teste"},
                  files=[("arquivo", ("a.pfx", gerar_pfx(f"X:{CNPJ}")))])
     assert r.status_code == 403
+
+
+# ---------------------------------------------------------------- caminho guiado
+
+def _so_admin(con):
+    acesso.criar_usuario(con, "Admin", "admin", SENHA, Perfil.ADMINISTRADOR, [])
+
+
+def _entrar_admin(cli):
+    tok = _csrf(cli.get("/entrar").text)
+    assert cli.post("/entrar", data={"login": "admin", "senha": SENHA, "csrf": tok}).status_code == 303
+
+
+def test_instalacao_vazia_abre_no_passo_1(cli, con):
+    _so_admin(con)
+    _entrar_admin(cli)
+    html = cli.get("/").text
+    assert "Enviar o certificado" in html and 'action="/comecar/certificado"' in html
+    assert _csrf(html)
+
+
+def test_certificado_cria_empresa_e_libera_a_busca(cli, con):
+    from tests.unit.match.test_fiscal_certificados import gerar_pfx
+    _so_admin(con)
+    _entrar_admin(cli)
+    csrf = _csrf(cli.get("/comecar").text)
+    assert 'action="/comecar/buscar"' not in cli.get("/comecar").text
+    r = cli.post("/comecar/certificado", data={"csrf": csrf, "senha": "senha-do-teste"},
+                 files=[("arquivo", ("a.pfx", gerar_pfx(f"POSTO DOZE COMERCIO:{CNPJ}")))])
+    assert r.status_code == 200
+    assert "POSTO DOZE COMERCIO" in r.text and 'action="/comecar/buscar"' in r.text
+    assert "senha-do-teste" not in r.text
+
+
+def test_certificado_errado_explica_na_mesma_tela(cli, con):
+    from tests.unit.match.test_fiscal_certificados import gerar_pfx
+    _so_admin(con)
+    _entrar_admin(cli)
+    csrf = _csrf(cli.get("/comecar").text)
+    r = cli.post("/comecar/certificado", data={"csrf": csrf, "senha": "errada"},
+                 files=[("arquivo", ("a.pfx", gerar_pfx(f"X:{CNPJ}")))])
+    assert r.status_code == 400 and "Senha errada" in r.text
+
+
+def test_buscar_agora_roda_em_segundo_plano(cli, con, monkeypatch):
+    from apps.match.fiscal import captura_nfse
+    chamadas = []
+    monkeypatch.setattr(captura_nfse, "buscar_todas", lambda fab: chamadas.append(1))
+    _so_admin(con)
+    _entrar_admin(cli)
+    csrf = _csrf(cli.get("/comecar").text)
+    assert cli.post("/comecar/buscar", data={"csrf": csrf}).status_code == 303
+    for _ in range(50):
+        if chamadas:
+            break
+        import time
+        time.sleep(0.02)
+    assert chamadas == [1]
+
+
+def test_tela_mostra_resultado_da_ultima_busca(cli, con):
+    from tests.unit.match.test_fiscal_certificados import gerar_pfx
+    from apps.match.fiscal import captura_nfse, certificados
+    _so_admin(con)
+    _entrar_admin(cli)
+    eid, _ = certificados.criar_empresa_pelo_certificado(con, gerar_pfx(f"POSTO DOZE:{CNPJ}"), "senha-do-teste")
+    repo.registrar_captura(con, eid, "adn", "2026-11-08T12:00:00+00:00", "erro", 0, 0,
+                           captura_nfse._MSG_ERRO["certificado"])
+    assert "recusou o certificado" in cli.get("/comecar").text
+
+
+def test_notas_tem_atalhos_de_periodo_e_tela_vazia_orienta(cli, con):
+    _so_admin(con)
+    _entrar_admin(cli)
+    html = cli.get("/notas").text
+    for atalho in ("Mês passado", "Este mês", "Últimos 30 dias"):
+        assert atalho in html
+    assert 'href="/comecar"' in html and "Nenhuma nota" in html
+
+
+def test_menu_comeca_pelas_notas_e_agrupa_configuracoes(cli, con):
+    _so_admin(con)
+    _entrar_admin(cli)
+    html = cli.get("/comecar").text
+    nav = html[html.index("<nav>"):html.index("</nav>")]
+    assert nav.index('href="/comecar"') < nav.index('href="/notas"') < nav.index('href="/"')
+    assert 'href="/configuracoes"' in nav and 'href="/canais"' not in nav
+    pagina = cli.get("/configuracoes").text
+    for rota in ("/empresas", "/escritorios", "/postos", "/canais", "/agenda", "/usuarios"):
+        assert f'href="{rota}"' in pagina

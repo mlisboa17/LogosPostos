@@ -84,6 +84,16 @@ máquina são desativados e listados com o motivo. "Desligar" volta a valer só 
    Uma importação automática aguardando execução não é exibida como importada; o
    agendador retenta a execução quando ela não conseguiu iniciar.
 
+## Notas de serviço (v0.5): comece por aqui
+
+Abra **Buscar notas** no menu. São três passos:
+
+1. **Enviar o certificado:** escolha o arquivo A1 (.pfx/.p12) e digite a senha. O Match lê o CNPJ e a razão social do certificado e cria a empresa. Repita para cada CNPJ. O arquivo fica cifrado (DPAPI) e a senha fica no Credential Manager.
+2. **Buscar notas de serviço:** consulta o sistema nacional (ADN) somente para leitura. Depois disso a busca roda sozinha todo dia às 07:00. Sem nota nova, a consulta seguinte só acontece depois de 1 hora.
+3. **Ver e baixar:** em **Notas fiscais**, use os atalhos de período e baixe PDF único, XMLs ou planilha.
+
+Prefeitura que não envia ao sistema nacional: baixe o XML no portal dela e use **Importar**. Só entram notas em que a empresa é a tomadora.
+
 ## Notas fiscais (v0.3)
 
 Captura as NF-e recebidas por cada empresa e manda o pacote do mês para a contabilidade.

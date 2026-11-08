@@ -67,8 +67,9 @@ def _fiscal(nome: str, funcao) -> None:
 
 
 def _job_fiscal_captura(con_factory) -> None:
-    from apps.match.fiscal import captura
+    from apps.match.fiscal import captura, captura_nfse
     _fiscal("captura", lambda: captura.capturar_todas(con_factory, hoje()))
+    _fiscal("captura-nfse", lambda: captura_nfse.buscar_todas(con_factory))
 
 
 def _job_fiscal_pendentes(con_factory) -> None:

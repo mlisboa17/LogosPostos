@@ -25,7 +25,9 @@
     <button type="submit">Filtrar</button>
   </div>
 </form>
-<p><a href="/importar">Importar XML ou ZIP</a></p>
+<p class="atalhos">Período:
+  {% for nome, de, ate in atalhos %}<a href="/notas?inicio={{ de }}&amp;fim={{ ate }}&amp;tipo={{ f.tipo }}{% if f.empresa_id %}&amp;empresa_id={{ f.empresa_id }}{% endif %}">{{ nome }}</a>{% if not loop.last %} · {% endif %}{% endfor %}
+  &nbsp;|&nbsp; {% if pode_buscar %}<a href="/comecar">Buscar notas</a> · {% endif %}<a href="/importar">Importar XML ou ZIP</a></p>
 <form method="get" action="/notas/xml">
 <p>{{ docs|length }} nota(s) · total {{ total|dinheiro }}</p>
 <table>
@@ -41,7 +43,7 @@
       <td>{{ {"autorizada": "✅ Autorizada", "cancelada": "❌ Cancelada", "so_resumo": "⏳ Sem XML ainda"}[d.situacao] }}</td>
       <td>{{ d.cte_numero or "" }}</td>
     </tr>
-  {% else %}<tr><td colspan="9">Nenhuma nota neste filtro.</td></tr>{% endfor %}
+  {% else %}<tr><td colspan="9">Nenhuma nota neste período. {% if pode_buscar %}<a href="/comecar">Buscar notas de serviço</a> ou {% endif %}<a href="/importar">importe um XML</a>.</td></tr>{% endfor %}
   </tbody>
 </table>
 {% if docs %}

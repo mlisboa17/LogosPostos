@@ -8,7 +8,7 @@ from typing import Literal
 from apps.match import banco, coletas
 from apps.match.fiscal import repositorio as repo
 
-AVISO_NFSE = "NFS-e: nesta versão só entram as notas de serviço importadas manualmente."
+AVISO_NFSE = ("NFS-e: se alguma prefeitura não envia ao sistema nacional, as notas dela só entram por Importar.")
 _JANELA_ERRO = timedelta(days=3)
 _LIMITE_RESUMO = timedelta(hours=48)
 
@@ -27,13 +27,13 @@ def _tem_chave(con, empresa) -> bool:
 def conferir(con, empresa_id: int, competencia: str, agora: datetime) -> list[Achado]:
     empresa = repo.obter_empresa(con, empresa_id)
     achados: list[Achado] = []
-    if not _tem_chave(con, empresa):
+    if empresa["posto_id"] is not None and not _tem_chave(con, empresa):
         achados.append(Achado("retem", "Empresa sem chave do webPosto: as NF-e não estão sendo capturadas. "
                                        "Cadastre a chave em Postos."))
     erros = [c for c in repo.capturas_recentes(con, empresa_id, agora - _JANELA_ERRO) if c["situacao"] == "erro"]
     if erros:
         achados.append(Achado("retem", f"A captura das notas deu erro nos últimos 3 dias ({len(erros)} vez(es)). "
-                                       "Confira o webPosto e clique em Capturar agora."))
+                                       "Abra Buscar notas e confira a última busca."))
     docs = repo.documentos_da_competencia(con, empresa_id, competencia)
     velhos = [d for d in docs if d["situacao"] == "so_resumo"
               and datetime.fromisoformat(d["capturado_em"]) < agora - _LIMITE_RESUMO]

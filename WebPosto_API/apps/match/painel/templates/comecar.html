@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block titulo %}Buscar notas{% endblock %}
+{% block cabeca %}{% if buscando %}<meta http-equiv="refresh" content="5">{% endif %}{% endblock %}
+{% block conteudo %}
+<h1>Notas de serviço</h1>
+
+<section class="cartao passo">
+  <h2>1. Enviar o certificado <small>um para cada CNPJ</small></h2>
+  <p class="dica">Escolha o arquivo do certificado A1 e digite a senha. O Logos Match lê o CNPJ e a razão social do próprio certificado e cria a empresa. O arquivo fica cifrado neste computador.</p>
+  {% if empresas %}
+  <table>
+    <thead><tr><th>Empresa</th><th>CNPJ</th><th>Certificado</th></tr></thead>
+    <tbody>
+    {% for l in empresas %}
+      <tr><td>{{ l.e.apelido or l.e.razao_social }}</td><td>{{ l.e.cnpj }}</td>
+        <td>{% if l.cert %}{{ "❌ vencido" if l.cert.dias_restantes < 0 else ("⚠" if l.cert.dias_restantes <= 30 else "✅") }} vale até {{ l.cert.valido_ate.strftime("%d/%m/%Y") }} ({{ l.cert.dias_restantes }} dias){% else %}— falta o certificado{% endif %}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+  <form method="post" action="/comecar/certificado" enctype="multipart/form-data" class="linha">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>Arquivo .pfx ou .p12 <input id="comecar-arquivo" type="file" name="arquivo" accept=".pfx,.p12" required></label>
+    <label>Senha do certificado <input id="comecar-senha" type="password" name="senha" autocomplete="off" required></label>
+    <button type="submit">Enviar certificado</button>
+  </form>
+</section>
+
+<section class="cartao passo">
+  <h2>2. Buscar as notas <small>depois disso, todo dia às 07:00, sozinho</small></h2>
+  {% if tem_certificado %}
+    {% if buscando %}<p class="aviso alerta" role="status">Buscando no sistema nacional. Esta página atualiza sozinha.</p>{% endif %}
+    <form method="post" action="/comecar/buscar">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button type="submit"{% if buscando %} disabled{% endif %}>Buscar notas de serviço</button>
+    </form>
+    <table>
+      <thead><tr><th>Empresa</th><th>Última busca</th><th>Resultado</th></tr></thead>
+      <tbody>
+      {% for l in empresas if l.cert %}
+        <tr><td>{{ l.e.apelido or l.e.razao_social }}</td>
+          <td>{{ l.ultima.iniciada_em|data_hora if l.ultima else "ainda não buscou" }}</td>
+          <td>{{ l.resultado }}{% if l.proxima %}<br><small>Próxima consulta possível: {{ l.proxima }}</small>{% endif %}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="dica">Envie um certificado no passo 1 para liberar a busca.</p>
+  {% endif %}
+</section>
+
+<section class="cartao passo">
+  <h2>3. Ver e baixar</h2>
+  <p>{{ total_nfse }} nota(s) de serviço guardada(s).</p>
+  <p><a href="/notas?tipo=nfse">Ver as notas, baixar PDF único, XMLs e planilha</a></p>
+  <p class="dica">Alguma prefeitura não aparece? Baixe o XML no portal dela e use <a href="/importar">Importar</a>.</p>
+</section>
+{% endblock %}

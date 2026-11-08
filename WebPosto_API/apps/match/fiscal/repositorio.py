@@ -229,9 +229,9 @@ def capturas_recentes(con, empresa_id: int, desde: datetime) -> list:
                        (empresa_id, desde.isoformat())).fetchall()
 
 
-def ultima_captura(con, empresa_id: int):
-    return con.execute("SELECT * FROM captura WHERE empresa_id=? ORDER BY id DESC LIMIT 1",
-                       (empresa_id,)).fetchone()
+def ultima_captura(con, empresa_id: int, fonte: str | None = None):
+    filtro, args = (" AND fonte=?", (empresa_id, fonte)) if fonte else ("", (empresa_id,))
+    return con.execute(f"SELECT * FROM captura WHERE empresa_id=?{filtro} ORDER BY id DESC LIMIT 1", args).fetchone()
 
 
 def ultima_data_lida(con, empresa_id: int) -> date | None:
@@ -295,3 +295,26 @@ def documentos_ja_enviados(con, empresa_id: int, competencia: str, exceto: int |
         " WHERE p.empresa_id=? AND p.competencia=? AND p.id != ?"
         " AND p.situacao IN ('enviado','enviando','erro','gerado')",
         (empresa_id, competencia, exceto or -1))}
+
+
+def nsu_de(con, empresa_id: int, fonte: str = "adn") -> dict:
+    r = con.execute("SELECT ultimo_nsu, proxima_consulta_em FROM fila_fiscal WHERE empresa_id=? AND fonte=?",
+                    (empresa_id, fonte)).fetchone()
+    return dict(r) if r else {"ultimo_nsu": 0, "proxima_consulta_em": None}
+
+
+def salvar_nsu(con, empresa_id: int, nsu: int, proxima: datetime | None, fonte: str = "adn") -> None:
+    con.execute("INSERT INTO fila_fiscal(empresa_id, fonte, ultimo_nsu, proxima_consulta_em) VALUES (?,?,?,?)"
+                " ON CONFLICT(empresa_id, fonte) DO UPDATE SET ultimo_nsu=excluded.ultimo_nsu,"
+                " proxima_consulta_em=excluded.proxima_consulta_em",
+                (empresa_id, fonte, nsu, proxima.isoformat() if proxima else None))
+    con.commit()
+
+
+def marcar_cancelada(con, chave: str) -> None:
+    con.execute("UPDATE documento SET situacao='cancelada' WHERE chave=?", (chave,))
+    con.commit()
+
+
+def empresa_por_cnpj(con, cnpj: str):
+    return con.execute("SELECT * FROM empresa WHERE cnpj=?", (so_digitos(cnpj),)).fetchone()

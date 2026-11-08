@@ -231,25 +231,36 @@ def _so_fiscal(ctx: Ctx) -> bool:
     return u is not None and u["perfil"] == Perfil.CONTABILIDADE.value
 
 
-def _menu(ctx: Ctx) -> list[tuple[str, str]]:
-    fiscal = []
-    if ctx.pode(Acao.VER_FISCAL):
-        fiscal += [("/notas", "Notas fiscais"), ("/pacotes", "Pacotes")]
+def _itens_configuracao(ctx: Ctx) -> list[tuple[str, str, str]]:
+    itens = []
     if ctx.pode(Acao.GERIR_FISCAL):
-        fiscal += [("/empresas", "Empresas"), ("/escritorios", "Escritórios")]
+        itens += [("/empresas", "Empresas", "CNPJs, certificados e ligação com os postos"),
+                  ("/escritorios", "Escritórios", "Contabilidade: e-mails, dia do envio e formato")]
+    if ctx.pode(Acao.CADASTRAR_POSTO) or ctx.pode(Acao.TROCAR_CREDENCIAL):
+        itens.append(("/postos", "Postos", "Postos, Premmia, PagBank e chave do webPosto"))
+    if ctx.pode(Acao.CONFIGURAR):
+        itens += [("/canais", "Canais", "E-mail, Telegram e avisos do Windows"),
+                  ("/agenda", "Agenda", "Horários da coleta"),
+                  ("/extratos/autonomia", "Autonomia", "O que os extratos fazem sem pedir aprovação")]
+    if ctx.pode(Acao.GERIR_USUARIOS):
+        itens.append(("/usuarios", "Usuários", "Quem acessa e o que pode fazer"))
+    return itens
+
+
+def _menu(ctx: Ctx) -> list[tuple[str, str]]:
+    itens = []
+    if ctx.pode(Acao.GERIR_FISCAL):
+        itens.append(("/comecar", "Buscar notas"))
+    if ctx.pode(Acao.VER_FISCAL):
+        itens += [("/notas", "Notas fiscais"), ("/pacotes", "Pacotes")]
     if _so_fiscal(ctx):
-        return fiscal
-    itens = [("/", "Hoje"), ("/coleta", "Coleta")] + fiscal
+        return itens
+    itens += [("/", "Hoje"), ("/coleta", "Coleta")]
     if ctx.pode(Acao.VER):
         itens.append(("/extratos", "Extratos"))
-    if ctx.pode(Acao.CADASTRAR_POSTO) or ctx.pode(Acao.TROCAR_CREDENCIAL):
-        itens.append(("/postos", "Postos"))
-    if ctx.pode(Acao.CONFIGURAR):
-        itens += [("/canais", "Canais"), ("/agenda", "Agenda"),
-                  ("/extratos/autonomia", "Autonomia")]
     itens.append(("/historico", "Histórico"))
-    if ctx.pode(Acao.GERIR_USUARIOS):
-        itens.append(("/usuarios", "Usuários"))
+    if _itens_configuracao(ctx):
+        itens.append(("/configuracoes", "Configurações"))
     return itens
 
 
@@ -426,6 +437,9 @@ def _pagina_hoje(ctx: Ctx, status: int = 200, **dados):
 async def hoje(ctx: Ctx = Depends(_ctx)):
     if _so_fiscal(ctx):
         return _ir("/notas")
+    if ctx.pode(Acao.GERIR_FISCAL) and not banco.listar_postos(ctx.con, False):
+        from apps.match.painel.rotas_fiscal import pagina_comecar  # sem postos: só o caminho das notas
+        return pagina_comecar(ctx)
     return _pagina_hoje(ctx)
 
 
