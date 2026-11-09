@@ -1,0 +1,2668 @@
+{
+ "data": "2026-11-09",
+ "empresa": 74014,
+ "spec": "openapi_integracao_2026-11-09.json",
+ "resultados": [
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/APRIX_CUSTO",
+   "http_status": 500,
+   "ms": 533,
+   "estado": "erro",
+   "mensagem": "Filial não utiliza o Aprix."
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/APRIX_MOVIMENTO",
+   "http_status": 500,
+   "ms": 169,
+   "estado": "erro",
+   "mensagem": "Filial não utiliza o Aprix."
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/APRIX_PRECO_CLIENTE",
+   "http_status": 500,
+   "ms": 155,
+   "estado": "erro",
+   "mensagem": "Filial não utiliza o Aprix."
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/PEDIDO_COMBUSTIVEL/V1/CLIENTES",
+   "estado": "precisa_parametro",
+   "faltam": [
+    "cnpjCpf"
+   ]
+  },
+  {
+   "metodo": "POST",
+   "rota": "/INTEGRACAO/PEDIDO_COMBUSTIVEL/V1/PEDIDOS",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/PEDIDO_COMBUSTIVEL/V1/PEDIDOS/ENVIAR_PENDENTE/{unidade}",
+   "estado": "get_com_acao_nao_testado"
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/PEDIDO_COMBUSTIVEL/V1/PEDIDOS/STATUS",
+   "http_status": 200,
+   "ms": 191,
+   "estado": "ok",
+   "forma": "lista",
+   "quantidade": 0,
+   "campos": []
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/PEDIDO_COMBUSTIVEL/V1/PEDIDOS/{id}",
+   "estado": "precisa_parametro",
+   "faltam": [
+    "id"
+   ]
+  },
+  {
+   "metodo": "DELETE",
+   "rota": "/INTEGRACAO/PEDIDO_COMBUSTIVEL/V1/PEDIDOS/{id}",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "POST",
+   "rota": "/INTEGRACAO/PEDIDO_COMBUSTIVEL/V1/PEDIDOS/{id}/DANFE",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "POST",
+   "rota": "/INTEGRACAO/PEDIDO_COMBUSTIVEL/V1/PEDIDOS/{id}/FATURAR",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "PUT",
+   "rota": "/INTEGRACAO/PEDIDO_COMBUSTIVEL/V1/PEDIDOS/{id}/RECEBER_TITULO_EM_CARTAO",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/PEDIDO_COMBUSTIVEL/V1/PEDIDOS/{id}/XML",
+   "estado": "precisa_parametro",
+   "faltam": [
+    "id"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/PEDIDO_COMBUSTIVEL/V1/PEDIDOS/{id}/XML_DIRETO",
+   "estado": "precisa_parametro",
+   "faltam": [
+    "id"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/PEDIDO_COMBUSTIVEL/V1/PRODUTOS",
+   "http_status": 200,
+   "ms": 210,
+   "estado": "ok",
+   "forma": "lista",
+   "quantidade": 5,
+   "campos": [
+    "codProduto",
+    "descricao",
+    "referencia"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/RELATORIO/MAPA_DESEMPENHO",
+   "http_status": 500,
+   "ms": 257,
+   "estado": "erro",
+   "mensagem": "Tipo não suportado."
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/RELATORIO/PRODUTIVIDADE_FUNCIONARIO",
+   "http_status": 500,
+   "ms": 276,
+   "estado": "erro",
+   "mensagem": "Tipo não suportado."
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/RELATORIO/RELATORIO_PERSONALIZADO/{relatorioCodigo}",
+   "estado": "precisa_parametro",
+   "faltam": [
+    "relatorioCodigo"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/RELATORIO/VENDA_PERIODO",
+   "http_status": 500,
+   "ms": 378,
+   "estado": "erro",
+   "mensagem": "Tipo não suportado."
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/ABASTECIMENTOS",
+   "http_status": 200,
+   "ms": 396,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 5,
+   "campos": [
+    "abastecimentoCodigo",
+    "afericao",
+    "codigo",
+    "codigoBico",
+    "codigoFrentista",
+    "codigoProduto",
+    "dataFiscal",
+    "dataHoraAbastecimento",
+    "empresaCodigo",
+    "encerrante",
+    "horaFiscal",
+    "placa",
+    "precoCadastro",
+    "quantidade",
+    "stringFull",
+    "tabelaPrecoA",
+    "tabelaPrecoB",
+    "tabelaPrecoC",
+    "valorTotal",
+    "valorUnitario",
+    "vendaItemCodigo"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/ABASTECIMENTOS_ENCERRANTE",
+   "estado": "precisa_parametro",
+   "faltam": [
+    "encerrante"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/ADIANTAMENTOS_FORNECEDORES",
+   "http_status": 200,
+   "ms": 187,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 0,
+   "campos": []
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/ADMINISTRADORAS",
+   "http_status": 200,
+   "ms": 195,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 5,
+   "campos": [
+    "administradoraCodigo",
+    "administradoraCodigoExterno",
+    "administradoraEdi",
+    "administradoraProdutoEdi",
+    "administradoraReferencia",
+    "ativo",
+    "codigo",
+    "descricao",
+    "empresaCodigo",
+    "gestoraCodigo",
+    "percentualAntecipacao",
+    "percentualComissao",
+    "remessaIndividual",
+    "taxaTransacao",
+    "tipo",
+    "tipoEdi"
+   ]
+  },
+  {
+   "metodo": "POST",
+   "rota": "/INTEGRACAO/V1/ALTERACOES_PRECO_COMBUSTIVEL",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "DELETE",
+   "rota": "/INTEGRACAO/V1/ARQUIVOS/{id}",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "POST",
+   "rota": "/INTEGRACAO/V1/ARQUIVOS/{tipoOrigem}/{origem}",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/AUDITORIA",
+   "http_status": 400,
+   "ms": 189,
+   "estado": "erro",
+   "mensagem": "[\"Failed to convert value of type 'java.lang.String' to required type 'java.time.OffsetDateTime'; Failed to convert from type [java.lang.String] to type [@io.swagger.v3.oas.annotations.media.Schema ja"
+  },
+  {
+   "metodo": "POST",
+   "rota": "/INTEGRACAO/V1/AUTORIZAR_NFES_SAIDA/{notaCodigo}",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "POST",
+   "rota": "/INTEGRACAO/V1/AUTORIZA_PAGAMENTO_ABASTECIMENTOS",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/BICOS",
+   "http_status": 200,
+   "ms": 188,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 5,
+   "campos": [
+    "bicoCodigo",
+    "bicoNumero",
+    "bombaCodigo",
+    "codigo",
+    "empresaCodigo",
+    "produtoCodigo",
+    "produtoLmcCodigo",
+    "tanqueCodigo",
+    "ultimoUsuarioAlteracao"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/BOMBAS",
+   "http_status": 200,
+   "ms": 163,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 5,
+   "campos": [
+    "bombaCodigo",
+    "bombaReferencia",
+    "codigo",
+    "descricao",
+    "empresaCodigo",
+    "fabricante",
+    "ilha",
+    "lacres",
+    "modelo",
+    "quantidadeBicos",
+    "serie",
+    "tipoMedicaoDigital"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/BRINDES",
+   "http_status": 200,
+   "ms": 155,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 0,
+   "campos": []
+  },
+  {
+   "metodo": "POST",
+   "rota": "/INTEGRACAO/V1/BRINDES",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/CAIXAS",
+   "http_status": 200,
+   "ms": 162,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 5,
+   "campos": [
+    "abertura",
+    "apurado",
+    "bloqueado",
+    "caixaCodigo",
+    "centroCusto",
+    "codigo",
+    "consolidado",
+    "dataHoraAtualizacao",
+    "dataMovimento",
+    "diferenca",
+    "empresaCodigo",
+    "fechado",
+    "fechamento",
+    "funcionarioCodigo",
+    "pdvCodigo",
+    "tipoBloqueio",
+    "tipoInclusao",
+    "turno",
+    "turnoCodigo"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/CAIXAS_APRESENTADO",
+   "http_status": 200,
+   "ms": 165,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 5,
+   "campos": [
+    "caixaCodigo",
+    "cartaFreteApresentado",
+    "cartaFreteApurado",
+    "cartaFreteDiferenca",
+    "cartaoApresentado",
+    "cartaoApurado",
+    "cartaoDiferenca",
+    "chequeApresentado",
+    "chequeApurado",
+    "chequeDiferenca",
+    "chequePagarApresentado",
+    "chequePagarApurado",
+    "chequePagarDiferenca",
+    "chequePreApresentado",
+    "chequePreApurado",
+    "chequePreDiferenca",
+    "chequeTroco",
+    "codigo",
+    "consolidado",
+    "dataHoraAtualizacao",
+    "despesaApresentado",
+    "despesaApurado",
+    "despesaDiferenca",
+    "dinheiroApresentado",
+    "dinheiroApurado",
+    "dinheiroDiferenca",
+    "empresaCodigo",
+    "emprestimoApresentado",
+    "emprestimoApurado",
+    "emprestimoDiferenca",
+    "fundoCaixaCredito",
+    "fundoCxDebApresentado",
+    "fundoCxDebApurado",
+    "fundoCxDebDiferenca",
+    "notaPrazoApresentado",
+    "notaPrazoApurado",
+    "notaPrazoDiferenca",
+    "ordemPagamento",
+    "pagamentoCaixa",
+    "prePagApresentado",
+    "prePagApurado",
+    "prePagDiferenca",
+    "prePagoCredito",
+    "recebimentoCaixa",
+    "saidaTrocaValor",
+    "servicoCaixa",
+    "suprimentoCaixa",
+    "transfBancApresentado",
+    "transfBancApurado",
+    "transfBancDiferenca",
+    "transfDebApresentado",
+    "transfDebApurado",
+    "transfDebDiferenca",
+    "valeCliente",
+    "valeClienteApresentado",
+    "valeClienteApurado",
+    "valeClienteDiferenca",
+    "valeFunApresentado",
+    "valeFunApurado",
+    "valeFunDiferenca"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/CARTOES",
+   "http_status": 200,
+   "ms": 286,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 5,
+   "campos": [
+    "adiministradoraDescricao",
+    "administradoraCodigo",
+    "autorizacao",
+    "cartaoCodigo",
+    "centroCustoCodigo",
+    "centroCustoDescricao",
+    "clienteCpfCnpj",
+    "clienteRazao",
+    "clienteReferencia",
+    "codigo",
+    "codigoBandeira",
+    "dataFiscal",
+    "dataMovimento",
+    "dataPagamento",
+    "empresaCodigo",
+    "horaMovimento",
+    "nsu",
+    "nsuTef",
+    "parcela",
+    "pendente",
+    "taxaPercentual",
+    "tipoInclusao",
+    "valor",
+    "vencimento",
+    "vendaCodigo"
+   ]
+  },
+  {
+   "metodo": "POST",
+   "rota": "/INTEGRACAO/V1/CARTOES",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "DELETE",
+   "rota": "/INTEGRACAO/V1/CARTOES/{id}",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "PATCH",
+   "rota": "/INTEGRACAO/V1/CARTOES/{id}",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/CARTOES_CLUBGAS",
+   "estado": "precisa_parametro",
+   "faltam": [
+    "nomeTabela"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/CARTOES_COMPRA",
+   "http_status": 200,
+   "ms": 180,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 0,
+   "campos": []
+  },
+  {
+   "metodo": "POST",
+   "rota": "/INTEGRACAO/V1/CARTOES_EDI_ARQUIVO_WEBPOSTO",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/CARTOES_PAGAR",
+   "http_status": 400,
+   "ms": 145,
+   "estado": "erro",
+   "mensagem": "[\"Tipo de data não informado.\"]"
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/CARTOES_REMESSA",
+   "http_status": 200,
+   "ms": 350,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 0,
+   "campos": []
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/CENTROS_CUSTO",
+   "http_status": 200,
+   "ms": 156,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 5,
+   "campos": [
+    "centroCustoCodigo",
+    "centroCustoCodigoExterno",
+    "codigo",
+    "descricao",
+    "tipoCentroCusto"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/CHEQUES",
+   "http_status": 200,
+   "ms": 282,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 0,
+   "campos": []
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/CHEQUES_PAGAR",
+   "http_status": 400,
+   "ms": 191,
+   "estado": "erro",
+   "mensagem": "[\"Tipo de data não informado.\"]"
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/CLIENTES",
+   "http_status": 200,
+   "ms": 249,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 5,
+   "campos": [
+    "bairro",
+    "bloqueado",
+    "celular",
+    "centroCustoVeiculo",
+    "cep",
+    "cidade",
+    "clienteCodigo",
+    "clienteCodigoExterno",
+    "clienteContato",
+    "clienteGrupoCodigo",
+    "clienteReferencia",
+    "cnpjCpf",
+    "codigo",
+    "codigoCidade",
+    "complemento",
+    "dataCadastro",
+    "dataHoraAtualizacao",
+    "fantasia",
+    "faturamento",
+    "frota",
+    "inscricaoEstadual",
+    "inscricaoMunicipal",
+    "limiteLitros",
+    "limiteReais",
+    "limitesBloqueios",
+    "logradouro",
+    "numero",
+    "observacoes",
+    "outroTelefone",
+    "pais",
+    "razao",
+    "rg",
+    "telefone",
+    "tipoLogradouro",
+    "uf",
+    "ultimoUsuarioAlteracao",
+    "usaLimiteLitros",
+    "usaLimiteReais",
+    "website"
+   ]
+  },
+  {
+   "metodo": "POST",
+   "rota": "/INTEGRACAO/V1/CLIENTES",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "POST",
+   "rota": "/INTEGRACAO/V1/CLIENTES/{codigoCliente}/PRAZOS",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "PUT",
+   "rota": "/INTEGRACAO/V1/CLIENTES/{id}",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/CLIENTES_EMPRESA",
+   "http_status": 200,
+   "ms": 224,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 5,
+   "campos": [
+    "ativoInativo",
+    "clienteCodigo",
+    "codigo",
+    "empresaCodigo",
+    "usaPrazo"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/CLIENTES_FROTA",
+   "http_status": 200,
+   "ms": 245,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 5,
+   "campos": [
+    "clienteCodigo",
+    "codigo",
+    "motoristas",
+    "veiculos"
+   ]
+  },
+  {
+   "metodo": "POST",
+   "rota": "/INTEGRACAO/V1/CLIENTES_FROTA_VEICULO/{clienteCodigo}",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "PUT",
+   "rota": "/INTEGRACAO/V1/CLIENTES_FROTA_VEICULO/{clienteCodigo}/{clienteVeiculoCodigo}",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "POST",
+   "rota": "/INTEGRACAO/V1/CLIENTES_UNIDADE_NEGOCIO",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/CONSUMO_CLIENTES",
+   "estado": "precisa_parametro",
+   "faltam": [
+    "token"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/CONTAGEM_ESTOQUES",
+   "http_status": 200,
+   "ms": 145,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 0,
+   "campos": []
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/CONTAS",
+   "http_status": 200,
+   "ms": 165,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 5,
+   "campos": [
+    "ativo",
+    "codigo",
+    "contaCodigo",
+    "descricao",
+    "empresaCodigo",
+    "saldoAtual",
+    "usaOfx"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/DESPESAS_FINANCEIRO_REDE",
+   "http_status": 200,
+   "ms": 695,
+   "estado": "ok",
+   "forma": "lista",
+   "quantidade": 447,
+   "campos": [
+    "data",
+    "descricaoDocumento",
+    "empresaCodigo",
+    "planoContaGerencialCodigo",
+    "valor"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/DFE_XMLS",
+   "http_status": 400,
+   "ms": 143,
+   "estado": "erro",
+   "mensagem": "[\"Obrigatório informar o número da DANFE.\",\"Obrigatório informar o modelo da DANFE.\",\"É obrigatório informar a série do documento.\"]"
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/DRES",
+   "http_status": 200,
+   "ms": 588,
+   "estado": "ok",
+   "forma": "objeto",
+   "quantidade": null,
+   "campos": [
+    "apuracaoPagamentos",
+    "apuracaoReceita",
+    "deducaoFiscal",
+    "empresaCodigo",
+    "receitaBruta",
+    "vendasGrupo"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/DUPLICATAS",
+   "http_status": 200,
+   "ms": 242,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 0,
+   "campos": []
+  },
+  {
+   "metodo": "POST",
+   "rota": "/INTEGRACAO/V1/DUPLICATAS/{duplicataCodigo}/RECEBER",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/EMPRESAS",
+   "http_status": 200,
+   "ms": 240,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 2,
+   "campos": [
+    "bairro",
+    "centroCustoPrincipal",
+    "cep",
+    "cidade",
+    "cnpj",
+    "codigo",
+    "empresaCodigo",
+    "empresaCodigoExterno",
+    "endereco",
+    "estado",
+    "fantasia",
+    "latitude",
+    "logradouro",
+    "longitude",
+    "numero",
+    "razao",
+    "sigla",
+    "tipoImposto",
+    "tipoLogradouro",
+    "ultimoUsuarioAlteracao"
+   ]
+  },
+  {
+   "metodo": "POST",
+   "rota": "/INTEGRACAO/V1/ENVIOS_EMAIL",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "POST",
+   "rota": "/INTEGRACAO/V1/ENVIOS_WHATSAPP",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/ESTOQUES",
+   "http_status": 200,
+   "ms": 153,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 2,
+   "campos": [
+    "ativo",
+    "centroCustoCodigo",
+    "codigo",
+    "dataHoraAtualizacao",
+    "descricao",
+    "empresaCodigo",
+    "estoqueCodigo",
+    "estoqueCodigoExterno",
+    "estoquePrincipal",
+    "planoContaContabilCodigo",
+    "usuarioCodigoAlteracao",
+    "vendePdv"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/ESTOQUES_PERIODO",
+   "http_status": 200,
+   "ms": 186,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 5,
+   "campos": [
+    "codigo",
+    "codigoProduto",
+    "codigoUnidadeNegocio",
+    "dataMovimento",
+    "quatidadeEstoque"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/FINANCEIROS_EXCLUSAO",
+   "http_status": 200,
+   "ms": 191,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 12,
+   "campos": [
+    "codigo",
+    "codigoDocumentoOrigem",
+    "dataExclusao",
+    "empresaCodigo",
+    "tipo",
+    "usuarioExclusao",
+    "valor"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/FORMAS_PAGAMENTO",
+   "http_status": 200,
+   "ms": 238,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 5,
+   "campos": [
+    "codigo",
+    "diasVencimento",
+    "formaPagamentoCodigo",
+    "nome",
+    "tipo",
+    "ultimoUsuarioAlteracao"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/FORNECEDORES",
+   "http_status": 200,
+   "ms": 155,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 5,
+   "campos": [
+    "bairro",
+    "celular",
+    "cep",
+    "cidade",
+    "cnpjCpf",
+    "codigo",
+    "codigoMunicipio",
+    "complemento",
+    "contasFornecedor",
+    "contatoEmail",
+    "contatoWhatsapp",
+    "dataHoraAtualizacao",
+    "email",
+    "fantasia",
+    "fax",
+    "fornecedorCodigo",
+    "fornecedorCodigoExterno",
+    "fornecedorReferencia",
+    "inscricaoEstadual",
+    "inscricaoMunicipal",
+    "logradouro",
+    "numero",
+    "observacoes",
+    "pais",
+    "razao",
+    "telefone",
+    "tipoLogradouro",
+    "tipoPessoa",
+    "uf",
+    "ultimoUsuarioAlteracao",
+    "website"
+   ]
+  },
+  {
+   "metodo": "POST",
+   "rota": "/INTEGRACAO/V1/FORNECEDORES",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "POST",
+   "rota": "/INTEGRACAO/V1/FORNECEDORES_UNIDADE_NEGOCIO",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/FUNCIONARIOS",
+   "http_status": 200,
+   "ms": 163,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 5,
+   "campos": [
+    "admissao",
+    "ativo",
+    "celular",
+    "codigo",
+    "cpf",
+    "demissao",
+    "email",
+    "empresaCodigo",
+    "funcaoCodigo",
+    "funcionarioCodigo",
+    "funcionarioCodigoExterno",
+    "funcionarioReferencia",
+    "nome",
+    "ultimoUsuarioAlteracao"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/FUNCIONARIOS_IDENTFID",
+   "http_status": 200,
+   "ms": 244,
+   "estado": "ok",
+   "forma": "lista",
+   "quantidade": 13,
+   "campos": [
+    "funcionario",
+    "identfid"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/FUNCIONARIOS_META",
+   "http_status": 200,
+   "ms": 322,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 0,
+   "campos": []
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/FUNCOES",
+   "http_status": 200,
+   "ms": 209,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 5,
+   "campos": [
+    "codigo",
+    "funcaoCodigo",
+    "nome",
+    "ultimoUsuarioAlteracao"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/GRUPOS",
+   "http_status": 200,
+   "ms": 162,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 5,
+   "campos": [
+    "codigo",
+    "codigoTributoIcms",
+    "codigoTributoPisCofins",
+    "descricaoTributoIcms",
+    "descricaoTributoPisCofins",
+    "grupoCodigo",
+    "grupoCodigoExterno",
+    "nome",
+    "tipoGrupo",
+    "ultimoUsuarioAlteracao"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/GRUPOS_CLIENTE",
+   "http_status": 200,
+   "ms": 145,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 2,
+   "campos": [
+    "bloqueadoFinanceiroVencido",
+    "codigo",
+    "descricao",
+    "diasTolerancia",
+    "grupoCodigo",
+    "grupoCodigoExterno",
+    "limiteLitros",
+    "limiteLitrosDisponivel",
+    "limiteReais",
+    "limiteReaisDisponivel",
+    "usaLimiteLitros",
+    "usaLimiteReais"
+   ]
+  },
+  {
+   "metodo": "POST",
+   "rota": "/INTEGRACAO/V1/GRUPOS_CLIENTE",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "PUT",
+   "rota": "/INTEGRACAO/V1/GRUPOS_CLIENTE/{id}",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/GRUPOS_META",
+   "http_status": 200,
+   "ms": 212,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 0,
+   "campos": []
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/ICMS",
+   "http_status": 200,
+   "ms": 438,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 5,
+   "campos": [
+    "codigo",
+    "csonEntrada",
+    "csonSaida",
+    "cstIcmsEntrada",
+    "cstIcmsSaida",
+    "descricao",
+    "fcp",
+    "icmsEntrada",
+    "icmsSaida",
+    "mva",
+    "produtoIcmsCodigo"
+   ]
+  },
+  {
+   "metodo": "POST",
+   "rota": "/INTEGRACAO/V1/IMENDES/CORRIGIR_PRODUTOS",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/LANCAMENTOS_CONTABEIS",
+   "http_status": 200,
+   "ms": 410,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 0,
+   "campos": []
+  },
+  {
+   "metodo": "POST",
+   "rota": "/INTEGRACAO/V1/LANCAMENTOS_CONTABEIS",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/LMCS",
+   "http_status": 200,
+   "ms": 155,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 5,
+   "campos": [
+    "abertura",
+    "codigo",
+    "dataHoraAtualizacao",
+    "dataMovimento",
+    "disponivel",
+    "empresaCodigo",
+    "entrada",
+    "escritural",
+    "fechamento",
+    "lmcBico",
+    "lmcCodigo",
+    "lmcNota",
+    "lmcTanque",
+    "perdaSobra",
+    "precoCusto",
+    "produtoCodigo",
+    "produtoLmcCodigo",
+    "saida",
+    "saldo",
+    "ultimoUsuarioAlteracao"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/LMCS_REDE",
+   "http_status": 200,
+   "ms": 208,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 5,
+   "campos": [
+    "abertura",
+    "codigo",
+    "dataHoraAtualizacao",
+    "dataMovimento",
+    "disponivel",
+    "empresaCodigo",
+    "entrada",
+    "escritural",
+    "fechamento",
+    "lmcBico",
+    "lmcCodigo",
+    "lmcNota",
+    "lmcTanque",
+    "perdaSobra",
+    "precoCusto",
+    "produtoCodigo",
+    "produtoLmcCodigo",
+    "saida",
+    "saldo",
+    "ultimoUsuarioAlteracao"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/MAPAS_DESEMPENHO",
+   "http_status": 200,
+   "ms": 291,
+   "estado": "ok",
+   "forma": "lista",
+   "quantidade": 74,
+   "campos": [
+    "empresaCodigo",
+    "fatorComissao",
+    "funcionarioCodigo",
+    "funcionarioNome",
+    "grupoNome",
+    "percentualComissao",
+    "produtoCodigo",
+    "produtoNome",
+    "quantidade",
+    "quantidadeAjustada",
+    "valorAjustado",
+    "valorComissao",
+    "valorVenda"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/MOVIMENTACOES_CAIXA",
+   "http_status": 400,
+   "ms": 168,
+   "estado": "erro",
+   "mensagem": "[\"Caixa não informado.\"]"
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/MOVIMENTOS_CONTA",
+   "http_status": 200,
+   "ms": 176,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 5,
+   "campos": [
+    "centroCustoCodigo",
+    "codigo",
+    "codigoPessoa",
+    "codigoTipoDocumentoOrigem",
+    "conciliado",
+    "contaCodigo",
+    "daraHoraConciliacao",
+    "dataMovimento",
+    "descricao",
+    "documento",
+    "documentoOrigemCodigo",
+    "empresaCodigo",
+    "evento",
+    "lote",
+    "movimentoContaCodigo",
+    "planoContaGerencialCodigo",
+    "saldo",
+    "tipo",
+    "tipoDocumentoOrigem",
+    "tipoPessoa",
+    "usuarioConciliacao",
+    "valor"
+   ]
+  },
+  {
+   "metodo": "POST",
+   "rota": "/INTEGRACAO/V1/MOVIMENTOS_CONTA",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "PATCH",
+   "rota": "/INTEGRACAO/V1/MOVIMENTOS_CONTA",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/NFCES",
+   "http_status": 200,
+   "ms": 219,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 5,
+   "campos": [
+    "chaveDocumento",
+    "codigo",
+    "dataEmissao",
+    "empresaCodigo",
+    "nfceCodigo",
+    "numeroDocumento",
+    "protocoloAutorizacao",
+    "protocoloCancelamento",
+    "protocoloInutilizacao",
+    "serieDocumento",
+    "situacao",
+    "vendaCodigo"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/NFCES/{id}/XMLS",
+   "estado": "precisa_parametro",
+   "faltam": [
+    "id"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/NOTAS_ENTRADA",
+   "http_status": 200,
+   "ms": 240,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 5,
+   "campos": [
+    "bcIcms",
+    "bcIcmsSt",
+    "chaveDocumento",
+    "cnpjCpfFornecedor",
+    "codigo",
+    "compraCodigo",
+    "cteDataEmissao",
+    "cteNumero",
+    "dataEntrada",
+    "dataMovimento",
+    "desconto",
+    "empresaCodigo",
+    "fcpSt",
+    "finalidade",
+    "fornecedorCodigo",
+    "icmsDesonerado",
+    "informacaoComplementar",
+    "isento",
+    "modeloDocumento",
+    "notaEntradaCodigo",
+    "notaNumero",
+    "notaSerie",
+    "observacao",
+    "outrasDespesasAcessorias",
+    "placaReboque",
+    "placaVeiculo",
+    "seguro",
+    "tipoFrete",
+    "transportadorCodigo",
+    "usoConsumo",
+    "valorCbs",
+    "valorFrete",
+    "valorIbs",
+    "valorIcms",
+    "valorIcmsSt",
+    "valorIpi",
+    "valorIs",
+    "valorTotal",
+    "valorTotalProdutos"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/NOTAS_ENTRADA/ITENS",
+   "http_status": 200,
+   "ms": 202,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 5,
+   "campos": [
+    "aliqAdRemCbs",
+    "aliqAdRemIbs",
+    "aliqAdrem",
+    "aliqCofins",
+    "aliqDiferimento",
+    "aliqEfetivaCbs",
+    "aliqEfetivaIbs",
+    "aliqEfetivaIs",
+    "aliqFcp",
+    "aliqIcms",
+    "aliqIcmsInter",
+    "aliqIcmsUfDest",
+    "aliqIpi",
+    "aliqPis",
+    "aliqReducao",
+    "aliqfcpSt",
+    "bcCbs",
+    "bcCofins",
+    "bcFcpSt",
+    "bcIbs",
+    "bcIcms",
+    "bcIcmsUfDest",
+    "bcIs",
+    "bcPis",
+    "bcSubstituicao",
+    "cest",
+    "cfop",
+    "classificacaoTributariaCbs",
+    "classificacaoTributariaIbs",
+    "classificacaoTributariaIs",
+    "codigo",
+    "cofinsRetido",
+    "compraCodigo",
+    "csllRetido",
+    "csosn",
+    "cst",
+    "cstCbs",
+    "cstCofins",
+    "cstIbs",
+    "cstIs",
+    "cstPis",
+    "dataEntrada",
+    "dataMovimento",
+    "dataVencimento",
+    "empresaCodigo",
+    "frete",
+    "icmsDaOperacao",
+    "icmsDiferido",
+    "inssRetido",
+    "irrfRetido",
+    "ncm",
+    "notaEntradaCodigo",
+    "outrasDespesasAcessorias",
+    "pisRetido",
+    "precoCompra",
+    "precoCusto",
+    "produtoCodigo",
+    "produtoLmcCodigo",
+    "quantidade",
+    "sequencialItem",
+    "totalCompra",
+    "totalCusto",
+    "totalDesconto",
+    "unidadeCompra",
+    "valorAdRemCbs",
+    "valorAdRemIbs",
+    "valorCbs",
+    "valorCofins",
+    "valorFcp",
+    "valorFcpSt",
+    "valorIbs",
+    "valorIcms",
+    "valorIcmsProprio",
+    "valorIcmsUfDestino",
+    "valorIpi",
+    "valorIs",
+    "valorPis",
+    "valorSubstituicao"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/NOTAS_ENTRADA/XML/{chaveNfe}",
+   "estado": "precisa_parametro",
+   "faltam": [
+    "chaveNfe"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/NOTAS_MANIFESTACAO",
+   "http_status": 200,
+   "ms": 285,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 5,
+   "campos": [
+    "chaveDocumento",
+    "cnpjFornecedor",
+    "codigo",
+    "compraCodigo",
+    "dataEmissao",
+    "dataHoraRecebimento",
+    "empresaCodigo",
+    "manifestacaoCodigo",
+    "motivoManifestacao",
+    "observacaoRecebimento",
+    "protocoloManifestacao",
+    "razaoSocialFornecedor",
+    "recebido",
+    "situacaoManifestacao",
+    "tipoProduto",
+    "usuarioRecebedorCodigo",
+    "valor"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/NOTAS_SAIDA",
+   "http_status": 200,
+   "ms": 152,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 1,
+   "campos": [
+    "baseIcms",
+    "baseIcmsST",
+    "cfop",
+    "chaveDocumento",
+    "clienteCodigo",
+    "clienteCpfCnpj",
+    "codigo",
+    "dataEmissao",
+    "dataSaida",
+    "documentosVinculados",
+    "empresaCodigo",
+    "finalidade",
+    "gerouVenda",
+    "informacaoComplementar",
+    "informacaoComplementarGerada",
+    "itens",
+    "modalidadeFrete",
+    "modeloDocumento",
+    "notaCodigo",
+    "numeroDocumento",
+    "outrasDespesas",
+    "protocoloDocumento",
+    "serieDocumento",
+    "statusDocumento",
+    "tipoEmissao",
+    "totalNota",
+    "totalProdutosNota",
+    "valorCbs",
+    "valorCsllRetido",
+    "valorDesconto",
+    "valorFrete",
+    "valorIbs",
+    "valorIcms",
+    "valorIcmsST",
+    "valorIpi",
+    "valorIrrfRetido",
+    "valorIs",
+    "valorSeguro",
+    "vendasCodigo"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/NOTAS_SAIDA/XMLS",
+   "http_status": 400,
+   "ms": 234,
+   "estado": "erro",
+   "mensagem": "Quando o ID da nota não for informado, é necessário informar os parâmetros: número, série e modelo."
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/NOTAS_SAIDA_ITENS",
+   "http_status": 200,
+   "ms": 253,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 1,
+   "campos": [
+    "aliqAdRemCbs",
+    "aliqAdRemIbs",
+    "aliqCbs",
+    "aliqCofins",
+    "aliqEfetivaCbs",
+    "aliqEfetivaIbs",
+    "aliqIbs",
+    "aliqIcms",
+    "aliqIs",
+    "aliqPis",
+    "bcCbs",
+    "bcCofins",
+    "bcIbs",
+    "bcIcms",
+    "bcIs",
+    "bcPis",
+    "cfop",
+    "classTributariaCbs",
+    "classTributariaIbs",
+    "classTributariaIs",
+    "codigo",
+    "cst",
+    "cstCbs",
+    "cstCofins",
+    "cstIbs",
+    "cstIs",
+    "cstPis",
+    "desconto",
+    "empresaCodigo",
+    "estoqueCodigo",
+    "motivoDesoneracaoIcms",
+    "movimentaEstoque",
+    "notaCodigo",
+    "notaItemCodigo",
+    "outrasDespesas",
+    "produtoCodigo",
+    "produtoCodigoExterno",
+    "quantidade",
+    "redAliqCbs",
+    "redAliqIbs",
+    "tanqueCodigo",
+    "valorAdRemCbs",
+    "valorAdRemIbs",
+    "valorCbs",
+    "valorCofins",
+    "valorCusto",
+    "valorIbs",
+    "valorIcms",
+    "valorIs",
+    "valorPis",
+    "valorReducaoBaseIcms",
+    "valorTotalItem",
+    "valorUnitario"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/NOTAS_SERVICO",
+   "http_status": 200,
+   "ms": 207,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 0,
+   "campos": []
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/NOTAS_SERVICOS/ITENS",
+   "http_status": 200,
+   "ms": 201,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 0,
+   "campos": []
+  },
+  {
+   "metodo": "POST",
+   "rota": "/INTEGRACAO/V1/OFXS",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/PDVS",
+   "http_status": 200,
+   "ms": 161,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 5,
+   "campos": [
+    "ativo",
+    "codigo",
+    "empresaCodigo",
+    "pdv",
+    "pdvCodigo",
+    "pdvReferencia",
+    "tipo"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/PDVS_CONFIGURACAO",
+   "estado": "precisa_parametro",
+   "faltam": [
+    "cdPdv"
+   ]
+  },
+  {
+   "metodo": "POST",
+   "rota": "/INTEGRACAO/V1/PEDIDOS_COMPRAS",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/PEDIDOS_TRR",
+   "http_status": 200,
+   "ms": 237,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 0,
+   "campos": []
+  },
+  {
+   "metodo": "POST",
+   "rota": "/INTEGRACAO/V1/PEDIDO_COMBUSTIVEL/CLIENTES",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/PIS_COFINS",
+   "http_status": 200,
+   "ms": 160,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 5,
+   "campos": [
+    "bcCofinsEntrada",
+    "bcCofinsSaida",
+    "bcPisEntrada",
+    "bcPisSaida",
+    "codigo",
+    "cofinsEntrada",
+    "cofinsSaida",
+    "cstCofinsEntrada",
+    "cstCofinsSaida",
+    "cstPisEntrada",
+    "cstPisSaida",
+    "descricao",
+    "pisEntrada",
+    "pisSaida",
+    "produtoPisCofinsCodigo"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/PLACARES",
+   "http_status": 200,
+   "ms": 648,
+   "estado": "ok",
+   "forma": "lista",
+   "quantidade": 0,
+   "campos": []
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/PLANOS_CONTA_CONTABIL",
+   "http_status": 200,
+   "ms": 264,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 0,
+   "campos": []
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/PLANOS_CONTA_GERENCIAL",
+   "http_status": 200,
+   "ms": 159,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 5,
+   "campos": [
+    "apuraDre",
+    "codigo",
+    "descricao",
+    "hierarquia",
+    "natureza",
+    "planoContaCodigo",
+    "tipo"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/PRAZOS",
+   "http_status": 200,
+   "ms": 156,
+   "estado": "ok",
+   "forma": "lista",
+   "quantidade": 21,
+   "campos": [
+    "ativo",
+    "descricao",
+    "dias",
+    "diasBloqueio",
+    "fechamentoSemanal",
+    "formaRecebimento",
+    "perMaxTroco",
+    "prazoCodigo",
+    "prazoCodigoExterno",
+    "precoEspecial",
+    "referencia",
+    "tipoRecebimento"
+   ]
+  },
+  {
+   "metodo": "POST",
+   "rota": "/INTEGRACAO/V1/PRAZO_TABELA_PRECOS/{id}/ITENS",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "DELETE",
+   "rota": "/INTEGRACAO/V1/PRAZO_TABELA_PRECOS_ITENS/{id}",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/PRECOS_IDENTIFID",
+   "http_status": 200,
+   "ms": 156,
+   "estado": "ok",
+   "forma": "objeto",
+   "quantidade": null,
+   "campos": [
+    "cnpj",
+    "produto"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/PREMIACOES",
+   "http_status": 200,
+   "ms": 167,
+   "estado": "ok",
+   "forma": "lista",
+   "quantidade": 1,
+   "campos": [
+    "codigoPremiacao",
+    "configuracaoFatorMoeda",
+    "configuracaoPontuarMotorista",
+    "configuracaoResgateMaximo",
+    "configuracaoResgateMinimo",
+    "empresaCodigo",
+    "nomePremiacao",
+    "tempoValidoResgate",
+    "tipoPremiacao",
+    "tipoValorMinimo",
+    "valorMaximoNegativoSaldo",
+    "vincularNovosCadastros"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/PREMIACOES/MOVIMENTOS",
+   "http_status": 200,
+   "ms": 174,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 0,
+   "campos": []
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/PREMIACOES_CLIENTES",
+   "http_status": 200,
+   "ms": 163,
+   "estado": "ok",
+   "forma": "lista",
+   "quantidade": 0,
+   "campos": []
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/PRODUTOS",
+   "http_status": 200,
+   "ms": 150,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 5,
+   "campos": [
+    "ativo",
+    "cest",
+    "codigo",
+    "codigoAnp",
+    "combustivel",
+    "descricaoFabricante",
+    "grupoCodigo",
+    "misturaBioCombustivel",
+    "ncm",
+    "nome",
+    "percUfOrigemScanc",
+    "produtoCodigo",
+    "produtoCodigoBarra",
+    "produtoCodigoExterno",
+    "produtoLmcCodigo",
+    "referenciaCodigo",
+    "registraInventario",
+    "subGrupo1Codigo",
+    "subGrupo2Codigo",
+    "subGrupo3Codigo",
+    "tipoCombustivel",
+    "tipoProduto",
+    "tributacaoAdRem",
+    "unidadeCompra",
+    "unidadeVenda"
+   ]
+  },
+  {
+   "metodo": "POST",
+   "rota": "/INTEGRACAO/V1/PRODUTOS",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "PUT",
+   "rota": "/INTEGRACAO/V1/PRODUTOS/{id}",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "POST",
+   "rota": "/INTEGRACAO/V1/PRODUTOS_COMISSAO",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/PRODUTOS_EMPRESA",
+   "http_status": 200,
+   "ms": 197,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 5,
+   "campos": [
+    "ativo",
+    "codigo",
+    "empresaCodigo",
+    "estoqueMin",
+    "estoquePadrao",
+    "estoqueQtde",
+    "fatorConversao",
+    "precoCusto",
+    "precoVenda",
+    "precoVendaB",
+    "precoVendaC",
+    "produtoCodigo",
+    "produtoLmcCodigo",
+    "ultimaAlteracao",
+    "ultimoUsuarioAlteracao"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/PRODUTOS_ESTOQUES",
+   "http_status": 200,
+   "ms": 313,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 5,
+   "campos": [
+    "codigo",
+    "empresaCodigo",
+    "estoqueCodigo",
+    "produtoCodigo",
+    "saldo",
+    "saldoEstoque"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/PRODUTOS_ESTOQUE_EXTRATO",
+   "http_status": 200,
+   "ms": 342,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 4809,
+   "campos": [
+    "codigo",
+    "empresaCodigo",
+    "estoqueMaximo",
+    "estoqueMinimo",
+    "historico",
+    "precoCusto",
+    "precoVenda",
+    "produtoCodigo",
+    "saldoAtual",
+    "ultimaEntrada"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/PRODUTOS_ESTOQUE_PARADO",
+   "http_status": 200,
+   "ms": 353,
+   "estado": "ok",
+   "forma": "lista",
+   "quantidade": 8,
+   "campos": [
+    "diasSemGiro",
+    "nome",
+    "precoCusto",
+    "precoVenda",
+    "produtoCodigo",
+    "quantidadeEntrada",
+    "quantidadeVenda",
+    "saldoAtual",
+    "ultimaVenda",
+    "unidadeVenda"
+   ]
+  },
+  {
+   "metodo": "POST",
+   "rota": "/INTEGRACAO/V1/PRODUTOS_INVENTARIOS",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/PRODUTOS_LMC_LMP",
+   "http_status": 200,
+   "ms": 271,
+   "estado": "ok",
+   "forma": "lista",
+   "quantidade": 8,
+   "campos": [
+    "descricao",
+    "geraLmcLmp",
+    "produtoLmcCodigo",
+    "sequencia",
+    "tipoCombustivel"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/PRODUTOS_META",
+   "http_status": 200,
+   "ms": 210,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 0,
+   "campos": []
+  },
+  {
+   "metodo": "PUT",
+   "rota": "/INTEGRACAO/V1/REAJUSTAR_ESTOQUES_PRODUTOS_COMBUSTIVEL",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "POST",
+   "rota": "/INTEGRACAO/V1/REAJUSTAR_PRODUTOS",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "PUT",
+   "rota": "/INTEGRACAO/V1/RECEBER_CARTOES",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "PUT",
+   "rota": "/INTEGRACAO/V1/RECEBER_CHEQUES",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "PUT",
+   "rota": "/INTEGRACAO/V1/RECEBER_TITULOS",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "PUT",
+   "rota": "/INTEGRACAO/V1/RECEBER_TITULOS_CONVERTIDOS",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/RELATORIOS_PERSONALIZADOS",
+   "http_status": 200,
+   "ms": 166,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 1,
+   "campos": [
+    "codigo",
+    "descricao",
+    "filtros",
+    "relatorioCodigo"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/SANGRIAS_CAIXA",
+   "http_status": 200,
+   "ms": 244,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 5,
+   "campos": [
+    "alterada",
+    "caixaCodigo",
+    "cartaFrete",
+    "cartao",
+    "cheque",
+    "chequePre",
+    "codigo",
+    "contaCodigo",
+    "coo",
+    "dataHoraAtualizacao",
+    "dataHoraColeta",
+    "dataSangria",
+    "despesa",
+    "dinheiro",
+    "empresaCodigo",
+    "emprestimo",
+    "funcionarioCodigo",
+    "horaSangria",
+    "nota",
+    "numeroDocumento",
+    "observacao",
+    "sangriaCodigo",
+    "transferencia",
+    "usuarioCodigo",
+    "vale"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/SATS",
+   "http_status": 400,
+   "ms": 168,
+   "estado": "erro",
+   "mensagem": ""
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/SUB_GRUPOS_REDE",
+   "http_status": 200,
+   "ms": 373,
+   "estado": "ok",
+   "forma": "lista",
+   "quantidade": 30,
+   "campos": [
+    "descricao",
+    "grupoCodigo",
+    "produtoSubGrupo2",
+    "subGrupoCodigo"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/TABELA_PRECOS_PRAZO",
+   "http_status": 200,
+   "ms": 301,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 1,
+   "campos": [
+    "codigo",
+    "descricao",
+    "diasSemana",
+    "horaDia",
+    "prazoCodigo",
+    "precoEspecialItem",
+    "referencia",
+    "tabelaPrecoPrazoCodigo",
+    "validadeFinal",
+    "validadeInicial"
+   ]
+  },
+  {
+   "metodo": "PATCH",
+   "rota": "/INTEGRACAO/V1/TABELA_PRECOS_PRAZO/{id}",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/TANQUES",
+   "http_status": 200,
+   "ms": 219,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 5,
+   "campos": [
+    "capacidade",
+    "codigo",
+    "dataHoraMedidor",
+    "empresaCodigo",
+    "estoqueEscritural",
+    "lastro",
+    "nome",
+    "produtoCodigo",
+    "produtoLmcCodigo",
+    "tanqueCodigo",
+    "tanqueCodigoExterno",
+    "ultimoUsuarioAlteracao"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/TANQUE_ENTRADA",
+   "http_status": 200,
+   "ms": 256,
+   "estado": "ok",
+   "forma": "lista",
+   "quantidade": 4,
+   "campos": [
+    "dataHoraFim",
+    "dataHoraInicio",
+    "tanqueCodigo",
+    "tanqueEntradaCodigo",
+    "volumeEntrada",
+    "volumeFim",
+    "volumeInicio"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/TANQUE_MEDIDA",
+   "http_status": 200,
+   "ms": 294,
+   "estado": "ok",
+   "forma": "lista",
+   "quantidade": 4,
+   "campos": [
+    "dataMedida",
+    "horaMedida",
+    "tanqueCodigo",
+    "tanqueMedidaCodigo",
+    "volume"
+   ]
+  },
+  {
+   "metodo": "POST",
+   "rota": "/INTEGRACAO/V1/TANQUE_MEDIDA",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/TITULOS_PAGAR",
+   "http_status": 200,
+   "ms": 230,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 5,
+   "campos": [
+    "acrescimo",
+    "adiantamento",
+    "agenciaFornecedor",
+    "autorizado",
+    "bancoFornecedor",
+    "cartao",
+    "centroCustoCodigo",
+    "centroCustoDescricao",
+    "chavePixFornecedor",
+    "cheque",
+    "codigo",
+    "codigoMunicipio",
+    "codigoReceitaTributo",
+    "contaFornecedor",
+    "cpfCnpjFornecedor",
+    "dataHoraAtualizacao",
+    "dataMovimento",
+    "dataPagamento",
+    "desconto",
+    "descricao",
+    "digitoFgts",
+    "dinheiro",
+    "empresaCodigo",
+    "fornecedorCodigo",
+    "fornecedorIntermediadorCodigo",
+    "identificadorFgts",
+    "lacreConSocialFgts",
+    "linhaDigitavel",
+    "nomeFornecedor",
+    "nossoNumero",
+    "notaEntradaCodigo",
+    "numeroRemessa",
+    "numeroTitulo",
+    "observacao",
+    "pagamento",
+    "parcela",
+    "placa",
+    "planoContaGerencialCodigo",
+    "planoContaGerencialDescricao",
+    "planoContaGerencialNivel",
+    "qrCodePix",
+    "quantidadeParcelas",
+    "renavam",
+    "situacao",
+    "tipo",
+    "tipoChavePixFornecedor",
+    "tipoLancamento",
+    "tipoTributo",
+    "tituloPagarCodigo",
+    "troco",
+    "valor",
+    "valorPago",
+    "vencimento"
+   ]
+  },
+  {
+   "metodo": "POST",
+   "rota": "/INTEGRACAO/V1/TITULOS_PAGAR",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "PATCH",
+   "rota": "/INTEGRACAO/V1/TITULOS_PAGAR/PAGAR",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "DELETE",
+   "rota": "/INTEGRACAO/V1/TITULOS_PAGAR/{id}",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/TITULOS_PAGAR_UNIFICADOS",
+   "http_status": 200,
+   "ms": 168,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 0,
+   "campos": []
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/TITULOS_RECEBER",
+   "http_status": 200,
+   "ms": 371,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 2,
+   "campos": [
+    "clienteCodigo",
+    "codigo",
+    "convertido",
+    "cpfCnpjCliente",
+    "dataHoraAtualizacao",
+    "dataMovimento",
+    "dataPagamento",
+    "dataVencimento",
+    "documento",
+    "duplicataCodigo",
+    "empresaCodigo",
+    "nomeCliente",
+    "pendente",
+    "planoContaGerencialCodigo",
+    "tipo",
+    "tituloCodigo",
+    "tituloNumero",
+    "valor",
+    "vendaCodigo"
+   ]
+  },
+  {
+   "metodo": "POST",
+   "rota": "/INTEGRACAO/V1/TITULOS_RECEBER",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "POST",
+   "rota": "/INTEGRACAO/V1/TRANSFERENCIAS_BANCARIAS",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "DELETE",
+   "rota": "/INTEGRACAO/V1/TRANSFERENCIAS_BANCARIAS/{id}",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/TROCAR_PRECOS",
+   "http_status": 200,
+   "ms": 276,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 5,
+   "campos": [
+    "codigo",
+    "data",
+    "empresaCodigo",
+    "hora",
+    "precoItens",
+    "realizada",
+    "tipoAlteracao",
+    "trocaPrecoCodigo",
+    "turno"
+   ]
+  },
+  {
+   "metodo": "POST",
+   "rota": "/INTEGRACAO/V1/TROCA_PRECOS_COMBUSTIVEIS",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "POST",
+   "rota": "/INTEGRACAO/V1/TROCA_PRECOS_PRODUTOS",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/USUARIOS",
+   "http_status": 200,
+   "ms": 211,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 5,
+   "campos": [
+    "codigo",
+    "login",
+    "nome",
+    "perfil",
+    "senha",
+    "senhaExpirada",
+    "usuarioCodigo"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/USUARIOS_EMPRESA",
+   "http_status": 200,
+   "ms": 162,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 5,
+   "campos": [
+    "ativo",
+    "codigo",
+    "empresaCodigo",
+    "usuarioCodigo"
+   ]
+  },
+  {
+   "metodo": "POST",
+   "rota": "/INTEGRACAO/V1/VALES_CLIENTE",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/VALES_CLIENTES",
+   "http_status": 200,
+   "ms": 411,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 0,
+   "campos": []
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/VALES_FUNCIONARIO",
+   "http_status": 200,
+   "ms": 166,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 5,
+   "campos": [
+    "caixaCodigo",
+    "codigo",
+    "data",
+    "descricao",
+    "empresaCodigo",
+    "funcionarioCodigo",
+    "funcionarioCreditoCodigo",
+    "funcionarioReferencia",
+    "origem",
+    "quitado",
+    "turno",
+    "valor"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/VENDAS",
+   "http_status": 200,
+   "ms": 260,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 5,
+   "campos": [
+    "caixaCodigo",
+    "caixaNome",
+    "cancelada",
+    "centroCustoCodigo",
+    "centroCustoVeiculo",
+    "clienteCodigo",
+    "clienteCodigoExterno",
+    "clienteCpfCnpj",
+    "codigo",
+    "dataHora",
+    "dataHoraAtualizacao",
+    "dataHoraCancelamento",
+    "destacaAcrescimoDesconto",
+    "empresaCnpj",
+    "empresaCodigo",
+    "formaPagamento",
+    "funcionarioCodigo",
+    "funcionarioNome",
+    "funcionarioReferencia",
+    "identificacaoFidelidade",
+    "itens",
+    "justificativaCancelamento",
+    "modeloDocumento",
+    "motoristaCodigo",
+    "notaChave",
+    "notaCodigo",
+    "notaNumero",
+    "notaSerie",
+    "placaVeiculo",
+    "totalVenda",
+    "troco",
+    "vendaCodigo",
+    "vendaUuid"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/VENDAS/ITENS",
+   "http_status": 200,
+   "ms": 181,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 5,
+   "campos": [
+    "aliquotaAdRemCbs",
+    "aliquotaAdRemIbs",
+    "aliquotaCbs",
+    "aliquotaCofins",
+    "aliquotaEfetivaCbs",
+    "aliquotaEfetivaIbs",
+    "aliquotaIbs",
+    "aliquotaPis",
+    "baseCofins",
+    "basePis",
+    "bcCbs",
+    "bcIbs",
+    "bicoCodigo",
+    "cfop",
+    "classTributariaCbs",
+    "classTributariaIbs",
+    "codigo",
+    "controleItem",
+    "cst",
+    "cstCbs",
+    "cstCofins",
+    "cstIbs",
+    "cstPis",
+    "dataHoraAtualizacao",
+    "dataMovimento",
+    "empresaCodigo",
+    "funcionarioCodigo",
+    "icmsAliquota",
+    "icmsBase",
+    "icmsValor",
+    "precoCusto",
+    "precoVenda",
+    "precoVendaBruto",
+    "produtoCodigo",
+    "produtoCodigoExterno",
+    "produtoDescricao",
+    "produtoKitCodigo",
+    "produtoLmcCodigo",
+    "quantidade",
+    "tanqueCodigo",
+    "totalAcrescimo",
+    "totalAcrescimoBruto",
+    "totalCusto",
+    "totalDesconto",
+    "totalDescontoBruto",
+    "totalVenda",
+    "totalVendaBruto",
+    "tributacaoAdRem",
+    "valorAdRemCbs",
+    "valorAdRemIbs",
+    "valorCbs",
+    "valorCofins",
+    "valorIbs",
+    "valorPis",
+    "valorTributacaoAdRem",
+    "vendaCodigo",
+    "vendaItemCodigo"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/VENDAS/ITENS/FIDELIDADE",
+   "http_status": 400,
+   "ms": 180,
+   "estado": "erro",
+   "mensagem": "[\" Informe o vendaItemVoucherCodigo ou listaVendaItemCodigo.\"]"
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/VENDAS/{idList}",
+   "estado": "precisa_parametro",
+   "faltam": [
+    "idList"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/VENDAS_FORMA_PAGAMENTO",
+   "http_status": 200,
+   "ms": 229,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 5,
+   "campos": [
+    "administradoraCodigo",
+    "codigo",
+    "dataMovimento",
+    "empresaCodigo",
+    "financeiroCodigo",
+    "formaPagamentoCodigo",
+    "nomeFormaPagamento",
+    "taxaPercentual",
+    "taxaValor",
+    "tipoFormaPagamento",
+    "turnoCodigo",
+    "valorPagamento",
+    "vencimento",
+    "vendaCodigo"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/VENDAS_RESUMO",
+   "http_status": 200,
+   "ms": 322,
+   "estado": "ok",
+   "forma": "lista",
+   "quantidade": 8,
+   "campos": [
+    "codigoEmpresa",
+    "data",
+    "modelo",
+    "quantidade",
+    "total"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/VENDA_CLIENTE",
+   "http_status": 200,
+   "ms": 241,
+   "estado": "ok",
+   "forma": "lista",
+   "quantidade": 910,
+   "campos": [
+    "clienteCodigo",
+    "custoUnitarioMedio",
+    "dataVenda",
+    "empresaCodigo",
+    "precoUnitario",
+    "quantidade",
+    "valorCmv",
+    "valorItem"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/VENDA_PRODUTO",
+   "http_status": 200,
+   "ms": 310,
+   "estado": "ok",
+   "forma": "lista",
+   "quantidade": 2235,
+   "campos": [
+    "custoUnitarioMedio",
+    "dataVenda",
+    "empresaCodigo",
+    "precoUnitario",
+    "produtoCodigo",
+    "quantidade",
+    "valorCmv",
+    "valorItem"
+   ]
+  },
+  {
+   "metodo": "POST",
+   "rota": "/INTEGRACAO/V1/VERIFICAR_LANCAMENTO_CONTABIL_EXCLUIDO",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V1/WEBHOOKS",
+   "http_status": 412,
+   "ms": 168,
+   "estado": "erro",
+   "mensagem": "Para utilizar webhooks, entre em contato com o comercial."
+  },
+  {
+   "metodo": "POST",
+   "rota": "/INTEGRACAO/V1/WEBHOOKS",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "PUT",
+   "rota": "/INTEGRACAO/V1/WEBHOOKS/{id}",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "DELETE",
+   "rota": "/INTEGRACAO/V1/WEBHOOKS/{id}",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "POST",
+   "rota": "/INTEGRACAO/V2/PEDIDOS_COMPRAS",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V2/PRODUTOS_ESTOQUE_EXTRATO",
+   "http_status": 200,
+   "ms": 237,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 5,
+   "campos": [
+    "codigo",
+    "dataHoraUltimaAtualizacao",
+    "empresaCodigo",
+    "estoqueMaximo",
+    "estoqueMinimo",
+    "historicoMovimentacao",
+    "precoCusto",
+    "precoVenda",
+    "produtoCodigo",
+    "produtoEmpresaCodigo",
+    "quantidadePromocao",
+    "saldoAtual",
+    "ultimaEntrada"
+   ]
+  },
+  {
+   "metodo": "PATCH",
+   "rota": "/INTEGRACAO/V2/TITULOS_PAGAR/{id}",
+   "estado": "escrita_nao_testada"
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V2/TRANSFERENCIAS_BANCARIAS",
+   "http_status": 200,
+   "ms": 257,
+   "estado": "ok",
+   "forma": "paginado",
+   "quantidade": 5,
+   "campos": [
+    "caixaCodigo",
+    "centroCustoCodigo",
+    "clienteCodigo",
+    "codigo",
+    "contaCodigo",
+    "contaOrigem",
+    "dataMovimento",
+    "documentoReferencia",
+    "empresaCodigo",
+    "planoContaGerencialCodigo",
+    "tipoInclusao",
+    "transferenciaBancariaCodigo",
+    "valor",
+    "vendaCodigo"
+   ]
+  },
+  {
+   "metodo": "GET",
+   "rota": "/INTEGRACAO/V2/VENDAS/{idList}",
+   "estado": "precisa_parametro",
+   "faltam": [
+    "idList"
+   ]
+  }
+ ]
+}
