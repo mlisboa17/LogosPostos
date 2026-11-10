@@ -17,6 +17,7 @@
   <form method="post" action="/usuarios" class="linha">
     <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="acao" value="editar"><input type="hidden" name="id" value="{{ u.id }}">
     <label>Nome <input name="nome" value="{{ u.nome }}" required></label>
+    <label>E-mail (para recuperar a senha) <input id="usuario-email-{{ u.id }}" name="email" type="email" value="{{ u.email or '' }}" autocomplete="off"></label>
     {{ escolher_perfil(u.perfil) }}
     {{ escolher_postos(item.postos) }}
     <button type="submit">Salvar</button>
@@ -39,6 +40,7 @@
     <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="acao" value="criar">
     <label>Nome <input name="nome" required></label>
     <label>Usuário (login) <input name="login" autocomplete="off" required></label>
+    <label>E-mail (para recuperar a senha) <input id="usuario-email-novo" name="email" type="email" autocomplete="off"></label>
     <label>Senha (mínimo 8) <input name="senha" type="password" minlength="8" autocomplete="new-password" required></label>
     {{ escolher_perfil("conferente") }}
     {{ escolher_postos([]) }}

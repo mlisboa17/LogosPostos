@@ -263,10 +263,21 @@ CREATE TABLE fila_fiscal (
     PRIMARY KEY (empresa_id, fonte));
 """
 
+# v12: e-mail do usuário, código de "esqueci minha senha" e sessão lembrada ("manter conectado").
+_SCHEMA_V12 = """
+ALTER TABLE usuario ADD COLUMN email TEXT;
+CREATE TABLE recuperacao_senha (
+    usuario_id INTEGER PRIMARY KEY REFERENCES usuario(id), sal TEXT NOT NULL, codigo_hash TEXT NOT NULL,
+    expira_em TEXT NOT NULL, tentativas INTEGER NOT NULL DEFAULT 0, criado_em TEXT NOT NULL);
+CREATE TABLE sessao_lembrada (
+    token_hash TEXT PRIMARY KEY, usuario_id INTEGER NOT NULL REFERENCES usuario(id), csrf TEXT NOT NULL,
+    expira_em TEXT NOT NULL);
+"""
+
 _MIGRACOES = [
     (1, _SCHEMA_V1), (2, _SCHEMA_V2), (3, _SCHEMA_V3), (4, _SCHEMA_V4),
     (5, _SCHEMA_V5), (6, _SCHEMA_V6), (7, _SCHEMA_V7), (8, _SCHEMA_V8), (9, _SCHEMA_V9),
-    (10, _SCHEMA_V10), (11, _SCHEMA_V11),
+    (10, _SCHEMA_V10), (11, _SCHEMA_V11), (12, _SCHEMA_V12),
 ]
 
 

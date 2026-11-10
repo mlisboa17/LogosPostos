@@ -7,6 +7,7 @@ campo `csrf`. Segredos nunca são exibidos nem registrados: a tela só mostra `�
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import hmac
 import json
 import logging
@@ -18,7 +19,7 @@ import tempfile
 import threading
 import time
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 
@@ -29,7 +30,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
 from apps.match import (acesso, agendador, banco, caminhos, coletas, credenciais, explicar,
-                        registro_rede, relatorio_xlsx, rotina, unidades)
+                        recuperar_senha, registro_rede, relatorio_xlsx, rotina, unidades)
 from apps.match.acesso import Acao, Perfil
 from apps.match.canais import envio
 from apps.match.extratos import aprovacoes, autonomia, camada1, camada2, entrada, repositorio
@@ -42,6 +43,7 @@ logger = logging.getLogger(__name__)
 PASTA = Path(__file__).resolve().parent
 COOKIE, COOKIE_PRE = "lm_sessao", "lm_pre"
 EXPIRA_SEGUNDOS = 12 * 3600
+LEMBRAR_SEGUNDOS = 7 * 24 * 3600
 SEM_ACESSO = "Você não tem acesso a isto."
 FORM_EXPIRADO = "Formulário expirado ou inválido. Recarregue a página e tente de novo."
 AVISO_POSTO = "Cadastre cada posto em uma só máquina para evitar coleta duplicada."
@@ -70,28 +72,66 @@ router = APIRouter()
 
 # ---------------------------------------------------------------- sessões
 
-class Sessoes:
-    """token -> [usuario_id, último uso (monotônico), csrf]. Some ao reiniciar o app."""
+def _hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
 
-    def __init__(self):
+
+class Sessoes:
+    """token -> [usuario_id, último uso (monotônico), csrf, lembrada]. Em memória.
+
+    Com "manter conectado", a sessão também vai para o banco (só o hash do token) e volta
+    depois que o app reinicia, até 7 dias.
+    """
+
+    def __init__(self, con_factory=None):
         self._d: dict[str, list] = {}
         self._trava = threading.Lock()
+        self._fab = con_factory
 
-    def criar(self, usuario_id: int) -> str:
-        token = secrets.token_urlsafe(32)
+    def criar(self, usuario_id: int, lembrar: bool = False) -> str:
+        token, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
         with self._trava:
-            self._d[token] = [usuario_id, _relogio(), secrets.token_urlsafe(32)]
+            self._d[token] = [usuario_id, _relogio(), csrf, lembrar]
+        if lembrar and self._fab is not None:
+            expira = datetime.now(timezone.utc) + timedelta(seconds=LEMBRAR_SEGUNDOS)
+            self._no_banco("INSERT INTO sessao_lembrada VALUES (?,?,?,?)",
+                           (_hash_token(token), usuario_id, csrf, expira.isoformat()))
         return token
+
+    def _no_banco(self, sql: str, args: tuple, ler: bool = False):
+        con = self._fab()
+        try:
+            if ler:
+                return con.execute(sql, args).fetchone()
+            con.execute(sql, args)
+            con.commit()
+        finally:
+            con.close()
+
+    def _do_banco(self, token: str) -> list | None:
+        if self._fab is None:
+            return None
+        r = self._no_banco("SELECT usuario_id, csrf, expira_em FROM sessao_lembrada WHERE token_hash=?",
+                           (_hash_token(token),), ler=True)
+        if r is None or datetime.fromisoformat(r[2]) < datetime.now(timezone.utc):
+            return None
+        return [r[0], _relogio(), r[1], True]
 
     def obter(self, token: str | None) -> tuple[int, str] | None:
         if not token:
             return None
         with self._trava:
             s = self._d.get(token)
+        if s is None:
+            s = self._do_banco(token)
             if s is None:
                 return None
-            if _relogio() - s[1] > EXPIRA_SEGUNDOS:
-                del self._d[token]
+            with self._trava:
+                self._d[token] = s
+        with self._trava:
+            limite = LEMBRAR_SEGUNDOS if s[3] else EXPIRA_SEGUNDOS
+            if _relogio() - s[1] > limite:
+                self._d.pop(token, None)
                 return None
             s[1] = _relogio()
             return s[0], s[2]
@@ -99,11 +139,17 @@ class Sessoes:
     def encerrar(self, token: str | None) -> None:
         with self._trava:
             self._d.pop(token or "", None)
+        if token and self._fab is not None:
+            self._no_banco("DELETE FROM sessao_lembrada WHERE token_hash=?", (_hash_token(token),))
 
     def encerrar_usuario(self, usuario_id: int, exceto: str | None = None) -> None:
         with self._trava:
             for tok in [t for t, s in self._d.items() if s[0] == usuario_id and t != exceto]:
                 del self._d[tok]
+        if self._fab is not None:
+            manter = _hash_token(exceto) if exceto else ""
+            self._no_banco("DELETE FROM sessao_lembrada WHERE usuario_id=? AND token_hash != ?",
+                           (usuario_id, manter))
 
 
 class Redirecionar(Exception):
@@ -321,10 +367,42 @@ _TRAVA_PRIMEIRO_USO = threading.Lock()
 
 
 @router.get("/entrar")
-async def entrar_form(request: Request, con=Depends(_conexao)):
+async def entrar_form(request: Request, con=Depends(_conexao), senha_alterada: int = 0):
     if acesso.precisa_primeiro_uso(con):
         return _ir("/primeiro-uso")
-    return _publica(request, "entrar.html")
+    return _publica(request, "entrar.html",
+                    mensagem="Sua senha foi alterada. Entre com a senha nova." if senha_alterada else None)
+
+
+@router.get("/esqueci")
+async def esqueci_form(request: Request, con=Depends(_conexao)):
+    return _publica(request, "esqueci.html", disponivel=recuperar_senha.disponivel(con),
+                    msg_sem_email=recuperar_senha.MSG_SEM_EMAIL, pedido=False)
+
+
+@router.post("/esqueci")
+async def esqueci(request: Request, con=Depends(_conexao)):
+    form = await _form_publico(request)
+    login = _txt(form, "login")
+    await run_in_threadpool(_com_conexao, request.app.state.con_factory,
+                            lambda c: recuperar_senha.pedir_codigo(c, login, datetime.now(timezone.utc)))
+    return _publica(request, "esqueci.html", disponivel=True, pedido=True, login=login,
+                    mensagem=recuperar_senha.MSG_ENVIADO)
+
+
+@router.post("/esqueci/codigo")
+async def esqueci_codigo(request: Request, con=Depends(_conexao)):
+    form = await _form_publico(request)
+    login, senha = _txt(form, "login"), _txt(form, "senha", cru=True)
+    erro = "As duas senhas não são iguais." if senha != _txt(form, "senha2", cru=True) else None
+    if erro is None:
+        try:
+            uid = recuperar_senha.trocar_senha(con, login, _txt(form, "codigo"), senha, datetime.now(timezone.utc))
+            request.app.state.sessoes.encerrar_usuario(uid)
+            return _ir("/entrar?senha_alterada=1")
+        except ValueError as exc:  # mensagens próprias, em português
+            erro = str(exc)
+    return _publica(request, "esqueci.html", status=400, disponivel=True, pedido=True, login=login, erro=erro)
 
 
 @router.post("/entrar")
@@ -340,10 +418,12 @@ async def entrar(request: Request, con=Depends(_conexao)):
                              " o acesso fica bloqueado por 15 minutos.")
     sessoes: Sessoes = request.app.state.sessoes
     sessoes.encerrar(request.cookies.get(COOKIE))  # token novo a cada login
-    token = sessoes.criar(usuario["id"])
-    acesso.registrar(con, usuario["id"], "entrar", "")
+    lembrar = _txt(form, "lembrar") == "1"
+    token = sessoes.criar(usuario["id"], lembrar=lembrar)
+    acesso.registrar(con, usuario["id"], "entrar", "manter conectado" if lembrar else "")
     resp = _ir("/")
-    resp.set_cookie(COOKIE, token, httponly=True, samesite="strict", path="/")
+    resp.set_cookie(COOKIE, token, httponly=True, samesite="strict", path="/",
+                    max_age=LEMBRAR_SEGUNDOS if lembrar else None)
     resp.delete_cookie(COOKIE_PRE, path="/")
     return resp
 
@@ -1506,6 +1586,13 @@ async def usuarios_gravar(ctx: Ctx = Depends(_ctx_post)):
                 return _pagina_usuarios(ctx, 400, erro="Preencha nome e usuário.")
             uid = acesso.criar_usuario(con, nome, login, _txt(f, "senha", cru=True),
                                        Perfil(perfil), _ints(f, "postos"))
+            try:
+                acesso.definir_email(con, uid, _txt(f, "email"))
+            except ValueError:
+                con.execute("DELETE FROM usuario_posto WHERE usuario_id=?", (uid,))
+                con.execute("DELETE FROM usuario WHERE id=?", (uid,))
+                con.commit()
+                raise
             acesso.registrar(con, ctx.uid, "criar_usuario", f"usuario={uid} perfil={perfil}")
             return _ir("/usuarios")
         uid = _int(f, "id")
@@ -1516,6 +1603,7 @@ async def usuarios_gravar(ctx: Ctx = Depends(_ctx_post)):
         if acao == "editar":
             acesso.atualizar_usuario(con, uid, _txt(f, "nome") or alvo["nome"], Perfil(perfil),
                                      _ints(f, "postos"))
+            acesso.definir_email(con, uid, _txt(f, "email"))
             acesso.registrar(con, ctx.uid, "editar_usuario", f"usuario={uid} perfil={perfil}")
         elif acao in ("desativar", "ativar"):
             acesso.definir_ativo(con, uid, acao == "ativar")

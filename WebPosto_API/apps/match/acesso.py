@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import os
+import re
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from enum import Enum
@@ -242,6 +243,15 @@ def definir_ativo(con, usuario_id: int, ativo: bool) -> None:
     if not ativo:
         _exigir_outro_admin(con, usuario_id)
     con.execute("UPDATE usuario SET ativo=? WHERE id=?", (int(ativo), usuario_id))
+    con.commit()
+
+
+def definir_email(con, usuario_id: int, email: str | None) -> None:
+    """E-mail para receber o código de "esqueci minha senha". Vazio apaga."""
+    email = (email or "").strip()
+    if email and not re.fullmatch(r"[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+", email):
+        raise ValueError("E-mail inválido. Use o formato nome@empresa.com.br.")
+    con.execute("UPDATE usuario SET email=? WHERE id=?", (email or None, usuario_id))
     con.commit()
 
 

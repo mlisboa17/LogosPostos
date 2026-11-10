@@ -14,7 +14,7 @@ _CABECALHOS = {
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "no-referrer",
     "Cache-Control": "no-store",
-    "Content-Security-Policy": ("default-src 'self'; style-src 'self'; script-src 'none';"
+    "Content-Security-Policy": ("default-src 'self'; style-src 'self'; script-src 'self';"
                                 " frame-ancestors 'none'; form-action 'self'; base-uri 'none'"),
 }
 
@@ -24,7 +24,7 @@ def criar_app(con_factory, sched=None) -> FastAPI:
     app = FastAPI(title="Logos Match", docs_url=None, redoc_url=None, openapi_url=None)
     app.state.con_factory = con_factory
     app.state.sched = sched
-    app.state.sessoes = rotas.Sessoes()
+    app.state.sessoes = rotas.Sessoes(con_factory)
     app.mount("/static", StaticFiles(directory=str(rotas.PASTA / "static")), name="static")
     app.include_router(rotas.router)
     app.include_router(rotas_fiscal.router)
