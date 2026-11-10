@@ -67,3 +67,26 @@ def test_contexto_ssl_carrega_pfx_e_nao_deixa_arquivo(tmp_path, monkeypatch):
     monkeypatch.setattr("tempfile.tempdir", str(tmp_path))
     ctx = adn.contexto_ssl(gerar_pfx("X:52308604000284"), "senha-do-teste")
     assert ctx is not None and list(tmp_path.iterdir()) == []
+
+
+def test_recusa_traz_codigo_e_descricao_do_sistema_nacional():
+    corpo = {"StatusProcessamento": "REJEICAO",
+             "Erros": [{"Codigo": "E2213", "Descricao": "NSU informado inválido."}]}
+    with pytest.raises(adn.AdnErro) as exc:
+        adn.distribuir(_cliente(lambda r: httpx.Response(400, json=corpo)), 0)
+    assert exc.value.tipo == "resposta"
+    assert exc.value.detalhe == "HTTP 400 · REJEICAO · E2213 NSU informado inválido."
+
+
+def test_recusa_sem_json_mostra_o_inicio_do_texto():
+    with pytest.raises(adn.AdnErro) as exc:
+        adn.distribuir(_cliente(lambda r: httpx.Response(415, text="Unsupported Media Type\n\n")), 0)
+    assert exc.value.detalhe == "HTTP 415 · Unsupported Media Type"
+
+
+@pytest.mark.parametrize("corpo", [
+    {"StatusProcessamento": "REJEICAO", "Erros": [{"Codigo": "E2230", "Descricao": "Nenhum documento localizado."}]},
+    {"erros": [{"codigo": "E9999", "descricao": "NENHUM DOCUMENTO LOCALIZADO para o NSU"}]},
+])
+def test_400_de_nenhum_documento_e_fila_vazia(corpo):
+    assert adn.distribuir(_cliente(lambda r: httpx.Response(400, json=corpo)), 0).vazio is True

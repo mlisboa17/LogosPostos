@@ -20,7 +20,8 @@ logger = logging.getLogger(__name__)
 FONTE = "adn"
 _ESPERA_VAZIA = timedelta(hours=1)
 _ESPERA_ERRO = timedelta(minutes=15)
-_MAX_LOTES = 20
+_MAX_LOTES = 20          # modo lote: até 50 documentos por chamada
+_MAX_UNITARIOS = 200     # modo um por vez (manual oficial), por execução
 _EVENTOS_CANCELA = (b"e101101", b"e105102")  # cancelamento e cancelamento por substituição
 _TRAVA = threading.Lock()
 MSG_SEM_CERTIFICADO = "Envie o certificado desta empresa para buscar as notas de serviço."
@@ -75,8 +76,18 @@ def buscar_empresa(con, empresa_id: int, agora: datetime | None = None, *,
     try:
         http = client or adn.cliente(*credencial)
         try:
-            for _ in range(_MAX_LOTES):
-                lote = adn.distribuir(http, nsu, consulta)
+            modo_lote, erro_lote, chamadas = True, "", 0
+            while chamadas < (_MAX_LOTES if modo_lote else _MAX_UNITARIOS):
+                try:
+                    lote = adn.distribuir(http, nsu if modo_lote else nsu + 1, consulta, lote=modo_lote)
+                except adn.AdnErro as exc:
+                    if modo_lote and exc.tipo == "resposta":  # o ADN não aceitou o lote: um por vez
+                        modo_lote, erro_lote = False, exc.detalhe
+                        continue
+                    if erro_lote:
+                        exc.detalhe = f"em lote: {erro_lote}; um por vez: {exc.detalhe}"
+                    raise
+                chamadas += 1
                 if lote.vazio:
                     repo.salvar_nsu(con, empresa_id, nsu, agora + _ESPERA_VAZIA)
                     break
@@ -94,7 +105,7 @@ def buscar_empresa(con, empresa_id: int, agora: datetime | None = None, *,
                 http.close()
     except adn.AdnErro as exc:
         repo.salvar_nsu(con, empresa_id, nsu, agora + _ESPERA_ERRO)
-        msg = _MSG_ERRO[exc.tipo]
+        msg = _MSG_ERRO[exc.tipo] + (f" Resposta do sistema nacional: {exc.detalhe}." if exc.detalhe else "")
         repo.registrar_captura(con, empresa_id, FONTE, iniciada, "erro", novas, 0, msg)
         return ResultadoBusca(empresa_id, "erro", novas, msg)
     msg = f"{novas} nota(s) nova(s)." if novas else MSG_NENHUMA

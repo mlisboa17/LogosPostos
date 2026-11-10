@@ -25,10 +25,45 @@ URL_PRODUCAO = "https://adn.nfse.gov.br/contribuintes"
 FILA_VAZIA = "NENHUM_DOCUMENTO_LOCALIZADO"
 
 
+# Códigos que o ADN usa para "nenhum documento localizado" (às vezes com HTTP 400).
+_CODIGOS_FILA_VAZIA = {"E2230", "E2306", "E2040"}
+
+
 class AdnErro(RuntimeError):
-    def __init__(self, tipo: Literal["certificado", "indisponivel", "resposta"]):
+    def __init__(self, tipo: Literal["certificado", "indisponivel", "resposta"], detalhe: str = ""):
         super().__init__(tipo)
         self.tipo = tipo
+        self.detalhe = detalhe  # código e descrição devolvidos pelo ADN; nunca dados do certificado
+
+
+def _campo(d: dict, nome: str):
+    return next((v for k, v in d.items() if k.lower() == nome), None)
+
+
+def _erros(corpo: dict) -> list[tuple[str, str]]:
+    lista = _campo(corpo, "erros") or _campo(corpo, "erro") or []
+    if isinstance(lista, dict):
+        lista = [lista]
+    saida = []
+    for e in lista if isinstance(lista, list) else []:
+        if isinstance(e, dict):
+            saida.append((str(_campo(e, "codigo") or "").strip(),
+                          str(_campo(e, "descricao") or _campo(e, "mensagem") or "").strip()))
+    return saida
+
+
+def _detalhe(resp: httpx.Response, corpo: dict) -> str:
+    partes = [f"HTTP {resp.status_code}"]
+    if corpo.get("StatusProcessamento"):
+        partes.append(str(corpo["StatusProcessamento"]))
+    erros = _erros(corpo)
+    if erros:
+        partes += [" ".join(x for x in e if x) for e in erros[:3]]
+    elif not corpo:
+        texto = " ".join(resp.text.split())[:200]
+        if texto:
+            partes.append(texto)
+    return " · ".join(partes)[:400]
 
 
 @dataclass
@@ -71,9 +106,10 @@ def _xml(arquivo) -> bytes | None:
         return None
 
 
-def distribuir(client: httpx.Client, nsu: int, cnpj_consulta: str | None = None) -> LoteAdn:
-    """Até 50 documentos depois de `nsu`. Fila vazia devolve `LoteAdn(vazio=True)`."""
-    params: dict[str, str] = {"lote": "true"}
+def distribuir(client: httpx.Client, nsu: int, cnpj_consulta: str | None = None, *, lote: bool = True) -> LoteAdn:
+    """Com `lote`, até 50 documentos depois de `nsu` (forma usada por integradores).
+    Sem `lote`, o documento daquele NSU (forma do manual oficial). Fila vazia: `LoteAdn(vazio=True)`."""
+    params: dict[str, str] = {"lote": "true"} if lote else {}
     if cnpj_consulta:
         params["cnpjConsulta"] = cnpj_consulta
     try:
@@ -91,11 +127,14 @@ def distribuir(client: httpx.Client, nsu: int, cnpj_consulta: str | None = None)
         corpo = {}
     if not isinstance(corpo, dict):
         corpo = {}
-    if resp.status_code == 404 or corpo.get("StatusProcessamento") == FILA_VAZIA:
+    erros = _erros(corpo)
+    if (resp.status_code == 404 or corpo.get("StatusProcessamento") == FILA_VAZIA
+            or any(c in _CODIGOS_FILA_VAZIA or "nenhum documento" in d.lower() for c, d in erros)):
         return LoteAdn(vazio=True)
     if resp.status_code != 200 or corpo.get("StatusProcessamento") == "REJEICAO":
-        logger.warning("ADN recusou http=%s", resp.status_code)
-        raise AdnErro("resposta")
+        detalhe = _detalhe(resp, corpo)
+        logger.warning("ADN recusou: %s", detalhe)
+        raise AdnErro("resposta", detalhe)
     documentos = []
     for d in corpo.get("LoteDFe") or []:
         try:

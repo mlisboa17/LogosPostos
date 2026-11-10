@@ -130,3 +130,45 @@ def test_sem_certificado(con):
 def test_conferencia_nao_exige_webposto_de_empresa_sem_posto(con):
     eid = _empresa(con)
     assert [a for a in conferencia.conferir(con, eid, "2026-10", AGORA) if a.nivel == "retem"] == []
+
+
+def test_mensagem_de_recusa_mostra_o_motivo(con):
+    eid = _empresa(con)
+
+    def recusa(req):
+        return httpx.Response(400, json={"StatusProcessamento": "REJEICAO",
+                                         "erros": [{"codigo": "E0001", "descricao": "Parâmetro lote inválido"}]})
+
+    r = _buscar(con, eid, recusa)
+    assert r.situacao == "erro" and "E0001 Parâmetro lote inválido" in r.mensagem
+    assert "E0001" in con.execute("SELECT erro_texto FROM captura ORDER BY id DESC").fetchone()[0]
+
+
+def test_recusa_do_lote_cai_para_um_documento_por_vez(con):
+    eid = _empresa(con)
+    pedidos = []
+
+    def adn_sem_lote(req):
+        nsu = int(req.url.path.rsplit("/", 1)[-1])
+        pedidos.append((nsu, req.url.params.get("lote")))
+        if req.url.params.get("lote"):
+            return httpx.Response(400, json={"Erros": [{"Codigo": "E0010", "Descricao": "Parâmetro não permitido"}]})
+        if nsu == 1:
+            return httpx.Response(200, json={"StatusProcessamento": "DOCUMENTOS_LOCALIZADOS", "LoteDFe": [_nota(1)]})
+        return httpx.Response(404, json={"StatusProcessamento": "NENHUM_DOCUMENTO_LOCALIZADO"})
+
+    r = _buscar(con, eid, adn_sem_lote)
+    assert (r.situacao, r.novas) == ("ok", 1)
+    assert pedidos == [(0, "true"), (1, None), (2, None)]
+    assert repo.nsu_de(con, eid)["ultimo_nsu"] == 1
+
+
+def test_recusa_nos_dois_modos_mostra_os_dois_motivos(con):
+    eid = _empresa(con)
+
+    def recusa(req):
+        cod = "E0010" if req.url.params.get("lote") else "E0020"
+        return httpx.Response(400, json={"Erros": [{"Codigo": cod, "Descricao": "recusado"}]})
+
+    r = _buscar(con, eid, recusa)
+    assert r.situacao == "erro" and "E0010" in r.mensagem and "E0020" in r.mensagem
