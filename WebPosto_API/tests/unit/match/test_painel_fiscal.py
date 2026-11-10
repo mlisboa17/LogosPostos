@@ -200,7 +200,7 @@ def test_instalacao_vazia_abre_no_passo_1(cli, con):
     _so_admin(con)
     _entrar_admin(cli)
     html = cli.get("/").text
-    assert "Enviar o certificado" in html and 'action="/comecar/certificado"' in html
+    assert "Enviar o certificado de uma empresa" in html and 'href="/comecar"' in html
     assert _csrf(html)
 
 
@@ -267,8 +267,8 @@ def test_menu_comeca_pelas_notas_e_agrupa_configuracoes(cli, con):
     _so_admin(con)
     _entrar_admin(cli)
     html = cli.get("/comecar").text
-    nav = html[html.index("<nav>"):html.index("</nav>")]
-    assert nav.index('href="/comecar"') < nav.index('href="/notas"') < nav.index('href="/"')
+    nav = html[html.index("<nav"):html.index("</nav>")]
+    assert nav.index('href="/"') < nav.index('href="/comecar"') < nav.index('href="/notas"')
     assert 'href="/configuracoes"' in nav and 'href="/canais"' not in nav
     pagina = cli.get("/configuracoes").text
     for rota in ("/empresas", "/escritorios", "/postos", "/canais", "/agenda", "/usuarios"):

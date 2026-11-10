@@ -6,6 +6,7 @@ import io
 import json
 import re
 import zipfile
+from urllib.parse import urlencode
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path, PurePosixPath
@@ -68,8 +69,9 @@ async def notas(ctx: Ctx = Depends(_ctx), empresa_id: str = "", inicio: str = ""
     ctx.exigir(Acao.VER_FISCAL)
     visiveis = _empresas(ctx)
     hoje_ = hoje()
-    ini = _data(inicio) or (hoje_.replace(day=1) - timedelta(days=1)).replace(day=1)
-    fi = _data(fim) or hoje_
+    fim_mes_passado = hoje_.replace(day=1) - timedelta(days=1)
+    ini = _data(inicio) or fim_mes_passado.replace(day=1)  # padrão: mês passado, o que vai ao contador
+    fi = _data(fim) or fim_mes_passado
     escolhida = int(empresa_id) if empresa_id.isdigit() and int(empresa_id) in visiveis else None
     filtro = repo.FiltroDocs(
         empresas=[escolhida] if escolhida else visiveis, inicio=ini, fim=fi, fornecedor=fornecedor or None,
@@ -78,11 +80,20 @@ async def notas(ctx: Ctx = Depends(_ctx), empresa_id: str = "", inicio: str = ""
         valor_max=_decimal(valor_max))
     docs = repo.buscar_documentos(ctx.con, filtro)
     total = sum((Decimal(d["valor_total"]) for d in docs), Decimal(0))
-    fim_mes_passado = hoje_.replace(day=1) - timedelta(days=1)
-    atalhos = [("Mês passado", fim_mes_passado.replace(day=1), fim_mes_passado),
-               ("Este mês", hoje_.replace(day=1), hoje_), ("Últimos 30 dias", hoje_ - timedelta(days=30), hoje_)]
-    return _pagina(ctx, "fiscal_notas.html", docs=docs, total=total, empresas=repo.listar_empresas(ctx.con, visiveis),
-                   atalhos=[(n, a.isoformat(), b.isoformat()) for n, a, b in atalhos],
+    atalhos = [("Este mês", hoje_.replace(day=1), hoje_), ("Mês passado", fim_mes_passado.replace(day=1), fim_mes_passado),
+               ("Últimos 30 dias", hoje_ - timedelta(days=30), hoje_)]
+    base = {"tipo": tipo, "empresa_id": escolhida or "", "inicio": ini.isoformat(), "fim": fi.isoformat()}
+
+    def link(**troca) -> str:
+        return "/notas?" + urlencode({k: v for k, v in {**base, **troca}.items() if v not in ("", None)})
+
+    chips_periodo = [(n, link(inicio=a.isoformat(), fim=b.isoformat()), (a, b) == (ini, fi)) for n, a, b in atalhos]
+    lista_emp = repo.listar_empresas(ctx.con, visiveis)
+    chips_empresa = [("Todas as empresas", link(empresa_id=""), escolhida is None)] + [
+        (e["apelido"] or e["razao_social"], link(empresa_id=e["id"]), escolhida == e["id"]) for e in lista_emp]
+    avancados = any([fornecedor, situacao, combustivel, valor_min, valor_max])
+    return _pagina(ctx, "fiscal_notas.html", docs=docs, total=total, empresas=lista_emp,
+                   chips_periodo=chips_periodo, chips_empresa=chips_empresa, filtros_abertos=avancados,
                    pode_buscar=ctx.pode(Acao.GERIR_FISCAL),
                    f={"empresa_id": escolhida, "inicio": ini.isoformat(), "fim": fi.isoformat(),
                       "fornecedor": fornecedor, "tipo": tipo, "situacao": situacao, "combustivel": combustivel,
@@ -163,8 +174,9 @@ def _linha_comecar(con, e) -> dict:
         proxima = datetime.fromisoformat(proxima).astimezone(FUSO).strftime("%d/%m/%Y %H:%M")
     else:
         proxima = None
+    qtd = con.execute("SELECT COUNT(*) FROM documento WHERE empresa_id=? AND tipo='nfse'", (e["id"],)).fetchone()[0]
     return {"e": e, "cert": certificados.situacao(con, e["id"]), "ultima": ultima, "resultado": resultado,
-            "proxima": proxima}
+            "proxima": proxima, "qtd_notas": qtd}
 
 
 def pagina_comecar(ctx: Ctx, status: int = 200, buscando: bool = False, **dados):

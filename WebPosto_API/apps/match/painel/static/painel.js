@@ -24,4 +24,18 @@
       }
     });
   });
+  // Notas: atualiza quantidade e total do que está marcado.
+  var formNotas = document.getElementById('form-notas');
+  if (formNotas) {
+    var real = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+    var atualizar = function () {
+      var marcadas = formNotas.querySelectorAll('input[name="ids"]:checked');
+      var soma = 0;
+      marcadas.forEach(function (c) { soma += parseFloat(c.dataset.valor || '0'); });
+      var n = document.getElementById('selecionadas'), t = document.getElementById('total');
+      if (n) { n.textContent = marcadas.length; }
+      if (t) { t.textContent = real.format(soma); }
+    };
+    formNotas.addEventListener('change', atualizar);
+  }
 })();

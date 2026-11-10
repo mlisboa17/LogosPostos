@@ -8,19 +8,28 @@
 {% block cabeca %}{% endblock %}
 </head>
 <body>
+<a class="pular" href="#conteudo">Pular para o conteúdo</a>
+{% set icones = {
+  "/": '<path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
+  "/comecar": '<path d="M12 3v12m0 0-4-4m4 4 4-4M4 17v3h16v-3"/>',
+  "/notas": '<path d="M6 3h9l3 3v15H6zM9 9h6M9 13h6M9 17h4"/>',
+  "/pacotes": '<path d="M3 7l9-4 9 4v10l-9 4-9-4zM3 7l9 4 9-4M12 11v10"/>',
+  "/caixa": '<path d="M4 6h16v12H4zM4 10h16M8 14h3"/>',
+  "/configuracoes": '<circle cx="12" cy="12" r="3"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3M4.9 4.9 7 7m10 10 2.1 2.1M4.9 19.1 7 17m10-10 2.1-2.1"/>',
+} %}
 {% if menu %}
 <header class="topo">
   <strong class="marca">Logos Match</strong>
-  <nav>
-    {% for url, rotulo in menu %}<a href="{{ url }}"{% if url == atual %} aria-current="page"{% endif %}>{{ rotulo }}</a>{% endfor %}
+  <nav aria-label="Menu principal">
+    {% for url, rotulo in menu %}<a href="{{ url }}"{% if url == atual %} aria-current="page"{% endif %}>{% if icones.get(url) %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{{ icones[url]|safe }}</svg>{% endif %}{{ rotulo }}</a>{% endfor %}
   </nav>
   <form method="post" action="/sair" class="sair">
     <input type="hidden" name="csrf" value="{{ csrf }}">
-    <span>{{ usuario_nome }}</span> <button type="submit">Sair</button>
+    <span>{{ usuario_nome }}</span> <button type="submit" class="secundario">Sair</button>
   </form>
 </header>
 {% endif %}
-<main>
+<main id="conteudo">
   {% if mensagem %}<p class="aviso ok" role="status">{{ mensagem }}</p>{% endif %}
   {% if erro %}<p class="aviso erro" role="alert">{{ erro }}</p>{% endif %}
   {% block conteudo %}{% endblock %}

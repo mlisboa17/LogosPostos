@@ -179,7 +179,7 @@ def test_hoje_lista_so_postos_visiveis(cli, admin, con):
     a, _b = _posto(con, "Posto Alfa", 1), _posto(con, "Posto Beta", 2)
     acesso.criar_usuario(con, "Gê", "gerente", SENHA, Perfil.GERENTE, [a])
     _logado(cli, "gerente")
-    html = cli.get("/").text
+    html = cli.get("/caixa").text
     assert "Posto Alfa" in html and "Posto Beta" not in html
     menu = re.search(r"<nav.*?</nav>", html, re.S).group(0)
     assert "/usuarios" not in menu and "/canais" not in menu and "/agenda" not in menu
@@ -192,7 +192,7 @@ def test_hoje_mostra_responsavel(cli, admin, con):
         "responsavel": "JOÃO (42)", "explicacao_pt": "Venda <b>sem</b> lançamento.",
         "correcao_pt": "Lançar o cartão."}])
     _logado(cli)
-    html = cli.get("/").text
+    html = cli.get("/caixa").text
     assert "JOÃO (42)" in html and "Lançar o cartão." in html
     assert "Venda &lt;b&gt;sem&lt;/b&gt; lançamento." in html  # autoescape
 
@@ -693,7 +693,7 @@ def test_hoje_e_historico_tem_link_da_planilha(cli, admin, con):
     banco.registrar_coleta(con, fid, ontem(), "ok", 1, "10", None)
     _logado(cli)
     link = f"/planilha?posto_id={pid}&amp;dia={ontem():%d-%m-%Y}"
-    assert link in cli.get("/").text
+    assert link in cli.get("/caixa").text
     assert f"/planilha?posto_id={pid}&amp;dia={ontem().isoformat()}" in cli.get("/historico").text
 
 

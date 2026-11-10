@@ -29,7 +29,7 @@ from fastapi.responses import FileResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
-from apps.match import (acesso, agendador, banco, caminhos, coletas, credenciais, explicar,
+from apps.match import (acesso, agendador, banco, caminhos, coletas, credenciais, explicar, inicio,
                         recuperar_senha, registro_rede, relatorio_xlsx, rotina, unidades)
 from apps.match.acesso import Acao, Perfil
 from apps.match.canais import envio
@@ -294,17 +294,14 @@ def _itens_configuracao(ctx: Ctx) -> list[tuple[str, str, str]]:
 
 
 def _menu(ctx: Ctx) -> list[tuple[str, str]]:
-    itens = []
+    if _so_fiscal(ctx):
+        return [("/notas", "Notas fiscais"), ("/pacotes", "Pacotes")]
+    itens = [("/", "Início")]
     if ctx.pode(Acao.GERIR_FISCAL):
         itens.append(("/comecar", "Buscar notas"))
     if ctx.pode(Acao.VER_FISCAL):
-        itens += [("/notas", "Notas fiscais"), ("/pacotes", "Pacotes")]
-    if _so_fiscal(ctx):
-        return itens
-    itens += [("/", "Hoje"), ("/coleta", "Coleta")]
-    if ctx.pode(Acao.VER):
-        itens.append(("/extratos", "Extratos"))
-    itens.append(("/historico", "Histórico"))
+        itens.append(("/notas", "Notas fiscais"))
+    itens.append(("/caixa", "Caixa"))
     if _itens_configuracao(ctx):
         itens.append(("/configuracoes", "Configurações"))
     return itens
@@ -514,12 +511,18 @@ def _pagina_hoje(ctx: Ctx, status: int = 200, **dados):
 
 
 @router.get("/")
+async def inicio_pagina(ctx: Ctx = Depends(_ctx)):
+    if _so_fiscal(ctx):
+        return _ir("/notas")
+    resumo = inicio.montar(ctx.con, ctx.uid)
+    return _pagina(ctx, "inicio.html", resumo=resumo, hoje=datetime.now(timezone.utc).astimezone(
+        inicio.FUSO).strftime("%d/%m/%Y"))
+
+
+@router.get("/caixa")
 async def hoje(ctx: Ctx = Depends(_ctx)):
     if _so_fiscal(ctx):
         return _ir("/notas")
-    if ctx.pode(Acao.GERIR_FISCAL) and not banco.listar_postos(ctx.con, False):
-        from apps.match.painel.rotas_fiscal import pagina_comecar  # sem postos: só o caminho das notas
-        return pagina_comecar(ctx)
     return _pagina_hoje(ctx)
 
 

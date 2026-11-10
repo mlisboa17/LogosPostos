@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block titulo %}Início{% endblock %}
+{% block conteudo %}
+<h1>{{ resumo.saudacao }}</h1>
+<p class="sub">Resumo de hoje, {{ hoje }}.</p>
+
+{% if resumo.cartoes %}
+<div class="cartoes">
+  {% for c in resumo.cartoes %}
+  <section class="cartao-resumo">
+    <span class="rotulo">{{ c.rotulo }}</span>
+    <span class="valor">{{ c.valor }}</span>
+    <span class="detalhe">{{ c.detalhe }}</span>
+    {% if c.estado %}<span class="estado estado-{{ c.estado }}">{{ c.estado_texto }}</span>{% endif %}
+    {% if c.link %}<a class="botao secundario" href="{{ c.link }}">{{ c.link_texto }}</a>{% endif %}
+  </section>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if resumo.passos_pendentes %}
+<section class="tarefas" aria-labelledby="titulo-passos">
+  <h2 id="titulo-passos">Primeiros passos</h2>
+  {% set ns = namespace(destaque=true) %}
+  {% for p in resumo.passos %}
+  <div class="tarefa {{ 'feito' if p.feito else 'pendente' }}">
+    <span class="marca-tarefa" aria-hidden="true">{{ "✓" if p.feito else loop.index }}</span>
+    <span class="texto-tarefa">{{ p.titulo }}<small>{{ p.detalhe }}</small></span>
+    {% if not p.feito and p.link %}<a class="botao{{ '' if ns.destaque else ' secundario' }}" href="{{ p.link }}">{{ p.botao }}</a>{% set ns.destaque = false %}{% endif %}
+    {% if p.feito %}<span class="sr">Feito</span>{% endif %}
+  </div>
+  {% endfor %}
+</section>
+{% endif %}
+
+{% if not resumo.cartoes and not resumo.passos_pendentes %}
+<p>Nada para mostrar ainda. Use o menu acima.</p>
+{% endif %}
+{% endblock %}
