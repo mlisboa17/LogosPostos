@@ -31,17 +31,9 @@ def test_lote_com_documentos_e_parametros():
     assert lote.documentos[0].xml == XML and lote.documentos[0].chave == "1" * 50
 
 
-def test_sem_cnpj_consulta_nao_envia_parametro():
-    def tratar(req):
-        assert "cnpjConsulta" not in req.url.params
-        return httpx.Response(404, json={"StatusProcessamento": "NENHUM_DOCUMENTO_LOCALIZADO"})
-
-    assert adn.distribuir(_cliente(tratar), 0).vazio is True
-
-
 def test_arquivo_corrompido_nao_derruba_o_lote():
     resp = {"StatusProcessamento": "DOCUMENTOS_LOCALIZADOS", "LoteDFe": [_doc(8, "@@nao-e-base64@@"), _doc(9)]}
-    lote = adn.distribuir(_cliente(lambda r: httpx.Response(200, json=resp)), 7)
+    lote = adn.distribuir(_cliente(lambda r: httpx.Response(200, json=resp)), 7, "52308604000284")
     assert lote.documentos[0].xml is None and lote.documentos[1].xml == XML
 
 
@@ -49,7 +41,7 @@ def test_arquivo_corrompido_nao_derruba_o_lote():
                                          (503, "indisponivel"), (400, "resposta")])
 def test_erros_http(status, tipo):
     with pytest.raises(adn.AdnErro) as exc:
-        adn.distribuir(_cliente(lambda r: httpx.Response(status, json={"StatusProcessamento": "REJEICAO"})), 0)
+        adn.distribuir(_cliente(lambda r: httpx.Response(status, json={"StatusProcessamento": "REJEICAO"})), 0, "52308604000284")
     assert exc.value.tipo == tipo
 
 
@@ -58,7 +50,7 @@ def test_rede_fora_do_ar():
         raise httpx.ConnectError("sem rede")
 
     with pytest.raises(adn.AdnErro) as exc:
-        adn.distribuir(_cliente(tratar), 0)
+        adn.distribuir(_cliente(tratar), 0, "52308604000284")
     assert exc.value.tipo == "indisponivel"
 
 
@@ -73,14 +65,14 @@ def test_recusa_traz_codigo_e_descricao_do_sistema_nacional():
     corpo = {"StatusProcessamento": "REJEICAO",
              "Erros": [{"Codigo": "E2213", "Descricao": "NSU informado inválido."}]}
     with pytest.raises(adn.AdnErro) as exc:
-        adn.distribuir(_cliente(lambda r: httpx.Response(400, json=corpo)), 0)
+        adn.distribuir(_cliente(lambda r: httpx.Response(400, json=corpo)), 0, "52308604000284")
     assert exc.value.tipo == "resposta"
     assert exc.value.detalhe == "HTTP 400 · REJEICAO · E2213 NSU informado inválido."
 
 
 def test_recusa_sem_json_mostra_o_inicio_do_texto():
     with pytest.raises(adn.AdnErro) as exc:
-        adn.distribuir(_cliente(lambda r: httpx.Response(415, text="Unsupported Media Type\n\n")), 0)
+        adn.distribuir(_cliente(lambda r: httpx.Response(415, text="Unsupported Media Type\n\n")), 0, "52308604000284")
     assert exc.value.detalhe == "HTTP 415 · Unsupported Media Type"
 
 
@@ -89,4 +81,11 @@ def test_recusa_sem_json_mostra_o_inicio_do_texto():
     {"erros": [{"codigo": "E9999", "descricao": "NENHUM DOCUMENTO LOCALIZADO para o NSU"}]},
 ])
 def test_400_de_nenhum_documento_e_fila_vazia(corpo):
-    assert adn.distribuir(_cliente(lambda r: httpx.Response(400, json=corpo)), 0).vazio is True
+    assert adn.distribuir(_cliente(lambda r: httpx.Response(400, json=corpo)), 0, "52308604000284").vazio is True
+
+
+def test_sem_cnpj_consulta_nem_chama_o_adn():
+    chamou = []
+    with pytest.raises(ValueError):
+        adn.distribuir(_cliente(lambda r: chamou.append(r) or httpx.Response(200, json={})), 0, "")
+    assert chamou == []

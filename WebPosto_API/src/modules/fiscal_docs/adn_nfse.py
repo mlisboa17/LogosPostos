@@ -106,12 +106,14 @@ def _xml(arquivo) -> bytes | None:
         return None
 
 
-def distribuir(client: httpx.Client, nsu: int, cnpj_consulta: str | None = None, *, lote: bool = True) -> LoteAdn:
+def distribuir(client: httpx.Client, nsu: int, cnpj_consulta: str, *, lote: bool = True) -> LoteAdn:
     """Com `lote`, até 50 documentos depois de `nsu` (forma usada por integradores).
-    Sem `lote`, o documento daquele NSU (forma do manual oficial). Fila vazia: `LoteAdn(vazio=True)`."""
+    Sem `lote`, o documento daquele NSU (forma do manual oficial). Fila vazia: `LoteAdn(vazio=True)`.
+    `cnpj_consulta` é obrigatório: sem ele o ADN responde REJEICAO (visto em produção, 11/11/2026)."""
+    if not cnpj_consulta:
+        raise ValueError("cnpj_consulta é obrigatório")
     params: dict[str, str] = {"lote": "true"} if lote else {}
-    if cnpj_consulta:
-        params["cnpjConsulta"] = cnpj_consulta
+    params["cnpjConsulta"] = cnpj_consulta
     try:
         resp = client.get(f"/DFe/{int(nsu)}", params=params)
     except httpx.HTTPError as exc:

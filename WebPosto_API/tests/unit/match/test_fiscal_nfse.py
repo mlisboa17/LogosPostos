@@ -172,3 +172,22 @@ def test_recusa_nos_dois_modos_mostra_os_dois_motivos(con):
 
     r = _buscar(con, eid, recusa)
     assert r.situacao == "erro" and "E0010" in r.mensagem and "E0020" in r.mensagem
+
+
+def test_toda_consulta_leva_o_cnpj_da_empresa(con):
+    """Sem cnpjConsulta o ADN responde REJEICAO (visto em produção em 11/11/2026)."""
+    eid = _empresa(con)
+    vistos = []
+
+    def adn(req):
+        vistos.append(req.url.params.get("cnpjConsulta"))
+        if req.url.params.get("cnpjConsulta") != CNPJ:
+            return httpx.Response(400, json={"TipoConsulta": "InscricaoCertificado", "StatusProcessamento": "REJEICAO",
+                                             "LoteDFe": [], "Erros": []})
+        if len(vistos) == 1:
+            return httpx.Response(200, json={"StatusProcessamento": "DOCUMENTOS_LOCALIZADOS", "LoteDFe": [_nota(2)]})
+        return httpx.Response(404, json={"StatusProcessamento": "NENHUM_DOCUMENTO_LOCALIZADO"})
+
+    r = _buscar(con, eid, adn)
+    assert (r.situacao, r.novas) == ("ok", 1)
+    assert set(vistos) == {CNPJ}

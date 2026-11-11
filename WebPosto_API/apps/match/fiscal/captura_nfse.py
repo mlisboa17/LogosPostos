@@ -67,8 +67,7 @@ def buscar_empresa(con, empresa_id: int, agora: datetime | None = None, *,
         hora = datetime.fromisoformat(fila["proxima_consulta_em"]).astimezone(FUSO)
         return ResultadoBusca(empresa_id, "ok", 0, "O sistema nacional já foi consultado há pouco. "
                                                    f"Tente de novo a partir de {hora:%H:%M}.")
-    info = certificados.situacao(con, empresa_id)
-    consulta = empresa["cnpj"] if info.da_matriz else None
+    consulta = empresa["cnpj"]  # obrigatório: sem cnpjConsulta o ADN responde REJEICAO
     proprio = client is None
     iniciada, nsu = _agora(), fila["ultimo_nsu"]
     novas = ilegiveis = 0
