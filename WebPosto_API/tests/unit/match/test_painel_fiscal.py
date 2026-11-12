@@ -305,3 +305,50 @@ def test_tela_mostra_qual_empresa_esta_sendo_consultada(cli, cenario, con, monke
     html = cli.get("/comecar").text
     assert "Consultando <strong>POSTO DOZE</strong> (CNPJ 52308604000284)" in html
     assert "50 documento(s) lido(s), 12 nota(s) nova(s)" in html and "consultando agora" in html
+
+
+# ---------------------------------------------------------------- filtros da tela de notas
+
+@pytest.fixture
+def tres_notas(cli, cenario):
+    csrf = _logar(cli, "admin")
+    for nome in ("nfse_nacional.xml", "nfe_combustivel.xml", "nfe_produto.xml"):  # set, out, out
+        _importar(cli, csrf, cenario["e1"], nome, (DADOS / nome).read_bytes())
+    return cenario
+
+
+def test_mes_direto_com_quantidade(cli, tres_notas):
+    html = cli.get("/notas?inicio=2026-10-01&fim=2026-10-31").text
+    assert "Set/2026 · 1" in html
+    setembro = cli.get("/notas?mes=2026-09").text
+    assert "MANUTENCAO DE BOMBAS" in setembro and "DISTRIBUIDORA TESTE" not in setembro
+
+
+def test_periodo_livre_limitado_a_90_dias(cli, tres_notas):
+    html = cli.get("/notas?inicio=2026-01-01&fim=2026-12-31").text
+    assert "vai até 90 dias" in html and 'value="2026-03-31"' in html
+
+
+def test_busca_rapida_ignora_acento_e_acha_numero_e_cnpj(cli, tres_notas):
+    base = "/notas?inicio=2026-09-01&fim=2026-10-31&q="
+    html = cli.get(base + "manutenção").text
+    assert "MANUTENCAO DE BOMBAS" in html and "DISTRIBUIDORA TESTE" not in html
+    html = cli.get(base + "12345").text
+    assert "DISTRIBUIDORA TESTE" in html and "MANUTENCAO DE BOMBAS" not in html
+    assert "FORNECEDOR PRODUTOS" in cli.get(base + "33333333").text
+    assert "Nenhuma nota com estes filtros" in cli.get(base + "nada-disso").text
+
+
+def test_tipo_e_empresa_visiveis_com_quantidade_e_cnpj(cli, tres_notas):
+    html = cli.get("/notas?inicio=2026-09-01&fim=2026-10-31").text
+    assert "NF-e · 2" in html and "NFS-e · 1" in html and "Todos · 3" in html
+    assert "52.308.604/0002-84" in html and "doze · 3" in html and "cc · 0" in html
+    so_nfse = cli.get("/notas?inicio=2026-09-01&fim=2026-10-31&tipo=nfse").text
+    assert "MANUTENCAO DE BOMBAS" in so_nfse and "DISTRIBUIDORA TESTE" not in so_nfse
+
+
+def test_resumo_por_prestador_filtra_ao_clicar(cli, tres_notas):
+    html = cli.get("/notas?inicio=2026-09-01&fim=2026-10-31").text
+    assert "Por prestador (3)" in html and "fornecedor=11111111000191" in html
+    so_um = cli.get("/notas?inicio=2026-09-01&fim=2026-10-31&fornecedor=11111111000191").text
+    assert "DISTRIBUIDORA TESTE" in so_um and "FORNECEDOR PRODUTOS" not in so_um and "mostrar todos" in so_um

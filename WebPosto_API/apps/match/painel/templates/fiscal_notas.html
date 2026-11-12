@@ -2,33 +2,70 @@
 {% block titulo %}Notas fiscais{% endblock %}
 {% block conteudo %}
 <h1>Notas fiscais</h1>
-<p class="sub">Escolha o período e a empresa. As notas marcadas vão para o download. <a href="/pacotes">Pacotes do contador</a></p>
+<p class="sub">Escolha o mês ou o período, a empresa e o tipo. As notas marcadas vão para o download. <a href="/pacotes">Pacotes do contador</a></p>
 
-<nav class="chips" aria-label="Período">
-  {% for nome, href, atual in chips_periodo %}<a class="chip" href="{{ href }}"{% if atual %} aria-current="true"{% endif %}>{{ nome }}</a>{% endfor %}
-</nav>
+<form method="get" action="/notas" class="busca-rapida" role="search">
+  {% for k in ("empresa_id", "tipo", "inicio", "fim", "fornecedor") %}{% if f[k] %}<input type="hidden" name="{{ k }}" value="{{ f[k] }}">{% endif %}{% endfor %}
+  <label class="oculto" for="busca-q">Procurar</label>
+  <input id="busca-q" type="search" name="q" value="{{ f.q }}" placeholder="Procurar por número, prestador, CNPJ ou serviço">
+  <button type="submit">Procurar</button>
+  {% if f.q %}<a class="botao secundario" href="{{ limpar_busca }}">Limpar</a>{% endif %}
+</form>
+
+<div class="grupo-filtro">
+  <span class="rotulo-filtro">Período</span>
+  <nav class="chips" aria-label="Período">
+    {% for nome, href, atual in chips_periodo %}<a class="chip" href="{{ href }}"{% if atual %} aria-current="true"{% endif %}>{{ nome }}</a>{% endfor %}
+  </nav>
+  <form method="get" action="/notas" class="periodo-livre">
+    {% for k in ("empresa_id", "tipo", "q", "fornecedor") %}{% if f[k] %}<input type="hidden" name="{{ k }}" value="{{ f[k] }}">{% endif %}{% endfor %}
+    <label>De <input id="filtro-inicio" type="date" name="inicio" value="{{ f.inicio }}"></label>
+    <label>Até <input id="filtro-fim" type="date" name="fim" value="{{ f.fim }}"></label>
+    <button type="submit" class="secundario">Aplicar</button>
+    <small>até {{ max_dias }} dias</small>
+  </form>
+  {% if aviso %}<p class="aviso alerta" role="status">{{ aviso }}</p>{% endif %}
+</div>
+
+<div class="grupo-filtro">
+  <span class="rotulo-filtro">Tipo</span>
+  <nav class="chips" aria-label="Tipo de nota">
+    {% for nome, href, atual in chips_tipo %}<a class="chip" href="{{ href }}"{% if atual %} aria-current="true"{% endif %}>{{ nome }}</a>{% endfor %}
+  </nav>
+</div>
+
 {% if chips_empresa|length > 2 %}
-<nav class="chips" aria-label="Empresa">
-  {% for nome, href, atual in chips_empresa %}<a class="chip" href="{{ href }}"{% if atual %} aria-current="true"{% endif %}>{{ nome }}</a>{% endfor %}
-</nav>
+<div class="grupo-filtro">
+  <span class="rotulo-filtro">Empresa</span>
+  <nav class="chips" aria-label="Empresa">
+    {% for c in chips_empresa %}<a class="chip chip-empresa" href="{{ c.href }}"{% if c.atual %} aria-current="true"{% endif %}>{{ c.nome }} · {{ c.qtd }}{% if c.cnpj %}<small>{{ c.cnpj|cnpj }}</small>{% endif %}</a>{% endfor %}
+  </nav>
+</div>
+{% endif %}
+
+{% if chips_empresa|length == 2 %}<p class="filtro-ativo">Empresa: <b>{{ empresas[0].razao_social }}</b> · CNPJ {{ empresas[0].cnpj|cnpj }}</p>{% endif %}
+{% if f.fornecedor %}<p class="filtro-ativo">Prestador: <b>{{ f.fornecedor|cnpj }}</b> <a href="{{ limpar_fornecedor }}">mostrar todos</a></p>{% endif %}
+
+{% if prestadores|length > 1 or f.fornecedor %}
+<details class="resumo-prestadores"{% if not f.fornecedor %} open{% endif %}>
+  <summary>Por prestador ({{ prestadores|length }})</summary>
+  <div class="tabela"><table>
+    <thead><tr><th>Prestador</th><th class="num">Notas</th><th class="num">Total</th></tr></thead>
+    <tbody>
+    {% for g in prestadores %}
+      <tr{% if g.atual %} aria-current="true"{% endif %}><td><a href="{{ g.href }}">{{ g.nome }}</a>{% if g.cnpj %}<br><small>{{ g.cnpj|cnpj }}</small>{% endif %}</td>
+        <td class="num">{{ g.qtd }}</td><td class="num">{{ g.total|dinheiro }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</details>
 {% endif %}
 
 <details{% if filtros_abertos %} open{% endif %}>
   <summary>Mais filtros</summary>
   <form method="get" action="/notas" class="cartao">
+    {% for k in ("empresa_id", "tipo", "inicio", "fim", "q", "fornecedor") %}{% if f[k] %}<input type="hidden" name="{{ k }}" value="{{ f[k] }}">{% endif %}{% endfor %}
     <div class="linha">
-      <label>Empresa
-        <select id="filtro-empresa" name="empresa_id">
-          <option value="">Todas</option>
-          {% for e in empresas %}<option value="{{ e.id }}"{% if f.empresa_id == e.id %} selected{% endif %}>{{ e.razao_social }}</option>{% endfor %}
-        </select>
-      </label>
-      <label>De <input id="filtro-inicio" type="date" name="inicio" value="{{ f.inicio }}"></label>
-      <label>Até <input id="filtro-fim" type="date" name="fim" value="{{ f.fim }}"></label>
-      <label>Fornecedor (nome ou CNPJ) <input id="filtro-fornecedor" name="fornecedor" value="{{ f.fornecedor }}"></label>
-    </div>
-    <div class="linha">
-      <label>Tipo <select id="filtro-tipo" name="tipo">{% for k, v in tipos.items() %}<option value="{{ k }}"{% if f.tipo == k %} selected{% endif %}>{{ v }}</option>{% endfor %}</select></label>
       <label>Situação <select id="filtro-situacao" name="situacao">{% for k, v in situacoes.items() %}<option value="{{ k }}"{% if f.situacao == k %} selected{% endif %}>{{ v }}</option>{% endfor %}</select></label>
       <label>Combustível <select id="filtro-combustivel" name="combustivel">
         <option value="">Todas</option><option value="sim"{% if f.combustivel == "sim" %} selected{% endif %}>Só combustível</option>
@@ -62,7 +99,7 @@
   </span>
 </div>
 {% else %}
-<p class="vazio">Nenhuma nota neste período. {% if pode_buscar %}<a href="/comecar">Buscar notas de serviço</a> ou {% endif %}<a href="/importar">importe um XML</a>.</p>
+<p class="vazio">Nenhuma nota com estes filtros. {% if pode_buscar %}<a href="/comecar">Buscar notas de serviço</a> ou {% endif %}<a href="/importar">importe um XML</a>.</p>
 {% endif %}
 </form>
 {% endblock %}

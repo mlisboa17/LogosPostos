@@ -155,3 +155,17 @@ tr.edicao td { padding-top: 0; }
 
 .acoes-empresa { display: flex; gap: 8px; flex-wrap: wrap; }
 .erro-busca { flex-basis: 100%; color: var(--erro); }
+
+.busca-rapida { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 14px; }
+.busca-rapida input[type=search] { flex: 1 1 260px; min-width: 0; }
+.grupo-filtro { margin: 0 0 10px; }
+.rotulo-filtro { display: block; font-size: 12.5px; font-weight: 600; color: var(--suave); margin: 0 0 4px; }
+.grupo-filtro .chips { margin-bottom: 6px; }
+.periodo-livre { display: flex; gap: 8px; align-items: end; flex-wrap: wrap; }
+.periodo-livre label { font-size: 13px; }
+.chip-empresa small { display: block; font-size: 11.5px; font-weight: 400; opacity: .8; }
+.filtro-ativo { margin: 0 0 10px; }
+.resumo-prestadores { margin: 0 0 14px; }
+.resumo-prestadores tr[aria-current="true"] td { font-weight: 600; }
+td.num, th.num { text-align: right; white-space: nowrap; }
+.oculto { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }

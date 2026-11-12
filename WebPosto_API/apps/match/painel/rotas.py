@@ -193,7 +193,8 @@ _ENV = jinja2.Environment(loader=jinja2.FileSystemLoader(str(PASTA / "templates"
                           autoescape=True)
 _ENV.filters.update(data=_data, data_hora=_data_hora,
                     dinheiro=lambda v: explicar.dinheiro(Decimal(str(v or 0))),
-                    fonte=lambda t: _NOME_FONTE.get(t, t))
+                    fonte=lambda t: _NOME_FONTE.get(t, t),
+                    cnpj=lambda c: (f"{c[:2]}.{c[2:5]}.{c[5:8]}/{c[8:12]}-{c[12:]}" if c and len(c) == 14 else c or ""))
 _TPL = Jinja2Templates(env=_ENV)
 
 

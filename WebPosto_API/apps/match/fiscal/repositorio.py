@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
@@ -164,16 +165,34 @@ class FiltroDocs:
     valor_min: Decimal | None = None
     valor_max: Decimal | None = None
     competencia: str | None = None
+    texto: str | None = None  # busca rápida: número, prestador (nome/CNPJ) ou descrição do serviço
 
 
-def buscar_documentos(con, f: FiltroDocs) -> list:
-    if not f.empresas:
-        return []
+def _norm(v) -> str:
+    """Minúsculas sem acento ('SERVIÇOS' -> 'servicos'), para a busca rápida."""
+    t = unicodedata.normalize("NFKD", str(v or "").lower())
+    return "".join(c for c in t if not unicodedata.combining(c))
+
+
+def _preparar(con) -> None:
+    con.create_function("norm", 1, _norm, deterministic=True)
+
+
+def _onde(f: FiltroDocs, sem: tuple[str, ...] = ()) -> tuple[list[str], list]:
+    """Condições SQL do filtro. `sem` ignora campos (para contar as opções de um filtro)."""
     onde = [f"d.empresa_id IN ({','.join('?' * len(f.empresas))})"]
     args: list = list(f.empresas)
-    if f.inicio:
+    if f.texto and f.texto.strip() and "texto" not in sem:
+        t = _norm(f.texto.strip())
+        dig = so_digitos(t)
+        partes = ["norm(d.emitente_nome) LIKE ?", "norm(d.descricao_servico) LIKE ?", "ltrim(d.numero,'0') = ?"]
+        args += [f"%{t}%", f"%{t}%", t.lstrip("0") or t]
+        if len(dig) >= 4:
+            partes.append("d.emitente_cnpj LIKE ?"); args.append(f"%{dig}%")
+        onde.append("(" + " OR ".join(partes) + ")")
+    if f.inicio and "periodo" not in sem:
         onde.append("substr(d.emissao_em,1,10) >= ?"); args.append(f.inicio.isoformat())
-    if f.fim:
+    if f.fim and "periodo" not in sem:
         onde.append("substr(d.emissao_em,1,10) <= ?"); args.append(f.fim.isoformat())
     if f.competencia:
         onde.append("d.competencia = ?"); args.append(f.competencia)
@@ -183,7 +202,7 @@ def buscar_documentos(con, f: FiltroDocs) -> list:
             onde.append("d.emitente_cnpj LIKE ?"); args.append(f"{dig}%")
         else:
             onde.append("lower(d.emitente_nome) LIKE ?"); args.append(f"%{f.fornecedor.strip().lower()}%")
-    if f.tipo:
+    if f.tipo and "tipo" not in sem:
         onde.append("d.tipo = ?"); args.append(f.tipo)
     if f.situacao:
         onde.append("d.situacao = ?"); args.append(f.situacao)
@@ -193,10 +212,44 @@ def buscar_documentos(con, f: FiltroDocs) -> list:
         onde.append("CAST(d.valor_total AS REAL) >= ?"); args.append(float(f.valor_min))
     if f.valor_max is not None:
         onde.append("CAST(d.valor_total AS REAL) <= ?"); args.append(float(f.valor_max))
+    return onde, args
+
+
+def buscar_documentos(con, f: FiltroDocs) -> list:
+    if not f.empresas:
+        return []
+    _preparar(con)
+    onde, args = _onde(f)
     sql = ("SELECT d.*, e.apelido AS empresa_apelido, e.razao_social AS empresa_nome FROM documento d"
            " JOIN empresa e ON e.id = d.empresa_id WHERE " + " AND ".join(onde) +
            " ORDER BY d.emissao_em, d.numero")
     return con.execute(sql, args).fetchall()
+
+
+def contar_por(con, f: FiltroDocs, campo: str) -> dict[str, int]:
+    """Quantas notas cada opção de um filtro teria, mantendo os outros filtros.
+    campo: 'empresa' | 'tipo' | 'mes'. Para 'empresa', passe em `f.empresas` todas as visíveis."""
+    if not f.empresas:
+        return {}
+    expr, sem = {"empresa": ("d.empresa_id", ()), "tipo": ("d.tipo", ("tipo",)),
+                 "mes": ("substr(d.emissao_em,1,7)", ("periodo",))}[campo]
+    _preparar(con)
+    onde, args = _onde(f, sem)
+    sql = f"SELECT {expr}, COUNT(*) FROM documento d WHERE {' AND '.join(onde)} GROUP BY 1"
+    return {str(k): n for k, n in con.execute(sql, args).fetchall()}
+
+
+def resumo_prestadores(docs) -> list[dict]:
+    """Prestadores das notas listadas, do maior total para o menor (canceladas não somam)."""
+    grupos: dict[str, dict] = {}
+    for d in docs:
+        chave = d["emitente_cnpj"] or d["emitente_nome"] or "?"
+        g = grupos.setdefault(chave, {"cnpj": d["emitente_cnpj"] or "", "nome": d["emitente_nome"] or "—",
+                                      "qtd": 0, "total": Decimal(0)})
+        g["qtd"] += 1
+        if d["situacao"] != "cancelada":
+            g["total"] += Decimal(d["valor_total"])
+    return sorted(grupos.values(), key=lambda g: (-g["total"], g["nome"]))
 
 
 def documentos_da_competencia(con, empresa_id: int, competencia: str) -> list:

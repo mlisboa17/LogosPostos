@@ -62,40 +62,87 @@ def _decimal(texto: str | None) -> Decimal | None:
 
 # ---------------------------------------------------------------- consulta
 
+_MESES = ("Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez")
+MAX_DIAS = 90
+
+
+def _mes(texto: str) -> tuple[date, date] | None:
+    m = re.fullmatch(r"(\d{4})-(\d{2})", texto or "")
+    if not m or not 1 <= int(m[2]) <= 12:
+        return None
+    ini = date(int(m[1]), int(m[2]), 1)
+    prox = (ini + timedelta(days=32)).replace(day=1)
+    return ini, prox - timedelta(days=1)
+
+
 @router.get("/notas")
-async def notas(ctx: Ctx = Depends(_ctx), empresa_id: str = "", inicio: str = "", fim: str = "",
-                fornecedor: str = "", tipo: str = "", situacao: str = "", combustivel: str = "",
+async def notas(ctx: Ctx = Depends(_ctx), empresa_id: str = "", inicio: str = "", fim: str = "", mes: str = "",
+                q: str = "", fornecedor: str = "", tipo: str = "", situacao: str = "", combustivel: str = "",
                 valor_min: str = "", valor_max: str = ""):
     ctx.exigir(Acao.VER_FISCAL)
     visiveis = _empresas(ctx)
     hoje_ = hoje()
     fim_mes_passado = hoje_.replace(day=1) - timedelta(days=1)
-    ini = _data(inicio) or fim_mes_passado.replace(day=1)  # padrão: mês passado, o que vai ao contador
-    fi = _data(fim) or fim_mes_passado
+    aviso = None
+    if _mes(mes):
+        ini, fi = _mes(mes)
+    else:
+        ini = _data(inicio) or fim_mes_passado.replace(day=1)  # padrão: mês passado, o que vai ao contador
+        fi = _data(fim) or (fim_mes_passado if not inicio else min(hoje_, ini + timedelta(days=MAX_DIAS - 1)))
+    if fi < ini:
+        ini, fi = fi, ini
+    if (fi - ini).days >= MAX_DIAS:
+        fi = ini + timedelta(days=MAX_DIAS - 1)
+        aviso = f"O período vai até {MAX_DIAS} dias. Mostrando de {ini:%d/%m/%Y} a {fi:%d/%m/%Y}."
     escolhida = int(empresa_id) if empresa_id.isdigit() and int(empresa_id) in visiveis else None
+    tipo = tipo if tipo in _TIPOS else ""
     filtro = repo.FiltroDocs(
         empresas=[escolhida] if escolhida else visiveis, inicio=ini, fim=fi, fornecedor=fornecedor or None,
-        tipo=tipo if tipo in _TIPOS and tipo else None, situacao=situacao if situacao in _SITUACOES and situacao else None,
+        tipo=tipo or None, situacao=situacao if situacao in _SITUACOES and situacao else None,
         combustivel={"sim": True, "nao": False}.get(combustivel), valor_min=_decimal(valor_min),
-        valor_max=_decimal(valor_max))
+        valor_max=_decimal(valor_max), texto=q or None)
     docs = repo.buscar_documentos(ctx.con, filtro)
     total = sum((Decimal(d["valor_total"]) for d in docs), Decimal(0))
-    atalhos = [("Este mês", hoje_.replace(day=1), hoje_), ("Mês passado", fim_mes_passado.replace(day=1), fim_mes_passado),
-               ("Últimos 30 dias", hoje_ - timedelta(days=30), hoje_)]
-    base = {"tipo": tipo, "empresa_id": escolhida or "", "inicio": ini.isoformat(), "fim": fi.isoformat()}
+    base = {"tipo": tipo, "empresa_id": escolhida or "", "inicio": ini.isoformat(), "fim": fi.isoformat(),
+            "q": q, "fornecedor": fornecedor}
 
     def link(**troca) -> str:
         return "/notas?" + urlencode({k: v for k, v in {**base, **troca}.items() if v not in ("", None)})
 
-    chips_periodo = [(n, link(inicio=a.isoformat(), fim=b.isoformat()), (a, b) == (ini, fi)) for n, a, b in atalhos]
+    def periodo(a: date, b: date) -> dict:
+        return {"inicio": a.isoformat(), "fim": b.isoformat()}
+
+    # período: atalhos + meses que têm notas (com quantidade)
+    por_mes = repo.contar_por(ctx.con, filtro, "mes")
+    atalhos = [("Este mês", hoje_.replace(day=1), hoje_), ("Mês passado", fim_mes_passado.replace(day=1), fim_mes_passado),
+               ("Últimos 30 dias", hoje_ - timedelta(days=30), hoje_)]
+    chips_periodo = [(n, link(**periodo(a, b)), (a, b) == (ini, fi)) for n, a, b in atalhos]
+    ja = {hoje_.strftime("%Y-%m"), fim_mes_passado.strftime("%Y-%m")}
+    for m in sorted(por_mes, reverse=True)[:12]:
+        if m in ja or not _mes(m):
+            continue
+        a, b = _mes(m)
+        chips_periodo.append((f"{_MESES[a.month - 1]}/{a.year} · {por_mes[m]}", link(**periodo(a, b)), (a, b) == (ini, fi)))
+
+    # tipo e empresa visíveis, com quantas notas cada um tem no período
+    por_tipo = repo.contar_por(ctx.con, filtro, "tipo")
+    chips_tipo = [(f"Todos · {sum(por_tipo.values())}", link(tipo=""), not tipo)] + [
+        (f"{nome} · {por_tipo.get(k, 0)}", link(tipo=k), tipo == k)
+        for k, nome in _TIPOS.items() if k and (por_tipo.get(k) or tipo == k)]
     lista_emp = repo.listar_empresas(ctx.con, visiveis)
-    chips_empresa = [("Todas as empresas", link(empresa_id=""), escolhida is None)] + [
-        (e["apelido"] or e["razao_social"], link(empresa_id=e["id"]), escolhida == e["id"]) for e in lista_emp]
-    avancados = any([fornecedor, situacao, combustivel, valor_min, valor_max])
-    return _pagina(ctx, "fiscal_notas.html", docs=docs, total=total, empresas=lista_emp,
-                   chips_periodo=chips_periodo, chips_empresa=chips_empresa, filtros_abertos=avancados,
-                   pode_buscar=ctx.pode(Acao.GERIR_FISCAL),
-                   f={"empresa_id": escolhida, "inicio": ini.isoformat(), "fim": fi.isoformat(),
+    por_emp = repo.contar_por(ctx.con, repo.FiltroDocs(**{**filtro.__dict__, "empresas": visiveis}), "empresa")
+    chips_empresa = [{"nome": "Todas as empresas", "cnpj": "", "qtd": sum(por_emp.values()),
+                      "href": link(empresa_id=""), "atual": escolhida is None}] + [
+        {"nome": e["apelido"] or e["razao_social"], "cnpj": e["cnpj"], "qtd": por_emp.get(str(e["id"]), 0),
+         "href": link(empresa_id=e["id"]), "atual": escolhida == e["id"]} for e in lista_emp]
+    prestadores = [{**g, "href": link(fornecedor=g["cnpj"] or g["nome"]), "atual": bool(fornecedor) and
+                    fornecedor in (g["cnpj"], g["nome"])} for g in repo.resumo_prestadores(docs)]
+    avancados = any([situacao, combustivel, valor_min, valor_max])
+    return _pagina(ctx, "fiscal_notas.html", docs=docs, total=total, empresas=lista_emp, aviso=aviso,
+                   chips_periodo=chips_periodo, chips_empresa=chips_empresa, chips_tipo=chips_tipo,
+                   prestadores=prestadores, limpar_fornecedor=link(fornecedor=""), limpar_busca=link(q=""),
+                   filtros_abertos=avancados, pode_buscar=ctx.pode(Acao.GERIR_FISCAL), max_dias=MAX_DIAS,
+                   f={"empresa_id": escolhida, "inicio": ini.isoformat(), "fim": fi.isoformat(), "q": q,
                       "fornecedor": fornecedor, "tipo": tipo, "situacao": situacao, "combustivel": combustivel,
                       "valor_min": valor_min, "valor_max": valor_max},
                    tipos=_TIPOS, situacoes=_SITUACOES)
