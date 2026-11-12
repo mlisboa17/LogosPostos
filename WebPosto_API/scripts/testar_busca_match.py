@@ -38,6 +38,7 @@ def main() -> None:
 
     dados = SAIDA / "dados"
     shutil.rmtree(dados, ignore_errors=True)  # cada teste começa do zero
+    dados.mkdir(parents=True, exist_ok=True)
     os.environ["LOGOS_MATCH_DIR"] = str(dados)
 
     from apps.match import banco
