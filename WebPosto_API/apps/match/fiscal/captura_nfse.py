@@ -24,6 +24,7 @@ _MAX_LOTES = 20          # modo lote: até 50 documentos por chamada
 _MAX_UNITARIOS = 200     # modo um por vez (manual oficial), por execução
 _EVENTOS_CANCELA = (b"e101101", b"e105102")  # cancelamento e cancelamento por substituição
 _TRAVA = threading.Lock()
+_ANDAMENTO: dict = {}  # empresa sendo consultada agora (lido pela tela)
 MSG_SEM_CERTIFICADO = "Envie o certificado desta empresa para buscar as notas de serviço."
 MSG_NENHUMA = ("Nenhuma nota nova no sistema nacional. Se você sabe que existem notas, a prefeitura pode não "
                "enviar para o sistema nacional: baixe o XML no portal da prefeitura e use Importar.")
@@ -56,14 +57,19 @@ def _guardar(con, empresa, doc_adn: adn.DocumentoAdn, base) -> bool:
 
 
 def buscar_empresa(con, empresa_id: int, agora: datetime | None = None, *,
-                   client: httpx.Client | None = None) -> ResultadoBusca:
+                   client: httpx.Client | None = None, forcar: bool = False) -> ResultadoBusca:
+    """`forcar` (clique em Buscar agora): depois de um erro, tenta na hora em vez de esperar 15 min.
+    A espera de 1 h após fila vazia continua valendo (evita bloqueio por excesso de consultas)."""
     agora = agora or datetime.now(timezone.utc)
     empresa = repo.obter_empresa(con, empresa_id)
     credencial = certificados.carregar(con, empresa_id)
     if credencial is None:
         return ResultadoBusca(empresa_id, "sem_certificado", 0, MSG_SEM_CERTIFICADO)
     fila = repo.nsu_de(con, empresa_id)
-    if fila["proxima_consulta_em"] and datetime.fromisoformat(fila["proxima_consulta_em"]) > agora:
+    ultima = repo.ultima_captura(con, empresa_id, FONTE)
+    depois_de_erro = forcar and ultima is not None and ultima["situacao"] == "erro"
+    if (not depois_de_erro and fila["proxima_consulta_em"]
+            and datetime.fromisoformat(fila["proxima_consulta_em"]) > agora):
         hora = datetime.fromisoformat(fila["proxima_consulta_em"]).astimezone(FUSO)
         return ResultadoBusca(empresa_id, "ok", 0, "O sistema nacional já foi consultado há pouco. "
                                                    f"Tente de novo a partir de {hora:%H:%M}.")
@@ -72,6 +78,7 @@ def buscar_empresa(con, empresa_id: int, agora: datetime | None = None, *,
     iniciada, nsu = _agora(), fila["ultimo_nsu"]
     novas = ilegiveis = 0
     base = caminhos.fiscal(con)
+    _ANDAMENTO.update(empresa=empresa["apelido"] or empresa["razao_social"], cnpj=empresa["cnpj"], novas=0, lidos=0)
     try:
         http = client or adn.cliente(*credencial)
         try:
@@ -98,6 +105,7 @@ def buscar_empresa(con, empresa_id: int, agora: datetime | None = None, *,
                     except (ValueError, ArithmeticError):  # XML inválido, data ou valor estranho
                         ilegiveis += 1
                     nsu = max(nsu, d.nsu)
+                    _ANDAMENTO.update(novas=novas, lidos=_ANDAMENTO.get("lidos", 0) + 1)
                 repo.salvar_nsu(con, empresa_id, nsu, None)  # só avança depois de gravar
         finally:
             if proprio:
@@ -118,7 +126,12 @@ def em_andamento() -> bool:
     return _TRAVA.locked()
 
 
-def buscar_todas(con_factory) -> list[ResultadoBusca]:
+def andamento() -> dict:
+    """Empresa consultada agora e quantos documentos já leu. Vazio se nada está rodando."""
+    return dict(_ANDAMENTO) if _TRAVA.locked() else {}
+
+
+def buscar_todas(con_factory, forcar: bool = False) -> list[ResultadoBusca]:
     """Todas as empresas ativas com certificado. Uma falha não impede as outras."""
     if not _TRAVA.acquire(blocking=False):
         return []
@@ -129,10 +142,11 @@ def buscar_todas(con_factory) -> list[ResultadoBusca]:
             if not e["ativo"] or certificados.situacao(con, e["id"]) is None:
                 continue
             try:
-                resultados.append(buscar_empresa(con, e["id"]))
+                resultados.append(buscar_empresa(con, e["id"], forcar=forcar))
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Busca NFS-e falhou empresa=%s tipo=%s", e["id"], type(exc).__name__)
         return resultados
     finally:
         con.close()
+        _ANDAMENTO.clear()
         _TRAVA.release()

@@ -230,7 +230,7 @@ def test_certificado_errado_explica_na_mesma_tela(cli, con):
 def test_buscar_agora_roda_em_segundo_plano(cli, con, monkeypatch):
     from apps.match.fiscal import captura_nfse
     chamadas = []
-    monkeypatch.setattr(captura_nfse, "buscar_todas", lambda fab: chamadas.append(1))
+    monkeypatch.setattr(captura_nfse, "buscar_todas", lambda fab, forcar=False: chamadas.append(forcar))
     _so_admin(con)
     _entrar_admin(cli)
     csrf = _csrf(cli.get("/comecar").text)
@@ -240,7 +240,7 @@ def test_buscar_agora_roda_em_segundo_plano(cli, con, monkeypatch):
             break
         import time
         time.sleep(0.02)
-    assert chamadas == [1]
+    assert chamadas == [True]  # clique manual tenta na hora mesmo depois de erro
 
 
 def test_tela_mostra_resultado_da_ultima_busca(cli, con):
@@ -273,3 +273,35 @@ def test_menu_comeca_pelas_notas_e_agrupa_configuracoes(cli, con):
     pagina = cli.get("/configuracoes").text
     for rota in ("/empresas", "/escritorios", "/postos", "/canais", "/agenda", "/usuarios"):
         assert f'href="{rota}"' in pagina
+
+
+def test_busca_mostra_cnpj_e_baixa_todas_as_notas_da_empresa(cli, cenario):
+    csrf = _logar(cli, "admin")
+    _importar(cli, csrf, cenario["e1"], "s.xml", (DADOS / "nfse_nacional.xml").read_bytes())
+    html = cli.get("/comecar").text
+    assert f"CNPJ {CNPJ}" in html and f'href="/comecar/baixar/{cenario["e1"]}?formato=xml"' in html
+    assert "Baixar XML (1)" in html
+    rx = cli.get(f"/comecar/baixar/{cenario['e1']}?formato=xml")
+    assert rx.status_code == 200 and CNPJ in rx.headers["content-disposition"]
+    with zipfile.ZipFile(io.BytesIO(rx.content)) as z:
+        assert len(z.namelist()) == 1
+    assert cli.get(f"/comecar/baixar/{cenario['e1']}?formato=pdf").content.startswith(b"%PDF")
+    assert cli.get(f"/comecar/baixar/{cenario['e2']}?formato=xml").status_code == 404
+
+
+def test_contabilidade_nao_baixa_empresa_fora_do_escopo(cli, cenario):
+    _logar(cli, "conta")
+    assert cli.get(f"/comecar/baixar/{cenario['e2']}?formato=xml").status_code == 403
+
+
+def test_tela_mostra_qual_empresa_esta_sendo_consultada(cli, cenario, con, monkeypatch):
+    from apps.match.fiscal import captura_nfse, certificados
+    from tests.unit.match.test_fiscal_certificados import gerar_pfx
+    certificados.criar_empresa_pelo_certificado(con, gerar_pfx(f"POSTO DOZE:{CNPJ}"), "senha-do-teste")
+    monkeypatch.setattr(captura_nfse, "em_andamento", lambda: True)
+    monkeypatch.setattr(captura_nfse, "andamento",
+                        lambda: {"empresa": "POSTO DOZE", "cnpj": CNPJ, "lidos": 50, "novas": 12})
+    _logar(cli, "admin")
+    html = cli.get("/comecar").text
+    assert "Consultando <strong>POSTO DOZE</strong> (CNPJ 52308604000284)" in html
+    assert "50 documento(s) lido(s), 12 nota(s) nova(s)" in html and "consultando agora" in html

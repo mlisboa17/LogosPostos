@@ -23,17 +23,26 @@
     {% if empresas %}
     <ul class="lista-empresas">
       {% for l in empresas %}
-      <li><span>{{ l.e.apelido or l.e.razao_social }}</span>
-        {% if not l.cert %}<span class="estado estado-alerta">sem certificado</span>
+      <li><span>{{ l.e.apelido or l.e.razao_social }}<br><small>CNPJ {{ l.e.cnpj }}</small></span>
+        {% if andamento and andamento.cnpj == l.e.cnpj %}<span class="estado estado-alerta">consultando agora…</span>
+        {% elif not l.cert %}<span class="estado estado-alerta">sem certificado</span>
         {% elif l.cert.dias_restantes < 0 %}<span class="estado estado-critico">certificado vencido</span>
         {% elif l.ultima and l.ultima.situacao == "erro" %}<span class="estado estado-critico">erro na última busca</span>
         {% elif l.ultima %}<span class="estado estado-ok">{{ l.qtd_notas }} nota(s)</span>
-        {% else %}<span class="estado">ainda não buscou</span>{% endif %}</li>
+        {% else %}<span class="estado">ainda não buscou</span>{% endif %}
+        {% if l.qtd_notas %}<span class="acoes-empresa">
+          <a class="botao secundario" href="/comecar/baixar/{{ l.e.id }}?formato=xml">Baixar XML ({{ l.qtd_notas }})</a>
+          <a class="botao secundario" href="/comecar/baixar/{{ l.e.id }}?formato=pdf">Baixar PDF</a></span>{% endif %}
+        {% if l.ultima and l.ultima.situacao == "erro" and not (andamento and andamento.cnpj == l.e.cnpj) %}
+        <small class="erro-busca">{{ l.resultado }}</small>{% endif %}</li>
       {% endfor %}
     </ul>
     {% else %}<p class="dica">Nenhuma empresa ainda. Comece pelo passo 1.</p>{% endif %}
     {% if tem_certificado %}
-      {% if buscando %}<p class="aviso alerta" role="status">Buscando no sistema nacional. Esta página atualiza sozinha.</p>{% endif %}
+      {% if buscando %}<p class="aviso alerta" role="status">
+        {% if andamento %}Consultando <strong>{{ andamento.empresa }}</strong> (CNPJ {{ andamento.cnpj }}) no sistema nacional ·
+        {{ andamento.lidos }} documento(s) lido(s), {{ andamento.novas }} nota(s) nova(s) até agora.
+        {% else %}Buscando no sistema nacional.{% endif %} Esta página atualiza sozinha.</p>{% endif %}
       <form method="post" action="/comecar/buscar">
         <input type="hidden" name="csrf" value="{{ csrf }}">
         <button type="submit" class="grande"{% if buscando %} disabled{% endif %}>Buscar agora</button>

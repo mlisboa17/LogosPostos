@@ -152,3 +152,6 @@ tr.edicao td { padding-top: 0; }
   .nota .valor { grid-column: 2; text-align: left; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+.acoes-empresa { display: flex; gap: 8px; flex-wrap: wrap; }
+.erro-busca { flex-basis: 100%; color: var(--erro); }

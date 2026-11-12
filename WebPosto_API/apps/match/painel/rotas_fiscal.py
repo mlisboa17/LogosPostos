@@ -119,18 +119,11 @@ def _zip(arquivos: list[tuple[str, bytes]], nome: str) -> Response:
                     headers={"Content-Disposition": f'attachment; filename="{nome}"'})
 
 
-@router.get("/notas/xml")
-async def notas_xml(ctx: Ctx = Depends(_ctx), ids: list[int] = Query(default=[])):
-    ctx.exigir(Acao.VER_FISCAL)
-    docs = _docs_permitidos(ctx, ids)
-    return _zip([(f"{d['chave']}.xml", Path(d["xml_path"]).read_bytes()) for d in docs], "notas-xml.zip")
+def _resposta_xml(docs, nome: str = "notas-xml.zip") -> Response:
+    return _zip([(f"{d['chave']}.xml", Path(d["xml_path"]).read_bytes()) for d in docs], nome)
 
 
-@router.get("/notas/pdf")
-async def notas_pdf(ctx: Ctx = Depends(_ctx), ids: list[int] = Query(default=[]), modo: str = "separados"):
-    ctx.exigir(Acao.VER_FISCAL)
-    docs = _docs_permitidos(ctx, ids)
-
+async def _resposta_pdf(docs, modo: str, nome: str = "notas") -> Response:
     def gerar():
         saida = []
         for d in docs:
@@ -140,8 +133,35 @@ async def notas_pdf(ctx: Ctx = Depends(_ctx), ids: list[int] = Query(default=[])
     pdfs = await run_in_threadpool(gerar)
     if modo == "unificado":
         return Response(pdf.unir([b for _, b in pdfs]), media_type="application/pdf",
-                        headers={"Content-Disposition": 'attachment; filename="notas.pdf"'})
-    return _zip([(f"{c}.pdf", b) for c, b in pdfs], "notas-pdf.zip")
+                        headers={"Content-Disposition": f'attachment; filename="{nome}.pdf"'})
+    return _zip([(f"{c}.pdf", b) for c, b in pdfs], f"{nome}-pdf.zip")
+
+
+@router.get("/notas/xml")
+async def notas_xml(ctx: Ctx = Depends(_ctx), ids: list[int] = Query(default=[])):
+    ctx.exigir(Acao.VER_FISCAL)
+    return _resposta_xml(_docs_permitidos(ctx, ids))
+
+
+@router.get("/notas/pdf")
+async def notas_pdf(ctx: Ctx = Depends(_ctx), ids: list[int] = Query(default=[]), modo: str = "separados"):
+    ctx.exigir(Acao.VER_FISCAL)
+    return await _resposta_pdf(_docs_permitidos(ctx, ids), modo)
+
+
+@router.get("/comecar/baixar/{empresa_id}")
+async def comecar_baixar(empresa_id: int, ctx: Ctx = Depends(_ctx), formato: str = "xml"):
+    """Todas as NFS-e guardadas da empresa, sem filtro de período."""
+    ctx.exigir(Acao.VER_FISCAL)
+    _exigir_empresa(ctx, empresa_id)
+    docs = ctx.con.execute("SELECT * FROM documento WHERE empresa_id=? AND tipo='nfse' AND xml_path IS NOT NULL "
+                           "ORDER BY emissao_em", (empresa_id,)).fetchall()
+    if not docs:
+        raise Recusado(404, "Esta empresa ainda não tem notas de serviço guardadas.")
+    cnpj = repo.obter_empresa(ctx.con, empresa_id)["cnpj"]
+    if formato == "pdf":
+        return await _resposta_pdf(docs, "unificado", f"NFSe_{cnpj}")
+    return _resposta_xml(docs, f"NFSe_{cnpj}_xml.zip")
 
 
 @router.get("/notas/planilha")
@@ -184,7 +204,7 @@ def pagina_comecar(ctx: Ctx, status: int = 200, buscando: bool = False, **dados)
     total = ctx.con.execute("SELECT COUNT(*) FROM documento WHERE tipo='nfse'").fetchone()[0]
     return _pagina(ctx, "comecar.html", status, empresas=linhas, total_nfse=total,
                    tem_certificado=any(l["cert"] for l in linhas),
-                   buscando=buscando or captura_nfse.em_andamento(), **dados)
+                   buscando=buscando or captura_nfse.em_andamento(), andamento=captura_nfse.andamento(), **dados)
 
 
 @router.get("/comecar")
@@ -214,7 +234,7 @@ async def comecar_certificado(ctx: Ctx = Depends(_ctx_post)):
 @router.post("/comecar/buscar")
 async def comecar_buscar(ctx: Ctx = Depends(_ctx_post)):
     ctx.exigir(Acao.GERIR_FISCAL)
-    _em_segundo_plano("busca-nfse", captura_nfse.buscar_todas, ctx.request.app.state.con_factory)
+    _em_segundo_plano("busca-nfse", captura_nfse.buscar_todas, ctx.request.app.state.con_factory, True)
     acesso.registrar(ctx.con, ctx.uid, "buscar_nfse", "")
     return _ir("/comecar?buscando=1")
 

@@ -191,3 +191,29 @@ def test_toda_consulta_leva_o_cnpj_da_empresa(con):
     r = _buscar(con, eid, adn)
     assert (r.situacao, r.novas) == ("ok", 1)
     assert set(vistos) == {CNPJ}
+
+
+def test_clique_manual_depois_de_erro_tenta_na_hora(con):
+    eid = _empresa(con)
+    _buscar(con, eid, Adn([401]))  # erro: próxima automática só daqui a 15 min
+    a = Adn([])
+    with httpx.Client(base_url="https://adn.teste/contribuintes", transport=httpx.MockTransport(a)) as c:
+        r = captura_nfse.buscar_empresa(con, eid, AGORA + timedelta(minutes=1), client=c, forcar=True)
+    assert a.pedidos == [0] and r.situacao == "ok"
+
+
+def test_automatica_depois_de_erro_respeita_a_espera(con):
+    eid = _empresa(con)
+    _buscar(con, eid, Adn([401]))
+    a = Adn([])
+    _buscar(con, eid, a, AGORA + timedelta(minutes=1))
+    assert a.pedidos == []
+
+
+def test_clique_manual_com_fila_vazia_ainda_espera_uma_hora(con):
+    eid = _empresa(con)
+    _buscar(con, eid, Adn([]))
+    a = Adn([])
+    with httpx.Client(base_url="https://adn.teste/contribuintes", transport=httpx.MockTransport(a)) as c:
+        captura_nfse.buscar_empresa(con, eid, AGORA + timedelta(minutes=5), client=c, forcar=True)
+    assert a.pedidos == []
