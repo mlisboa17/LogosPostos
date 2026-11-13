@@ -9,6 +9,7 @@ Uso (na pasta WebPosto_API):  .venv\\Scripts\\python.exe scripts\\testar_premmia
 """
 from __future__ import annotations
 
+import getpass
 import os
 import shutil
 import sqlite3
@@ -21,9 +22,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from apps.match import banco, explicar, unidades  # noqa: E402
+from apps.match import banco, credenciais, explicar, unidades  # noqa: E402
 from apps.match.premmia_tela import ETAPAS  # noqa: E402
 from src.modules.cash_reconciliation.adapters import premmia_portal  # noqa: E402
+from src.modules.cash_reconciliation.domain.models import Unidade  # noqa: E402
 from src.modules.cash_reconciliation.domain.tempo import agora  # noqa: E402
 from src.shared.segredos import definir_resolvedor  # noqa: E402
 
@@ -37,19 +39,38 @@ def main() -> None:
         sys.exit(f"Não achei o banco do Logos Match em {BANCO}. O Match está instalado neste usuário?")
     con = sqlite3.connect(f"file:{BANCO}?mode=ro", uri=True)
     con.row_factory = sqlite3.Row
-    postos = [p for p in banco.listar_postos(con)
-              if any(f["tipo"] == "premmia" and f["ativo"] for f in banco.fontes_do_posto(con, p["id"]))]
-    if not postos:
-        sys.exit("Nenhum posto com o Premmia ligado no Logos Match.")
+    postos = banco.listar_postos(con)
+    print("Postos no Logos Match:" if postos else "Nenhum posto cadastrado no Logos Match.")
     for i, p in enumerate(postos, 1):
-        print(f"  {i}. {p['apelido'] or p['nome']}")
-    escolha = input("Número do posto: ").strip()
-    if not escolha.isdigit() or not 0 < int(escolha) <= len(postos):
+        f = next((f for f in banco.fontes_do_posto(con, p["id"]) if f["tipo"] == "premmia"), None)
+        tem = credenciais.tem(f"{p['id']}/premmia/usuario") and credenciais.tem(f"{p['id']}/premmia/senha")
+        situacao = ("Premmia ligado" if f and f["ativo"] else "Premmia desligado" if f else "sem Premmia")
+        print(f"  {i}. {p['apelido'] or p['nome']} · {situacao} · "
+              + ("usuário/senha guardados" if tem else "sem usuário/senha"))
+    print("  0. Testar só com usuário e senha (sem posto)")
+    escolha = input("Número: ").strip()
+    if not escolha.isdigit() or not 0 <= int(escolha) <= len(postos):
         sys.exit("Número inválido.")
-    posto = postos[int(escolha) - 1]
-    definir_resolvedor(unidades.resolvedor(con))
-    unidade = unidades.do_posto(con, posto)
+    if int(escolha) == 0:
+        unidade = Unidade(empresa_codigo=0, nome="Teste Premmia", apelido="teste", destinos=(), chave_env="-",
+                          premmia_ativo=True, premmia_usuario_env="TESTE_PREMMIA_USUARIO",
+                          premmia_senha_env="TESTE_PREMMIA_SENHA")
+        guardado = False
+    else:
+        posto = postos[int(escolha) - 1]
+        unidade = unidades.do_posto(con, posto)
+        guardado = (credenciais.tem(f"{posto['id']}/premmia/usuario")
+                    and credenciais.tem(f"{posto['id']}/premmia/senha"))
+    do_match = unidades.resolvedor(con)
     con.close()
+
+    digitado: dict[str, str] = {}
+    if not guardado:
+        print()
+        print("Usuário e senha do portal do Premmia (não ficam salvos; a senha não aparece):")
+        digitado[unidade.premmia_usuario_env] = input("Usuário: ").strip()
+        digitado[unidade.premmia_senha_env] = getpass.getpass("Senha: ")
+    definir_resolvedor(lambda nome: digitado.get(nome) or do_match(nome))
 
     texto = input("Dia (dd/mm/aaaa, Enter = ontem): ").strip()
     if texto:
