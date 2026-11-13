@@ -292,12 +292,19 @@ def test_um_login_fallback_timeout_um_dia_mesma_sessao(monkeypatch, tmp_path):
     download_context = MagicMock()
     download_context.__enter__.return_value = download_context
     download_context.value.suggested_filename = "relatorio.xlsx"
-    download_context.value.save_as.side_effect = lambda path: original(path, [registro()])
+    etapas_vistas = []
+
+    def salvar(path):
+        etapas_vistas.append(portal.ETAPA_ATUAL.get(321))
+        original(path, [registro()])
+
+    download_context.value.save_as.side_effect = salvar
     page.expect_download.side_effect = [
         portal.PlaywrightTimeoutError("sintético"),
         download_context,
     ]
     portal.coletar_sync(unidade(), [DIA, date(2026, 10, 6)], diretorio=tmp_path)
+    assert etapas_vistas == ["download XLSX"] and 321 not in portal.ETAPA_ATUAL  # a tela vê a etapa; some no fim
     assert pw.__enter__.return_value.chromium.launch.call_count == 1
     page.locator("input[data-testid='Login']").fill.assert_called_once()
     page.get_by_role("button", name="Entrar", exact=True).click.assert_called_once()

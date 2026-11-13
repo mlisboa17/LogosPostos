@@ -51,6 +51,15 @@ COLUNAS_COLETAS = ("Dia", "Quantidade", "Total", "Coletado em")
 AVISO_HUMANO = "Premmia pediu verificação humana / credencial recusada"
 
 
+# Etapa em andamento por empresa_codigo, para a tela mostrar "baixando a planilha…". Só texto técnico fixo.
+ETAPA_ATUAL: dict[int, str] = {}
+
+
+def _etapa(unidade: Unidade, nome: str) -> str:
+    ETAPA_ATUAL[unidade.empresa_codigo] = nome
+    return nome
+
+
 class PremmiaErro(RuntimeError):
     def __init__(self, mensagem: str, *, etapa: str | None = None):
         super().__init__(mensagem)
@@ -466,17 +475,24 @@ def coletar_sync(
         raise PremmiaErro("Premmia: login já tentado nesta noite; sem nova tentativa.", etapa="login já tentado")
     pasta = (diretorio or DIRETORIO) / "originais"
     pasta.mkdir(parents=True, exist_ok=True)
-    etapa = "iniciar navegador"
+    try:
+        _coletar_navegador(unidade, dias, usuario, senha, tentativa_login, pasta, visivel, diretorio)
+    finally:
+        ETAPA_ATUAL.pop(unidade.empresa_codigo, None)
+
+
+def _coletar_navegador(unidade, dias, usuario, senha, tentativa_login, pasta, visivel, diretorio) -> None:
+    etapa = _etapa(unidade, "iniciar navegador")
     try:
         with sync_playwright() as playwright:
-            etapa = "abrir login"
+            etapa = _etapa(unidade, "abrir login")
             browser, page = abrir_login(playwright, unidade, visivel=visivel)
             try:
                 page.set_default_navigation_timeout(TIMEOUT)
                 unico(page.locator("input[data-testid='Login']")).fill(usuario)
                 unico(page.locator("input[data-testid='Senha']")).fill(senha)
                 verificar_pagina(page)
-                etapa = "enviar login"
+                etapa = _etapa(unidade, "enviar login")
                 tentativa_login.parent.mkdir(parents=True, exist_ok=True)
                 try:
                     with tentativa_login.open("x", encoding="utf-8") as arquivo:
@@ -486,9 +502,9 @@ def coletar_sync(
                 except FileExistsError:
                     raise PremmiaErro("Premmia: login já tentado nesta noite; sem nova tentativa.", etapa=etapa) from None
                 unico(page.get_by_role("button", name="Entrar", exact=True)).click()
-                etapa = "confirmar login"
+                etapa = _etapa(unidade, "confirmar login")
                 aguardar(page, lambda: "/login" not in page.url)
-                etapa = "abrir pagamentos/products"
+                etapa = _etapa(unidade, "abrir pagamentos/products")
                 resposta = page.goto(PAGAMENTOS, wait_until="commit")
                 verificar_pagina(page)
                 if resposta is None or resposta.status >= 400 or "/login" in page.url:
@@ -500,13 +516,13 @@ def coletar_sync(
                     intervalos.append((min(dias), min(dias)))
                 for tentativa, (inicio, fim) in enumerate(intervalos):
                     try:
-                        etapa = "filtro pela URL"
+                        etapa = _etapa(unidade, "filtro pela URL")
                         logger.info("Premmia unidade=%s etapa=%s", unidade.empresa_codigo, etapa)
                         filtrada = url_periodo(url_original, inicio, fim)
                         resposta = page.goto(filtrada, wait_until="commit")
                         if resposta is None or resposta.status >= 400:
                             raise PremmiaErro("Filtro por URL indisponível.")
-                        etapa = "aguardar Exportar"
+                        etapa = _etapa(unidade, "aguardar Exportar")
                         aguardar_exportacao(page)
                         atuais, esperados = parse_qs(urlsplit(page.url).query), parse_qs(
                             urlsplit(filtrada).query
@@ -517,7 +533,7 @@ def coletar_sync(
                         ):
                             raise PremmiaErro("Portal não preservou o filtro.")
                         verificar_pagina(page)
-                        etapa = "download XLSX"
+                        etapa = _etapa(unidade, "download XLSX")
                         with page.expect_download(timeout=180_000) as download_info:
                             unico(page.get_by_role("button", name="Exportar", exact=True)).click()
                         verificar_pagina(page)
@@ -539,7 +555,7 @@ def coletar_sync(
                             unidade.empresa_codigo,
                             etapa,
                         )
-                etapa = "validar/persistir XLSX"
+                etapa = _etapa(unidade, "validar/persistir XLSX")
                 registros = ler_original(original, inicio, fim)
                 acrescentar_coleta(
                     unidade, registros, [d for d in dias if inicio <= d <= fim], diretorio

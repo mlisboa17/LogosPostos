@@ -30,7 +30,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
 from apps.match import (acesso, agendador, banco, caminhos, coletas, credenciais, explicar, inicio,
-                        recuperar_senha, registro_rede, relatorio_xlsx, rotina, unidades)
+                        premmia_tela, recuperar_senha, registro_rede, relatorio_xlsx, rotina, unidades)
 from apps.match.acesso import Acao, Perfil
 from apps.match.canais import envio
 from apps.match.extratos import aprovacoes, autonomia, camada1, camada2, entrada, repositorio
@@ -303,6 +303,7 @@ def _menu(ctx: Ctx) -> list[tuple[str, str]]:
     if ctx.pode(Acao.VER_FISCAL):
         itens.append(("/notas", "Notas fiscais"))
     itens.append(("/caixa", "Caixa"))
+    itens.append(("/premmia", "Premmia"))
     if _itens_configuracao(ctx):
         itens.append(("/configuracoes", "Configurações"))
     return itens
@@ -549,6 +550,45 @@ async def coletar(posto_id: int, visivel: int = 0, ctx: Ctx = Depends(_ctx_post)
     while t.is_alive() and not rotina.em_andamento() and _relogio() < limite:
         await asyncio.sleep(0.02)
     return _ir("/coleta?iniciada=1")
+
+
+@router.get("/premmia")
+async def premmia(ctx: Ctx = Depends(_ctx), iniciada: int = 0):
+    ctx.exigir(Acao.VER)
+    rodando = rotina.em_andamento()
+    cartoes = premmia_tela.cartoes(ctx.con, ctx.postos(), agora().date())
+    for c in cartoes:
+        c.pode_coletar = ctx.pode(Acao.COLETAR, c.posto["id"]) and c.estado not in ("desligado", "sem_credencial")
+    return _pagina(ctx, "premmia.html", cartoes=cartoes, rodando=rodando,
+                   andamento=premmia_tela.andamento(ctx.con),
+                   mensagem="Coleta iniciada. Esta página mostra cada etapa." if iniciada and rodando else None)
+
+
+@router.post("/premmia/coletar")
+async def premmia_coletar(posto_id: int, visivel: int = 0, ctx: Ctx = Depends(_ctx_post)):
+    ctx.exigir(Acao.COLETAR, posto_id)
+    posto = _posto_ou_404(ctx, posto_id)
+    if not posto["ativo"]:
+        raise Recusado(400, "Este posto está desativado.")
+    if rotina.em_andamento():
+        return _ir("/premmia")
+    t = _em_segundo_plano("coleta", _coletar, ctx.request.app.state.con_factory, posto_id, bool(visivel), ctx.uid)
+    acesso.registrar(ctx.con, ctx.uid, "coletar", f"posto={posto_id} visivel={int(bool(visivel))} tela=premmia")
+    limite = _relogio() + 2
+    while t.is_alive() and not rotina.em_andamento() and _relogio() < limite:
+        await asyncio.sleep(0.02)
+    return _ir("/premmia?iniciada=1")
+
+
+@router.get("/premmia/planilha/{posto_id}")
+async def premmia_planilha(posto_id: int, mes: str = "", ctx: Ctx = Depends(_ctx)):
+    ctx.exigir(Acao.VER, posto_id)
+    if posto_id not in ctx.postos():
+        raise Recusado(403, SEM_ACESSO)
+    caminho = premmia_tela.planilha(ctx.con, _posto_ou_404(ctx, posto_id), mes)
+    if caminho is None:
+        raise Recusado(404, "Não há planilha do Premmia deste mês para este posto.")
+    return FileResponse(caminho, filename=caminho.name)
 
 
 @router.post("/reenviar")

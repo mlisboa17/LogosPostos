@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block titulo %}Premmia{% endblock %}
+{% block cabeca %}{% if rodando %}<meta http-equiv="refresh" content="3">{% endif %}{% endblock %}
+{% block conteudo %}
+<h1>Premmia</h1>
+<p class="sub">Vendas do Premmia de cada posto. A coleta roda sozinha todo dia; use os botões quando precisar.</p>
+
+{% if rodando %}
+<p class="aviso alerta" role="status">
+  {% if andamento.posto %}<strong>{{ andamento.posto }}</strong>: {{ andamento.etapa }}…{% else %}Coleta em andamento…{% endif %}
+  Esta página atualiza sozinha.</p>
+{% endif %}
+
+{% if cartoes %}
+<div class="cartoes-premmia">
+  {% for c in cartoes %}
+  <section class="cartao premmia-posto" aria-labelledby="pm-{{ c.posto.id }}">
+    <div class="premmia-topo">
+      <h2 id="pm-{{ c.posto.id }}">{{ c.posto.apelido or c.posto.nome }}</h2>
+      {% if rodando and andamento.posto == (c.posto.apelido or c.posto.nome) %}<span class="estado estado-alerta">coletando agora…</span>
+      {% else %}<span class="estado {{ c.classe }}">{{ c.rotulo }}</span>{% endif %}
+    </div>
+    {% if c.estado == "ok" %}<p class="premmia-total">{{ c.total|dinheiro }} <small>{{ c.qtd }} venda(s) em {{ c.dia.strftime("%d/%m/%Y") }}</small></p>
+    {% elif c.mensagem %}<p class="{{ 'erro-busca' if c.estado == 'erro' else 'dica' }}">{{ c.mensagem }}</p>{% endif %}
+    {% if c.faltando %}<p class="dica">Faltam {{ c.faltando|length }} dia(s) deste mês: {% for d in c.faltando[:6] %}{{ d.strftime("%d/%m") }}{{ ", " if not loop.last }}{% endfor %}{% if c.faltando|length > 6 %} e outros{% endif %}. A próxima coleta busca de uma vez.</p>{% endif %}
+    <div class="acoes-empresa">
+      {% if c.pode_coletar %}
+      <form method="post" action="/premmia/coletar?posto_id={{ c.posto.id }}&amp;visivel=0"><input type="hidden" name="csrf" value="{{ csrf }}">
+        <button type="submit"{% if rodando %} disabled{% endif %}>Coletar agora</button></form>
+      <form method="post" action="/premmia/coletar?posto_id={{ c.posto.id }}&amp;visivel=1"><input type="hidden" name="csrf" value="{{ csrf }}">
+        <button type="submit" class="secundario"{% if rodando %} disabled{% endif %}>Coletar mostrando o navegador</button></form>
+      {% endif %}
+      {% for pl in c.planilhas %}<a class="botao secundario" href="/premmia/planilha/{{ c.posto.id }}?mes={{ pl.mes }}">Baixar planilha {{ pl.rotulo }}</a>{% endfor %}
+    </div>
+  </section>
+  {% endfor %}
+</div>
+{% else %}
+<p class="vazio">Nenhum posto seu usa o Premmia. Para ligar, abra Configurações › Postos › Fontes.</p>
+{% endif %}
+<p class="dica">"Coletar mostrando o navegador" abre o portal na sua frente: use quando o Premmia pedir verificação ("não sou robô"). <a href="/historico">Histórico das coletas</a></p>
+{% endblock %}

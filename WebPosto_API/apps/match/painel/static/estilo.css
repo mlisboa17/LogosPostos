@@ -169,3 +169,9 @@ tr.edicao td { padding-top: 0; }
 .resumo-prestadores tr[aria-current="true"] td { font-weight: 600; }
 td.num, th.num { text-align: right; white-space: nowrap; }
 .oculto { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.cartoes-premmia { display: grid; gap: 12px; }
+.premmia-topo { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.premmia-topo h2 { margin: 0; }
+.premmia-total { font-size: 22px; font-weight: 600; margin: 8px 0; }
+.premmia-total small { display: block; font-size: 13px; font-weight: 400; color: var(--suave); }
+.acoes-empresa form { margin: 0; }
