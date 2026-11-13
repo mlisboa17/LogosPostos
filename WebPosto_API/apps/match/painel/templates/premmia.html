@@ -23,6 +23,21 @@
     {% if c.estado == "ok" %}<p class="premmia-total">{{ c.total|dinheiro }} <small>{{ c.qtd }} venda(s) em {{ c.dia.strftime("%d/%m/%Y") }}</small></p>
     {% elif c.mensagem %}<p class="{{ 'erro-busca' if c.estado == 'erro' else 'dica' }}">{{ c.mensagem }}</p>{% endif %}
     {% if c.faltando %}<p class="dica">Faltam {{ c.faltando|length }} dia(s) deste mês: {% for d in c.faltando[:6] %}{{ d.strftime("%d/%m") }}{{ ", " if not loop.last }}{% endfor %}{% if c.faltando|length > 6 %} e outros{% endif %}. A próxima coleta busca de uma vez.</p>{% endif %}
+    {% if c.ativo and c.tem_credencial %}<p class="dica">{% if c.comparacao %}✅ Compara com o webPosto a cada coleta.{% else %}⚠ Sem comparação com o webPosto: falta {{ "a chave" if c.tem_codigo else "o código da empresa e a chave" }} do webPosto.{% endif %}</p>{% endif %}
+    {% if c.pode_ligar and (not c.ativo or not c.tem_credencial or not c.comparacao) %}
+    <details class="ligar-premmia"{% if not c.ativo or not c.tem_credencial %} open{% endif %}>
+      <summary>{% if not c.ativo or not c.tem_credencial %}Ligar o Premmia neste posto{% else %}Ligar a comparação com o webPosto{% endif %}</summary>
+      <form method="post" action="/premmia/{{ c.posto.id }}/ligar" class="linha">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <label>Usuário do Premmia <input name="usuario" autocomplete="off"{% if c.tem_credencial %} placeholder="já salvo — em branco mantém"{% endif %}></label>
+        <label>Senha do Premmia <input type="password" name="senha" autocomplete="new-password"{% if c.tem_credencial %} placeholder="já salva — em branco mantém"{% endif %}></label>
+        {% if c.tem_codigo %}<label>Chave do webPosto <input type="password" name="chave_webposto" autocomplete="off" placeholder="{{ 'já salva' if c.comparacao else 'para comparar as vendas' }}"></label>{% endif %}
+        <button type="submit">Ligar e coletar o mês</button>
+      </form>
+      <p class="dica">O Logos Match entra no portal na hora, com o navegador visível, e busca do dia 1 do mês até ontem.
+        {% if not c.tem_codigo %}Para comparar com o webPosto, informe antes o código da empresa em Configurações › Postos.{% endif %}</p>
+    </details>
+    {% endif %}
     <div class="acoes-empresa">
       {% if c.pode_coletar %}
       <form method="post" action="/premmia/coletar?posto_id={{ c.posto.id }}&amp;visivel=0"><input type="hidden" name="csrf" value="{{ csrf }}">

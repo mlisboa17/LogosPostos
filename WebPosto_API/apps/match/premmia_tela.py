@@ -1,13 +1,14 @@
 """Tela do Premmia: um cartão por posto, etapa da coleta em andamento e planilhas do mês."""
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
 
-from apps.match import banco, caminhos, credenciais, explicar, rotina, unidades
+from apps.match import banco, caminhos, coletas, credenciais, explicar, rotina, unidades
 from src.modules.cash_reconciliation.adapters import premmia_portal
 
 logger = logging.getLogger(__name__)
@@ -48,6 +49,9 @@ class Cartao:
     faltando: list[date] = field(default_factory=list)
     planilhas: list[Planilha] = field(default_factory=list)
     pode_coletar: bool = False
+    pode_ligar: bool = False
+    comparacao: bool = False  # chave do webPosto cadastrada: compara as vendas
+    tem_codigo: bool = False  # código da empresa no webPosto informado
 
 
 def _planilhas(unidade, pasta: Path, hoje: date) -> list[Planilha]:
@@ -69,13 +73,18 @@ def _faltando(unidade, pasta: Path, hoje: date) -> list[date]:
         return []
 
 
-def cartao(con, posto, hoje: date) -> Cartao | None:
+def cartao(con, posto, hoje: date, *, todos: bool = False) -> Cartao | None:
+    """`todos`: também postos sem a fonte Premmia (para quem pode ligar)."""
     fonte = next((f for f in banco.fontes_do_posto(con, posto["id"]) if f["tipo"] == "premmia"), None)
     if fonte is None:
-        return None
+        if not todos:
+            return None
+        fonte = {"ativo": 0, "id": None}
     pid = posto["id"]
     tem = credenciais.tem(f"{pid}/premmia/usuario") and credenciais.tem(f"{pid}/premmia/senha")
-    base = {"posto": posto, "ativo": bool(fonte["ativo"]), "tem_credencial": tem}
+    base = {"posto": posto, "ativo": bool(fonte["ativo"]), "tem_credencial": tem,
+            "comparacao": coletas.tem_chave_webposto(con, posto),
+            "tem_codigo": posto["empresa_codigo_webposto"] is not None}
     if not fonte["ativo"]:
         return Cartao(**base, estado="desligado", rotulo="Premmia desligado neste posto", classe="")
     if not tem:
@@ -105,12 +114,12 @@ def cartao(con, posto, hoje: date) -> Cartao | None:
                   mensagem=ultima["erro_texto"] or "A coleta falhou.")
 
 
-def cartoes(con, posto_ids: list[int], hoje: date) -> list[Cartao]:
+def cartoes(con, posto_ids: list[int], hoje: date, *, todos: bool = False) -> list[Cartao]:
     saida = []
     for pid in posto_ids:
         p = banco.obter_posto(con, pid)
         if p is not None and p["ativo"]:
-            c = cartao(con, p, hoje)
+            c = cartao(con, p, hoje, todos=todos)
             if c is not None:
                 saida.append(c)
     return saida
@@ -134,3 +143,23 @@ def planilha(con, posto, mes: str) -> Path | None:
         return None
     caminho = premmia_portal.caminho_mensal(unidades.do_posto(con, posto), dia, caminhos.premmia(posto["id"]))
     return caminho if caminho.exists() else None
+
+
+def ligar(con, posto_id: int, usuario: str, senha: str, chave_webposto: str) -> list[str]:
+    """Liga o Premmia do posto (e a comparação, se vier a chave). Campos em branco mantêm o que está salvo.
+    Devolve os campos de credencial trocados (para o log de acesso, nunca os valores)."""
+    trocados = []
+    for campo, valor in (("usuario", usuario), ("senha", senha)):
+        if valor:
+            credenciais.salvar(f"{posto_id}/premmia/{campo}", valor)
+            trocados.append(f"premmia/{campo}")
+    if not (credenciais.tem(f"{posto_id}/premmia/usuario") and credenciais.tem(f"{posto_id}/premmia/senha")):
+        raise ValueError("Informe o usuário e a senha do Premmia deste posto.")
+    fontes = {f["tipo"]: f for f in banco.fontes_do_posto(con, posto_id)}
+    for tipo in ("premmia",) + (("webposto",) if chave_webposto else ()):
+        atual = fontes.get(tipo)
+        banco.salvar_fonte(con, posto_id, tipo, True, json.loads(atual["config_json"] or "{}") if atual else {})
+    if chave_webposto:
+        credenciais.salvar(f"{posto_id}/webposto/chave", chave_webposto)
+        trocados.append("webposto/chave")
+    return trocados

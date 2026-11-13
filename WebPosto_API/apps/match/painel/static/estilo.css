@@ -175,3 +175,5 @@ td.num, th.num { text-align: right; white-space: nowrap; }
 .premmia-total { font-size: 22px; font-weight: 600; margin: 8px 0; }
 .premmia-total small { display: block; font-size: 13px; font-weight: 400; color: var(--suave); }
 .acoes-empresa form { margin: 0; }
+.ligar-premmia { margin: 8px 0; }
+.ligar-premmia form { margin-top: 8px; }

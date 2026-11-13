@@ -128,3 +128,44 @@ def test_conferente_so_ve_e_baixa_o_seu_posto(cli, postos):
     html = cli.get("/premmia").text
     assert "Casa Caiada" in html and "Doze" not in html
     assert cli.get(f"/premmia/planilha/{postos['doze']}?mes=2026-11").status_code == 403
+
+
+def test_ligar_premmia_pela_tela_e_coletar_o_mes(cli, con, postos, monkeypatch):
+    chamadas, feito = [], threading.Event()
+
+    async def falso(con, **kw):
+        chamadas.append(kw)
+        feito.set()
+        return []
+
+    monkeypatch.setattr(rotina, "executar", falso)
+    csrf = _logado(cli)
+    html = cli.get("/premmia").text
+    assert f'action="/premmia/{postos["cc"]}/ligar"' in html and "Ligar o Premmia neste posto" in html
+    r = cli.post(f"/premmia/{postos['cc']}/ligar",
+                 data={"csrf": csrf, "usuario": "70001", "senha": "segredo-x", "chave_webposto": "CHAVE-X"})
+    assert r.status_code == 303 and r.headers["location"] == "/premmia?iniciada=1"
+    assert credenciais.ler(f"{postos['cc']}/premmia/usuario") == "70001"
+    assert credenciais.ler(f"{postos['cc']}/webposto/chave") == "CHAVE-X"
+    ativos = {f["tipo"]: f["ativo"] for f in banco.fontes_do_posto(con, postos["cc"])}
+    assert ativos == {"premmia": 1, "webposto": 1}
+    assert feito.wait(2) and chamadas[0]["posto_id"] == postos["cc"] and chamadas[0]["visivel"] is True
+    log = " ".join(r[0] for r in con.execute("SELECT detalhe FROM log_acesso"))
+    assert "segredo-x" not in log and "CHAVE-X" not in log
+
+
+def test_ligar_sem_senha_explica(cli, postos):
+    csrf = _logado(cli)
+    r = cli.post(f"/premmia/{postos['cc']}/ligar", data={"csrf": csrf, "usuario": "70001"})
+    assert r.status_code == 400 and "Informe o usuário e a senha" in r.text
+
+
+def test_cartao_avisa_quando_falta_a_chave_do_webposto(cli, con, postos):
+    banco.registrar_coleta(con, postos["f_doze"], ontem(), "ok", 1, Decimal("10"), None)
+    _logado(cli)
+    assert "Sem comparação com o webPosto: falta a chave" in cli.get("/premmia").text
+
+
+def test_conferente_nao_liga_premmia(cli, postos):
+    _logado(cli, "bia")
+    assert "/ligar" not in cli.get("/premmia").text

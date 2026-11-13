@@ -556,9 +556,12 @@ async def coletar(posto_id: int, visivel: int = 0, ctx: Ctx = Depends(_ctx_post)
 async def premmia(ctx: Ctx = Depends(_ctx), iniciada: int = 0):
     ctx.exigir(Acao.VER)
     rodando = rotina.em_andamento()
-    cartoes = premmia_tela.cartoes(ctx.con, ctx.postos(), agora().date())
+    cartoes = premmia_tela.cartoes(ctx.con, ctx.postos(), agora().date(),
+                                   todos=any(ctx.pode(Acao.TROCAR_CREDENCIAL, p) for p in ctx.postos()))
     for c in cartoes:
         c.pode_coletar = ctx.pode(Acao.COLETAR, c.posto["id"]) and c.estado not in ("desligado", "sem_credencial")
+        c.pode_ligar = ctx.pode(Acao.TROCAR_CREDENCIAL, c.posto["id"])
+    cartoes = [c for c in cartoes if c.ativo or c.pode_ligar or c.estado != "desligado"]
     return _pagina(ctx, "premmia.html", cartoes=cartoes, rodando=rodando,
                    andamento=premmia_tela.andamento(ctx.con),
                    mensagem="Coleta iniciada. Esta página mostra cada etapa." if iniciada and rodando else None)
@@ -578,6 +581,26 @@ async def premmia_coletar(posto_id: int, visivel: int = 0, ctx: Ctx = Depends(_c
     while t.is_alive() and not rotina.em_andamento() and _relogio() < limite:
         await asyncio.sleep(0.02)
     return _ir("/premmia?iniciada=1")
+
+
+@router.post("/premmia/{posto_id}/ligar")
+async def premmia_ligar(posto_id: int, ctx: Ctx = Depends(_ctx_post)):
+    """Liga o Premmia (e a comparação com o webPosto) e já coleta o mês com o navegador visível."""
+    ctx.exigir(Acao.TROCAR_CREDENCIAL, posto_id)
+    posto = _posto_ou_404(ctx, posto_id)
+    try:
+        trocados = premmia_tela.ligar(ctx.con, posto_id, _txt(ctx.form, "usuario"),
+                                      _txt(ctx.form, "senha", cru=True), _txt(ctx.form, "chave_webposto"))
+    except ValueError as exc:
+        return _pagina(ctx, "premmia.html", 400, erro=str(exc), rodando=rotina.em_andamento(), andamento={},
+                       cartoes=premmia_tela.cartoes(ctx.con, ctx.postos(), agora().date(), todos=True))
+    acesso.registrar(ctx.con, ctx.uid, "salvar_fonte", f"posto={posto_id} fonte=premmia ativo=1 tela=premmia")
+    if trocados:
+        acesso.registrar(ctx.con, ctx.uid, "trocar_credencial", f"posto={posto_id} campos={','.join(trocados)}")
+    if posto["ativo"] and ctx.pode(Acao.COLETAR, posto_id) and not rotina.em_andamento():
+        _em_segundo_plano("coleta", _coletar, ctx.request.app.state.con_factory, posto_id, True, ctx.uid)
+        return _ir("/premmia?iniciada=1")
+    return _ir("/premmia")
 
 
 @router.get("/premmia/planilha/{posto_id}")
