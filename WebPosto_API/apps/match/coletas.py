@@ -80,14 +80,14 @@ async def _premmia(unidade, posto_id: int, dia: date, visivel: bool, comparar: b
     await premmia_portal.coletar(unidade, ate=dia, visivel=visivel, diretorio=diretorio)
     transacoes = premmia_portal.buscar_transacoes(unidade, dia, diretorio)
     if not comparar:
-        return transacoes, None, []
+        return transacoes, None, [], None
     emp = unidade.empresa_codigo
     cartoes, abastecimentos, itens = await conciliar_cartoes.coletar_contexto_cartoes(emp, dia)
     cartoes = [c for c in cartoes
                if conciliar_cartoes.da_adquirente(c, "PREMMIA", unidade.administradoras)]
     _exigir_vendas([t for t in transacoes if t.momento.date() == dia], cartoes, dia, "Premmia")
     return transacoes, conciliar_cartoes.conciliar(
-        emp, "PREMMIA", dia, transacoes, cartoes, abastecimentos, itens), abastecimentos
+        emp, "PREMMIA", dia, transacoes, cartoes, abastecimentos, itens), abastecimentos,         sum((c.valor for c in cartoes if c.momento.date() == dia), Decimal(0))
 
 
 async def _pagbank(unidade, dia: date, comparar: bool):
@@ -124,9 +124,10 @@ async def _coletar_fonte(con, posto, fonte, unidade, dia, visivel, comparar) -> 
     tipo, posto_id = fonte["tipo"], posto["id"]
     try:
         if tipo == "premmia":
-            transacoes, resultado, abastecimentos = await _premmia(unidade, posto_id, dia, visivel, comparar)
+            transacoes, resultado, abastecimentos, total_webposto = await _premmia(
+                unidade, posto_id, dia, visivel, comparar)
         else:
-            transacoes, resultado = await _pagbank(unidade, dia, comparar)
+            (transacoes, resultado), total_webposto = await _pagbank(unidade, dia, comparar), None
         do_dia = [t for t in transacoes if t.momento.date() == dia]
         total = sum((t.valor for t in do_dia if t.situacao is None), Decimal(0))
         if resultado is None:
@@ -139,6 +140,8 @@ async def _coletar_fonte(con, posto, fonte, unidade, dia, visivel, comparar) -> 
             itens = explicar.divergencias(resultado)
         situacao_coleta = "ok" if do_dia else "sem_movimento"
         coleta_id = banco.registrar_coleta(con, fonte["id"], dia, situacao_coleta, len(do_dia), total, None)
+        if total_webposto is not None:
+            banco.salvar_total_webposto(con, coleta_id, total_webposto)
         banco.gravar_transacoes(con, coleta_id, posto_id, tipo, do_dia)
         if resultado is not None:
             banco.gravar_divergencias(con, posto_id, dia, tipo, itens)

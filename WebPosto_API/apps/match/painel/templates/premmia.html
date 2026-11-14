@@ -45,6 +45,7 @@
       <form method="post" action="/premmia/coletar?posto_id={{ c.posto.id }}&amp;visivel=1"><input type="hidden" name="csrf" value="{{ csrf }}">
         <button type="submit" class="secundario"{% if rodando %} disabled{% endif %}>Coletar mostrando o navegador</button></form>
       {% endif %}
+      {% if c.ativo and c.tem_credencial %}<a class="botao secundario" href="/premmia/{{ c.posto.id }}/conciliacao">Ver conciliação</a>{% endif %}
       {% for pl in c.planilhas %}<a class="botao secundario" href="/premmia/planilha/{{ c.posto.id }}?mes={{ pl.mes }}">Baixar planilha {{ pl.rotulo }}</a>{% endfor %}
     </div>
   </section>

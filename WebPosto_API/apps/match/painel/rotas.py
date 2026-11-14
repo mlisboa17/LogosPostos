@@ -30,7 +30,8 @@ from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
 from apps.match import (acesso, agendador, banco, caminhos, coletas, credenciais, explicar, inicio,
-                        premmia_tela, recuperar_senha, registro_rede, relatorio_xlsx, rotina, unidades)
+                        premmia_tela, recuperar_senha, registro_rede, relatorio_premmia, relatorio_xlsx, rotina,
+                        sugestoes, unidades)
 from apps.match.acesso import Acao, Perfil
 from apps.match.canais import envio
 from apps.match.extratos import aprovacoes, autonomia, camada1, camada2, entrada, repositorio
@@ -601,6 +602,72 @@ async def premmia_ligar(posto_id: int, ctx: Ctx = Depends(_ctx_post)):
         _em_segundo_plano("coleta", _coletar, ctx.request.app.state.con_factory, posto_id, True, ctx.uid)
         return _ir("/premmia?iniciada=1")
     return _ir("/premmia")
+
+
+def _periodo_conciliacao(inicio: str, fim: str) -> tuple[date, date, str | None]:
+    padrao_fim = ontem()
+    try:
+        fi = date.fromisoformat(fim) if fim else padrao_fim
+        ini = date.fromisoformat(inicio) if inicio else fi.replace(day=1)
+    except ValueError:
+        ini, fi = padrao_fim.replace(day=1), padrao_fim
+    if fi < ini:
+        ini, fi = fi, ini
+    aviso = None
+    if (fi - ini).days >= relatorio_premmia.MAX_DIAS:
+        fi = ini + timedelta(days=relatorio_premmia.MAX_DIAS - 1)
+        aviso = f"O período vai até {relatorio_premmia.MAX_DIAS} dias. Mostrando de {ini:%d/%m/%Y} a {fi:%d/%m/%Y}."
+    return ini, fi, aviso
+
+
+def _relatorio_premmia(ctx: Ctx, posto_id: int, inicio: str, fim: str):
+    ctx.exigir(Acao.VER, posto_id)
+    if posto_id not in ctx.postos():
+        raise Recusado(403, SEM_ACESSO)
+    ini, fi, aviso = _periodo_conciliacao(inicio, fim)
+    rel = relatorio_premmia.montar(ctx.con, posto_id, ini, fi)
+    if rel is None:
+        raise Recusado(404, "Este posto não usa o Premmia.")
+    return rel, aviso
+
+
+@router.get("/premmia/{posto_id}/conciliacao")
+async def premmia_conciliacao(posto_id: int, inicio: str = "", fim: str = "", acao: str = "",
+                              ctx: Ctx = Depends(_ctx)):
+    rel, aviso = _relatorio_premmia(ctx, posto_id, inicio, fim)
+    hoje_ = ontem()
+    mes_passado = hoje_.replace(day=1) - timedelta(days=1)
+    atalhos = [("Ontem", hoje_, hoje_), ("Últimos 7 dias", hoje_ - timedelta(days=6), hoje_),
+               ("Este mês", hoje_.replace(day=1), hoje_), ("Mês passado", mes_passado.replace(day=1), mes_passado)]
+    lista = [(d, o) for d, o in rel.ocorrencias if not acao or o.acao == acao]
+    janela, relogio = banco.tolerancias(ctx.con)
+    return _pagina(ctx, "premmia_conciliacao.html", rel=rel, ocorrencias=lista, acao=acao, acoes=sugestoes.ACOES,
+                   atalhos=[(n, a.isoformat(), b.isoformat(), (a, b) == (rel.inicio, rel.fim)) for n, a, b in atalhos],
+                   aviso=aviso, janela=janela, relogio=relogio, pode_configurar=ctx.pode(Acao.CONFIGURAR),
+                   max_dias=relatorio_premmia.MAX_DIAS)
+
+
+@router.get("/premmia/{posto_id}/conciliacao.xlsx")
+async def premmia_conciliacao_xlsx(posto_id: int, inicio: str = "", fim: str = "", ctx: Ctx = Depends(_ctx)):
+    rel, _ = _relatorio_premmia(ctx, posto_id, inicio, fim)
+    nome = re.sub(r"[^A-Za-z0-9]+", "", rel.posto["apelido"] or rel.posto["nome"]) or "posto"
+    return Response(relatorio_premmia.planilha(rel),
+                    media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f'attachment; filename="Conciliacao_Premmia_{nome}_'
+                                                    f'{rel.inicio:%Y%m%d}_{rel.fim:%Y%m%d}.xlsx"'})
+
+
+@router.post("/premmia/tolerancias")
+async def premmia_tolerancias(ctx: Ctx = Depends(_ctx_post)):
+    ctx.exigir(Acao.CONFIGURAR)
+    volta = _txt(ctx.form, "volta")
+    volta = volta if volta.startswith("/premmia/") else "/premmia"
+    try:
+        banco.salvar_tolerancias(ctx.con, _int(ctx.form, "janela") or 0, _int(ctx.form, "relogio") or 0)
+    except ValueError as exc:
+        raise Recusado(400, str(exc))
+    acesso.registrar(ctx.con, ctx.uid, "configurar", "tolerancias da conciliacao premmia")
+    return _ir(volta)
 
 
 @router.get("/premmia/planilha/{posto_id}")

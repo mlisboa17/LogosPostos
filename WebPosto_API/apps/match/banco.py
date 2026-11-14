@@ -280,6 +280,7 @@ ALTER TABLE divergencia ADD COLUMN acao TEXT;
 ALTER TABLE divergencia ADD COLUMN criterios_json TEXT;
 ALTER TABLE divergencia ADD COLUMN abastecimento TEXT;
 ALTER TABLE divergencia ADD COLUMN referencia TEXT;
+ALTER TABLE coleta ADD COLUMN total_webposto TEXT;
 ALTER TABLE instalacao ADD COLUMN janela_abastecimento_min INTEGER NOT NULL DEFAULT 15;
 ALTER TABLE instalacao ADD COLUMN tolerancia_relogio_min INTEGER NOT NULL DEFAULT 2;
 """
@@ -289,6 +290,12 @@ _MIGRACOES = [
     (5, _SCHEMA_V5), (6, _SCHEMA_V6), (7, _SCHEMA_V7), (8, _SCHEMA_V8), (9, _SCHEMA_V9),
     (10, _SCHEMA_V10), (11, _SCHEMA_V11), (12, _SCHEMA_V12), (13, _SCHEMA_V13),
 ]
+
+
+def salvar_total_webposto(con, coleta_id: int, total) -> None:
+    """Total dos lançamentos da fonte no webPosto no dia (para o relatório Premmia x webPosto)."""
+    con.execute("UPDATE coleta SET total_webposto=? WHERE id=?", (_txt(total), coleta_id))
+    con.commit()
 
 
 def tolerancias(con) -> tuple[int, int]:

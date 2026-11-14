@@ -177,3 +177,12 @@ td.num, th.num { text-align: right; white-space: nowrap; }
 .acoes-empresa form { margin: 0; }
 .ligar-premmia { margin: 8px 0; }
 .ligar-premmia form { margin-top: 8px; }
+.cartoes-resumo { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 12px 0; }
+.cartoes-resumo .cartao { margin: 0; padding: 12px 14px; }
+.cartoes-resumo b { display: block; font-size: 19px; }
+.texto-critico { color: var(--erro); }
+.lista-ocorrencias { display: grid; gap: 10px; margin-bottom: 14px; }
+.ocorrencia p { margin: 6px 0; }
+.ocorrencia.acao-excluir { border-left: 4px solid var(--erro); }
+.ocorrencia.acao-incluir, .ocorrencia.acao-corrigir_forma, .ocorrencia.acao-corrigir_valor { border-left: 4px solid var(--destaque); }
+.ocorrencia.acao-analisar { border-left: 4px solid var(--alerta); }

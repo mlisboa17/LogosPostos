@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block titulo %}Conciliação Premmia{% endblock %}
+{% block conteudo %}
+{% set c = rel.consolidado %}
+{% set nome = rel.posto.apelido or rel.posto.nome %}
+<p class="dica"><a href="/premmia">← Premmia</a></p>
+<h1>Conciliação Premmia × webPosto · {{ nome }}</h1>
+<p class="sub">De {{ rel.inicio.strftime("%d/%m/%Y") }} a {{ rel.fim.strftime("%d/%m/%Y") }}. O Logos Match só sugere: nada é alterado no webPosto.</p>
+
+<nav class="chips" aria-label="Período">
+  {% for n, a, b, atual in atalhos %}<a class="chip" href="?inicio={{ a }}&amp;fim={{ b }}"{% if atual %} aria-current="true"{% endif %}>{{ n }}</a>{% endfor %}
+</nav>
+<form method="get" class="periodo-livre">
+  <label>De <input type="date" name="inicio" value="{{ rel.inicio.isoformat() }}"></label>
+  <label>Até <input type="date" name="fim" value="{{ rel.fim.isoformat() }}"></label>
+  <button type="submit" class="secundario">Aplicar</button>
+  <small>até {{ max_dias }} dias</small>
+  <a class="botao secundario" href="/premmia/{{ rel.posto.id }}/conciliacao.xlsx?inicio={{ rel.inicio.isoformat() }}&amp;fim={{ rel.fim.isoformat() }}">Baixar planilha</a>
+</form>
+{% if aviso %}<p class="aviso alerta" role="status">{{ aviso }}</p>{% endif %}
+
+<div class="cartoes-resumo">
+  <div class="cartao"><span class="rotulo-filtro">Premmia</span><b>{{ c.total_premmia|dinheiro }}</b></div>
+  <div class="cartao"><span class="rotulo-filtro">webPosto</span><b>{{ c.total_webposto|dinheiro }}</b></div>
+  <div class="cartao"><span class="rotulo-filtro">Diferença</span><b class="{{ 'texto-critico' if c.diferenca != 0 }}">{{ c.diferenca|dinheiro }}</b></div>
+  <div class="cartao"><span class="rotulo-filtro">Pendentes de lançar</span><b>{{ c.pendentes|dinheiro }}</b></div>
+  <div class="cartao"><span class="rotulo-filtro">Lançados a mais</span><b>{{ c.excedentes|dinheiro }}</b></div>
+  <div class="cartao"><span class="rotulo-filtro">Não resolvidas</span><b>{{ c.nao_resolvidas }}</b></div>
+</div>
+{% if rel.dias_sem_comparacao %}<p class="aviso alerta">{{ rel.dias_sem_comparacao }} dia(s) coletado(s) sem comparação com o webPosto (falta a chave ou foram coletados antes desta versão). Eles não entram nos totais.</p>{% endif %}
+{% if rel.dias_sem_coleta %}<p class="dica">{{ rel.dias_sem_coleta|length }} dia(s) do período ainda sem coleta do Premmia.</p>{% endif %}
+
+{% if c.por_funcionario %}
+<h2>Por funcionário</h2>
+<div class="tabela"><table>
+  <thead><tr><th>Funcionário</th><th class="num">A lançar</th><th class="num">Lançado a mais</th><th class="num">Ocorrências</th></tr></thead>
+  <tbody>{% for f in c.por_funcionario %}<tr><td>{{ f.funcionario }}</td><td class="num">{{ f.a_lancar|dinheiro }}</td><td class="num">{{ f.lancado_a_mais|dinheiro }}</td><td class="num">{{ f.ocorrencias }}</td></tr>{% endfor %}</tbody>
+</table></div>
+{% endif %}
+
+<h2>Ocorrências</h2>
+<nav class="chips" aria-label="Ação sugerida">
+  <a class="chip" href="?inicio={{ rel.inicio.isoformat() }}&amp;fim={{ rel.fim.isoformat() }}"{% if not acao %} aria-current="true"{% endif %}>Todas · {{ rel.ocorrencias|length }}</a>
+  {% for k, n in acoes.items() %}{% if c.por_acao.get(k) %}<a class="chip" href="?inicio={{ rel.inicio.isoformat() }}&amp;fim={{ rel.fim.isoformat() }}&amp;acao={{ k }}"{% if acao == k %} aria-current="true"{% endif %}>{{ n }} · {{ c.por_acao[k] }}</a>{% endif %}{% endfor %}
+</nav>
+{% if ocorrencias %}
+<div class="lista-ocorrencias">
+  {% for dia, o in ocorrencias %}
+  <article class="cartao ocorrencia acao-{{ o.acao }}">
+    <div class="premmia-topo"><strong>{{ acoes.get(o.acao, o.acao) }} · {{ o.valor|dinheiro }}</strong><span class="estado {{ 'estado-alerta' if o.nao_resolvida else '' }}">{{ dia.strftime("%d/%m") }} · {{ o.funcionario }}</span></div>
+    <p>{{ o.explicacao }}</p>
+    <p><b>O que fazer:</b> {{ o.correcao }}</p>
+    <p class="dica">{{ o.referencia }}{% if o.abastecimento %} · {{ o.abastecimento }}{% endif %}</p>
+    {% if o.criterios %}<details><summary>Critérios usados</summary><ul>{% for cr in o.criterios %}<li>{{ cr }}</li>{% endfor %}</ul></details>{% endif %}
+  </article>
+  {% endfor %}
+</div>
+{% else %}<p class="vazio">Nenhuma ocorrência neste período{% if acao %} com esta ação{% endif %}.</p>{% endif %}
+
+{% if rel.dias %}
+<details><summary>Por dia ({{ rel.dias|length }})</summary>
+<div class="tabela"><table>
+  <thead><tr><th>Dia</th><th class="num">Premmia</th><th class="num">webPosto</th><th class="num">Diferença</th><th class="num">Ocorrências</th></tr></thead>
+  <tbody>{% for d in rel.dias %}<tr><td>{{ d.dia.strftime("%d/%m/%Y") }}</td><td class="num">{{ d.premmia|dinheiro }}</td>
+    <td class="num">{{ d.webposto|dinheiro if d.webposto is not none else "—" }}</td><td class="num">{{ d.diferenca|dinheiro if d.diferenca is not none else "—" }}</td><td class="num">{{ d.ocorrencias }}</td></tr>{% endfor %}</tbody>
+</table></div></details>
+{% endif %}
+
+{% if pode_configurar %}
+<details><summary>Tolerância de horário</summary>
+  <form method="post" action="/premmia/tolerancias" class="periodo-livre">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="volta" value="/premmia/{{ rel.posto.id }}/conciliacao?inicio={{ rel.inicio.isoformat() }}&fim={{ rel.fim.isoformat() }}">
+    <label>Abastecimento até (min antes do lançamento) <input type="number" name="janela" min="1" max="120" value="{{ janela }}"></label>
+    <label>Diferença de relógio (min) <input type="number" name="relogio" min="0" max="30" value="{{ relogio }}"></label>
+    <button type="submit" class="secundario">Salvar</button>
+  </form>
+  <p class="dica">Vale para as próximas coletas, na busca do abastecimento dos lançamentos do webPosto que não estão no Premmia. Janela maior acha mais abastecimentos, mas aumenta os casos "Analisar manualmente".</p>
+</details>
+{% endif %}
+{% endblock %}

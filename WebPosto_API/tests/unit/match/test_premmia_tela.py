@@ -169,3 +169,66 @@ def test_cartao_avisa_quando_falta_a_chave_do_webposto(cli, con, postos):
 def test_conferente_nao_liga_premmia(cli, postos):
     _logado(cli, "bia")
     assert "/ligar" not in cli.get("/premmia").text
+
+
+def _divergencias_exemplo(con, pid):
+    from apps.match import sugestoes
+    banco.gravar_divergencias(con, pid, ontem(), "premmia", [
+        {"tipo": "falta_no_webposto", "valor_esperado": Decimal("57.30"), "valor_encontrado": Decimal(0),
+         "responsavel": "JOSÉ (7)", "acao": "incluir", "criterios": ["valor igual", "abastecido 3 min antes"],
+         "abastecimento": "abastecimento 123 · bico 4 · 10:02", "referencia": "Premmia NSU 1 · 10:05",
+         "explicacao_pt": "Venda no Premmia sem lançamento.", "correcao_pt": "Lançar no caixa de JOSÉ (7)."},
+        {"tipo": "sobra_no_webposto", "valor_esperado": Decimal(0), "valor_encontrado": Decimal("40.00"),
+         "responsavel": "MARIA (9)", "acao": "excluir", "criterios": ["não está no portal Premmia"],
+         "referencia": "cartão 900 · venda 777", "explicacao_pt": "possível divergência de caixa",
+         "correcao_pt": "Excluir depois de conferir."},
+    ])
+    assert sugestoes.ACOES
+
+
+def test_relatorio_consolidado_com_totais_funcionarios_e_acoes(cli, con, postos):
+    cid = banco.registrar_coleta(con, postos["f_doze"], ontem(), "ok", 12, Decimal("1000.00"), None)
+    banco.salvar_total_webposto(con, cid, Decimal("982.70"))
+    _divergencias_exemplo(con, postos["doze"])
+    _logado(cli)
+    assert f'/premmia/{postos["doze"]}/conciliacao' in cli.get("/premmia").text
+    html = cli.get(f"/premmia/{postos['doze']}/conciliacao").text
+    for trecho in ("R$ 1.000,00", "R$ 982,70", "R$ 17,30", "JOSÉ (7)", "MARIA (9)", "Incluir no webPosto · 1",
+                   "Excluir do webPosto · 1", "abastecido 3 min antes", "bico 4"):
+        assert trecho in html, trecho
+    so_excluir = cli.get(f"/premmia/{postos['doze']}/conciliacao?acao=excluir").text
+    assert "possível divergência de caixa" in so_excluir and "Venda no Premmia sem lançamento" not in so_excluir
+
+
+def test_relatorio_em_planilha(cli, con, postos):
+    from openpyxl import load_workbook
+    import io
+    cid = banco.registrar_coleta(con, postos["f_doze"], ontem(), "ok", 12, Decimal("1000.00"), None)
+    banco.salvar_total_webposto(con, cid, Decimal("982.70"))
+    _divergencias_exemplo(con, postos["doze"])
+    _logado(cli)
+    r = cli.get(f"/premmia/{postos['doze']}/conciliacao.xlsx")
+    assert r.status_code == 200 and "Conciliacao_Premmia_Doze" in r.headers["content-disposition"]
+    wb = load_workbook(io.BytesIO(r.content))
+    assert wb.sheetnames == ["Resumo", "Por funcionário", "Por dia", "Ocorrências"]
+    linhas = list(wb["Ocorrências"].iter_rows(values_only=True))
+    assert linhas[1][1] == "Incluir no webPosto" and "abastecido 3 min antes" in linhas[1][8]
+
+
+def test_periodo_do_relatorio_limitado_a_90_dias(cli, postos):
+    _logado(cli)
+    html = cli.get(f"/premmia/{postos['doze']}/conciliacao?inicio=2026-01-01&fim=2026-12-31").text
+    assert "vai até 90 dias" in html
+
+
+def test_tolerancia_configuravel_so_admin(cli, con, postos):
+    csrf = _logado(cli)
+    r = cli.post("/premmia/tolerancias", data={"csrf": csrf, "janela": "25", "relogio": "3",
+                                               "volta": f"/premmia/{postos['doze']}/conciliacao"})
+    assert r.status_code == 303 and banco.tolerancias(con) == (25, 3)
+    assert cli.post("/premmia/tolerancias", data={"csrf": csrf, "janela": "0", "relogio": "3"}).status_code == 400
+
+
+def test_conferente_nao_ve_conciliacao_de_outro_posto(cli, postos):
+    _logado(cli, "bia")
+    assert cli.get(f"/premmia/{postos['doze']}/conciliacao").status_code == 403
