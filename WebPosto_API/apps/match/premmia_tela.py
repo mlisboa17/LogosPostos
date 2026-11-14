@@ -50,6 +50,7 @@ class Cartao:
     planilhas: list[Planilha] = field(default_factory=list)
     pode_coletar: bool = False
     pode_ligar: bool = False
+    total_webposto: Decimal | None = None  # lançado no webPosto no mesmo dia
     comparacao: bool = False  # chave do webPosto cadastrada: compara as vendas
     tem_codigo: bool = False  # código da empresa no webPosto informado
 
@@ -99,8 +100,12 @@ def cartao(con, posto, hoje: date, *, todos: bool = False) -> Cartao | None:
     dia = date.fromisoformat(ultima["dia"])
     qtd, total = ultima["qtd"] or 0, Decimal(ultima["total"] or 0)
     situacao = ultima["situacao"]
+    total_wp = Decimal(ultima["total_webposto"]) if ultima["total_webposto"] is not None else None
     if situacao == "ok":
-        return Cartao(**base, **extras, estado="ok", rotulo=f"{dia:%d/%m}: {qtd} venda(s)", classe="estado-ok",
+        diferente = total_wp is not None and total_wp != total
+        return Cartao(**base, **extras, estado="ok", total_webposto=total_wp,
+                      rotulo=f"{dia:%d/%m}: diferença com o webPosto" if diferente else f"{dia:%d/%m}: {qtd} venda(s)",
+                      classe="estado-critico" if diferente else "estado-ok",
                       dia=dia, qtd=qtd, total=total,
                       mensagem=f"{qtd} venda(s) em {dia:%d/%m/%Y}, {explicar.dinheiro(total)}.")
     if situacao == "sem_movimento":

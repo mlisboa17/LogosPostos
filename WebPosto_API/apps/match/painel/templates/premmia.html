@@ -21,6 +21,10 @@
       {% else %}<span class="estado {{ c.classe }}">{{ c.rotulo }}</span>{% endif %}
     </div>
     {% if c.estado == "ok" %}<p class="premmia-total">{{ c.total|dinheiro }} <small>{{ c.qtd }} venda(s) em {{ c.dia.strftime("%d/%m/%Y") }}</small></p>
+    {% if c.total_webposto is not none and c.total_webposto != c.total %}
+    <p class="diferenca-dia">Premmia <b>{{ c.total|dinheiro }}</b> · lançado no webPosto <b>{{ c.total_webposto|dinheiro }}</b> ·
+      diferença <b class="texto-critico">{{ (c.total - c.total_webposto)|dinheiro }}</b>
+      <a href="/premmia/{{ c.posto.id }}/conciliacao?inicio={{ c.dia.isoformat() }}&amp;fim={{ c.dia.isoformat() }}">ver o que houve</a></p>{% endif %}
     {% elif c.mensagem %}<p class="{{ 'erro-busca' if c.estado == 'erro' else 'dica' }}">{{ c.mensagem }}</p>{% endif %}
     {% if c.faltando %}<p class="dica">Faltam {{ c.faltando|length }} dia(s) deste mês: {% for d in c.faltando[:6] %}{{ d.strftime("%d/%m") }}{{ ", " if not loop.last }}{% endfor %}{% if c.faltando|length > 6 %} e outros{% endif %}. A próxima coleta busca de uma vez.</p>{% endif %}
     {% if c.ativo and c.tem_credencial %}<p class="dica">{% if c.comparacao %}✅ Compara com o webPosto a cada coleta.{% else %}⚠ Sem comparação com o webPosto: falta {{ "a chave" if c.tem_codigo else "o código da empresa e a chave" }} do webPosto.{% endif %}</p>{% endif %}

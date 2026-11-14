@@ -232,3 +232,24 @@ def test_tolerancia_configuravel_so_admin(cli, con, postos):
 def test_conferente_nao_ve_conciliacao_de_outro_posto(cli, postos):
     _logado(cli, "bia")
     assert cli.get(f"/premmia/{postos['doze']}/conciliacao").status_code == 403
+
+
+def test_dia_com_diferenca_mostra_os_dois_totais(cli, con, postos):
+    cid = banco.registrar_coleta(con, postos["f_doze"], ontem(), "ok", 12, Decimal("1922.43"), None)
+    banco.salvar_total_webposto(con, cid, Decimal("1822.09"))
+    _divergencias_exemplo(con, postos["doze"])
+    _logado(cli)
+    cartao = cli.get("/premmia").text
+    assert "Premmia <b>R$ 1.922,43</b> · lançado no webPosto <b>R$ 1.822,09</b>" in cartao
+    assert "R$ 100,34" in cartao and "diferença com o webPosto" in cartao
+    conc = cli.get(f"/premmia/{postos['doze']}/conciliacao").text
+    assert "Dias com diferença (1)" in conc and "R$ 1.922,43" in conc and "R$ 1.822,09" in conc
+    assert f"{ontem():%d/%m/%Y} · Premmia R$ 1.922,43 · webPosto R$ 1.822,09 · diferença" in conc
+
+
+def test_dia_sem_diferenca_nao_mostra_alerta(cli, con, postos):
+    cid = banco.registrar_coleta(con, postos["f_doze"], ontem(), "ok", 11, Decimal("792.79"), None)
+    banco.salvar_total_webposto(con, cid, Decimal("792.79"))
+    _logado(cli)
+    assert "lançado no webPosto" not in cli.get("/premmia").text
+    assert "Nenhum dia com diferença" in cli.get(f"/premmia/{postos['doze']}/conciliacao").text

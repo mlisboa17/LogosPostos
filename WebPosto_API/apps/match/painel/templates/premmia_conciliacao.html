@@ -30,6 +30,18 @@
 {% if rel.dias_sem_comparacao %}<p class="aviso alerta">{{ rel.dias_sem_comparacao }} dia(s) coletado(s) sem comparação com o webPosto (falta a chave ou foram coletados antes desta versão). Eles não entram nos totais.</p>{% endif %}
 {% if rel.dias_sem_coleta %}<p class="dica">{{ rel.dias_sem_coleta|length }} dia(s) do período ainda sem coleta do Premmia.</p>{% endif %}
 
+{% set com_diferenca = rel.dias|selectattr("diferenca")|list %}
+{% if com_diferenca %}
+<h2>Dias com diferença ({{ com_diferenca|length }})</h2>
+<div class="tabela"><table>
+  <thead><tr><th>Dia</th><th class="num">Total no Premmia</th><th class="num">Lançado no webPosto</th><th class="num">Diferença</th><th class="num">Ocorrências</th></tr></thead>
+  <tbody>{% for d in com_diferenca %}<tr>
+    <td><a href="?inicio={{ d.dia.isoformat() }}&amp;fim={{ d.dia.isoformat() }}">{{ d.dia.strftime("%d/%m/%Y") }}</a></td>
+    <td class="num">{{ d.premmia|dinheiro }}</td><td class="num">{{ d.webposto|dinheiro }}</td>
+    <td class="num texto-critico"><b>{{ d.diferenca|dinheiro }}</b></td><td class="num">{{ d.ocorrencias }}</td></tr>{% endfor %}</tbody>
+</table></div>
+{% elif rel.dias %}<p class="aviso ok">Nenhum dia com diferença entre o Premmia e o webPosto neste período.</p>{% endif %}
+
 {% if c.por_funcionario %}
 <h2>Por funcionário</h2>
 <div class="tabela"><table>
@@ -45,7 +57,11 @@
 </nav>
 {% if ocorrencias %}
 <div class="lista-ocorrencias">
+  {% set totais = {} %}{% for d in rel.dias %}{% set _ = totais.update({d.dia: d}) %}{% endfor %}
   {% for dia, o in ocorrencias %}
+  {% if loop.first or ocorrencias[loop.index0 - 1][0] != dia %}{% set d = totais.get(dia) %}
+  <h3 class="cabeca-dia">{{ dia.strftime("%d/%m/%Y") }}{% if d %} · Premmia {{ d.premmia|dinheiro }} · webPosto {{ d.webposto|dinheiro if d.webposto is not none else "—" }}{% if d.diferenca %} · diferença <span class="texto-critico">{{ d.diferenca|dinheiro }}</span>{% endif %}{% endif %}</h3>
+  {% endif %}
   <article class="cartao ocorrencia acao-{{ o.acao }}">
     <div class="premmia-topo"><strong>{{ acoes.get(o.acao, o.acao) }} · {{ o.valor|dinheiro }}</strong><span class="estado {{ 'estado-alerta' if o.nao_resolvida else '' }}">{{ dia.strftime("%d/%m") }} · {{ o.funcionario }}</span></div>
     <p>{{ o.explicacao }}</p>
