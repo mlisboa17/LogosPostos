@@ -438,6 +438,15 @@ def gravar_transacoes(con, coleta_id, posto_id, fonte, transacoes) -> int:
     return novas
 
 
+def apagar_premmia(con, posto_id: int) -> None:
+    """Apaga vendas, coletas e divergências do Premmia do posto (vieram de um login que foi trocado)."""
+    con.execute("DELETE FROM transacao WHERE posto_id=? AND fonte='premmia'", (posto_id,))
+    con.execute("DELETE FROM divergencia WHERE posto_id=? AND fonte='premmia'", (posto_id,))
+    con.execute("DELETE FROM coleta WHERE fonte_id IN (SELECT id FROM fonte WHERE posto_id=? AND tipo='premmia')",
+                (posto_id,))
+    con.commit()
+
+
 def gravar_divergencias(con, posto_id, dia, fonte, itens: list[dict]) -> None:
     con.execute("DELETE FROM divergencia WHERE posto_id=? AND dia=? AND fonte=?",
                 (posto_id, str(dia), fonte))

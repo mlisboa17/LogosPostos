@@ -1024,6 +1024,10 @@ async def fonte_gravar(posto_id: int, tipo: str, ctx: Ctx = Depends(_ctx_post)):
     trocados = []
     for chave, _rotulo in campos:
         valor = _txt(ctx.form, chave, cru=(chave == "senha"))
+        if tipo == "premmia" and chave == "usuario" and valor:
+            anterior = credenciais.ler(f"{posto_id}/premmia/usuario")
+            if anterior and anterior.strip() != valor.strip():
+                premmia_tela.recomecar(ctx.con, posto_id)
         if valor:  # em branco = manter o atual
             credenciais.salvar(f"{posto_id}/{prefixo}/{chave}", valor)
             trocados.append(chave)

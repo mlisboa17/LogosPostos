@@ -150,10 +150,20 @@ def planilha(con, posto, mes: str) -> Path | None:
     return caminho if caminho.exists() else None
 
 
+def recomecar(con, posto_id: int) -> None:
+    """Usuário do Premmia trocado: o que veio do login antigo pode ser de outro posto. Apaga e coleta de novo."""
+    import shutil
+    banco.apagar_premmia(con, posto_id)
+    shutil.rmtree(caminhos.premmia(posto_id), ignore_errors=True)
+
+
 def ligar(con, posto_id: int, usuario: str, senha: str, chave_webposto: str) -> list[str]:
     """Liga o Premmia do posto (e a comparação, se vier a chave). Campos em branco mantêm o que está salvo.
     Devolve os campos de credencial trocados (para o log de acesso, nunca os valores)."""
     trocados = []
+    anterior = credenciais.ler(f"{posto_id}/premmia/usuario")
+    if usuario and anterior and usuario.strip() != anterior.strip():
+        recomecar(con, posto_id)
     for campo, valor in (("usuario", usuario), ("senha", senha)):
         if valor:
             credenciais.salvar(f"{posto_id}/premmia/{campo}", valor)

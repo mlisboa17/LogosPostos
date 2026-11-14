@@ -120,9 +120,32 @@ def _mensagem(nome: str, qtd: int, total: Decimal, comparou: bool, n_div: int) -
     return base + f" {n_div} divergência(s) com o webPosto."
 
 
+class _LoginDeOutroPosto(Exception):
+    def __init__(self, outro: str):
+        super().__init__(
+            f"O usuário do Premmia deste posto é o mesmo do posto {outro}: as vendas viriam do {outro}."
+            " Cada posto tem o seu usuário. Corrija em Premmia › Ligar o Premmia neste posto.")
+
+
+def posto_com_mesmo_login(con, posto_id: int) -> str | None:
+    """Nome do outro posto ativo com o Premmia ligado e o MESMO usuário do Premmia (nunca mostra o usuário)."""
+    meu = credenciais.ler(f"{posto_id}/premmia/usuario")
+    if not meu:
+        return None
+    for p in banco.listar_postos(con):
+        if p["id"] == posto_id:
+            continue
+        ligado = any(f["tipo"] == "premmia" and f["ativo"] for f in banco.fontes_do_posto(con, p["id"]))
+        if ligado and (credenciais.ler(f"{p['id']}/premmia/usuario") or "").strip() == meu.strip():
+            return p["apelido"] or p["nome"]
+    return None
+
+
 async def _coletar_fonte(con, posto, fonte, unidade, dia, visivel, comparar) -> ResultadoFonte:
     tipo, posto_id = fonte["tipo"], posto["id"]
     try:
+        if tipo == "premmia" and (outro := posto_com_mesmo_login(con, posto_id)):
+            raise _LoginDeOutroPosto(outro)
         if tipo == "premmia":
             transacoes, resultado, abastecimentos, total_webposto = await _premmia(
                 unidade, posto_id, dia, visivel, comparar)
@@ -154,7 +177,7 @@ async def _coletar_fonte(con, posto, fonte, unidade, dia, visivel, comparar) -> 
         sem_credenciais = exc.etapa == explicar.ETAPA_SEM_CREDENCIAIS
         situacao = "erro" if sem_credenciais else "verificacao_humana"
         mensagem = explicar.erro_pt(exc)
-    except _AdquirenteSemVendasAinda as exc:
+    except (_AdquirenteSemVendasAinda, _LoginDeOutroPosto) as exc:
         situacao, mensagem = "erro", str(exc)
     except Exception as exc:  # cada fonte isolada: falha numa não para as outras
         logger.warning("Coleta falhou posto=%s fonte=%s tipo=%s", posto_id, tipo, type(exc).__name__)

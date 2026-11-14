@@ -253,3 +253,19 @@ def test_dia_sem_diferenca_nao_mostra_alerta(cli, con, postos):
     _logado(cli)
     assert "lançado no webPosto" not in cli.get("/premmia").text
     assert "Nenhum dia com diferença" in cli.get(f"/premmia/{postos['doze']}/conciliacao").text
+
+
+def test_trocar_o_usuario_do_premmia_apaga_o_que_veio_do_login_antigo(cli, con, postos, monkeypatch):
+    async def falso(con, **kw):
+        return []
+
+    monkeypatch.setattr(rotina, "executar", falso)
+    banco.registrar_coleta(con, postos["f_doze"], ontem(), "ok", 15, Decimal("1640.79"), None)
+    unidade = unidades.do_posto(con, banco.obter_posto(con, postos["doze"]))
+    premmia_portal.acrescentar_coleta(unidade, [], [ontem()], caminhos.premmia(postos["doze"]))
+    csrf = _logado(cli)
+    cli.post(f"/premmia/{postos['doze']}/ligar", data={"csrf": csrf, "usuario": "u", "senha": ""})  # mesmo usuário
+    assert con.execute("SELECT COUNT(*) FROM coleta").fetchone()[0] == 1
+    cli.post(f"/premmia/{postos['doze']}/ligar", data={"csrf": csrf, "usuario": "outro-usuario", "senha": "x"})
+    assert con.execute("SELECT COUNT(*) FROM coleta").fetchone()[0] == 0
+    assert not list(caminhos.premmia(postos["doze"]).glob("*.xlsx"))

@@ -374,3 +374,18 @@ def test_premmia_grava_acao_sugerida_e_criterios(con, adaptadores):
     linha = con.execute("SELECT acao, criterios_json, referencia FROM divergencia WHERE tipo='sobra_no_webposto'").fetchone()
     assert linha["acao"] == "excluir" and "não está no portal Premmia" in linha["criterios_json"]
     assert "venda 1" in linha["referencia"]
+
+
+def test_dois_postos_com_o_mesmo_usuario_do_premmia_nao_coletam(con, adaptadores):
+    """Caso real (14/11/2026): o Doze ficou com o login do Casa Caiada e gravou as vendas do Casa Caiada."""
+    chamadas, _ = adaptadores
+    doze = _posto(con, pagbank=False)
+    cc = banco.inserir_posto(con, "Casa Caiada", "Casa Caiada", None, 5555)
+    banco.salvar_fonte(con, cc, "premmia", True, {})
+    credenciais.salvar(f"{doze}/premmia/usuario", "70001")
+    credenciais.salvar(f"{cc}/premmia/usuario", " 70001 ")
+    res = _rodar(con, doze)
+    assert res["premmia"].situacao == "erro" and "mesmo do posto Casa Caiada" in res["premmia"].mensagem
+    assert "70001" not in res["premmia"].mensagem and chamadas["coletar"] == []
+    credenciais.salvar(f"{cc}/premmia/usuario", "11111")
+    assert _rodar(con, doze)["premmia"].situacao == "ok"
