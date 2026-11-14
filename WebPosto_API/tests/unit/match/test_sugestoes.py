@@ -145,3 +145,65 @@ def test_consolidado_por_funcionario_e_totais():
     por = {f.funcionario: f for f in r.por_funcionario}
     assert por["JOSÉ (7)"].a_lancar == Decimal("57.30") and por["MARIA (9)"].lancado_a_mais == Decimal("40.00")
     assert por["funcionário não identificado"].a_lancar == Decimal("80.00")
+
+
+# ---------------------------------------------------------------- casos reais do Doze (novembro/2026)
+
+def test_pagamento_dividido_no_premmia_e_um_lancamento_manual_e_a_mesma_venda():
+    """01/11: Premmia 12,00 + 188,00 às 21:39; webPosto um Premmia manual de 200,00 às 20:00, sem venda."""
+    partes = (_inv(_t("12.00", 21, 39, nsu="A"), Atribuicao.SEM_ABASTECIMENTO),
+              _inv(_t("188.00", 21, 39, nsu="B"), Atribuicao.SEM_ABASTECIMENTO))
+    manual = _c(214125021, "200.00", 20, 0, frentista=None, nome=None)
+    oc = sugestoes.ocorrencias(_r(a_maior=partes, a_menor=(manual,)), [])
+    assert [o.acao for o in oc] == ["vincular"]  # nunca "excluir" o lançamento que pagou a venda
+    o = oc[0]
+    assert o.valor == Decimal("200.00") and not o.nao_resolvida
+    assert "R$ 12,00 + R$ 188,00" in o.explicacao and "20:00" in o.explicacao
+    r = sugestoes.consolidar(oc, Decimal("200"), Decimal("200"))
+    assert r.pendentes == 0 and r.excedentes == 0
+
+
+def test_pagamento_dividido_com_abastecimento_da_soma_sugere_incluir():
+    partes = (_inv(_t("5.00", 22, 27, nsu="A"), Atribuicao.SEM_ABASTECIMENTO),
+              _inv(_t("95.00", 22, 27, nsu="B"), Atribuicao.SEM_ABASTECIMENTO))
+    a = _a(555, "100.00", 22, 20, frentista=31, nome="CARLOS")
+    [o] = sugestoes.ocorrencias(_r(a_maior=partes), [a])
+    assert o.acao == "incluir" and o.valor == Decimal("100.00") and o.funcionario == "CARLOS (31)"
+    assert "pagamento dividido em 2 partes" in " ".join(o.criterios) and "abastecimento 555" in o.abastecimento
+
+
+def test_venda_em_dinheiro_e_lancamento_manual_do_mesmo_valor_sao_a_mesma_venda():
+    """07/11: Premmia 179,46 às 11:12 lançado como dinheiro; à mão, Premmia 179,46 às 12:00 sem venda."""
+    a = _a(413438288, "179.46", 11, 8, frentista=299244, nome="RONALDO")
+    cand = Candidato(abastecimento=a, pontos=93, motivos=("valor igual", "venda lançada como dinheiro"),
+                     venda_em_dinheiro=True)
+    inv = _inv(_t("179.46", 11, 12), Atribuicao.ATRIBUIDO, [cand], frentista=299244, nome="RONALDO", troca=True)
+    manual = _c(214803713, "179.46", 12, 0, frentista=None, nome=None)
+    [o] = sugestoes.ocorrencias(_r(a_maior=(inv,), a_menor=(manual,)), [a])
+    assert o.acao == "vincular" and "11:12" in o.explicacao and "12:00" in o.explicacao
+    assert o.funcionario == "RONALDO (299244)"
+
+
+def test_alerta_do_mesmo_cartao_nao_vira_outra_ocorrencia():
+    from src.modules.cash_reconciliation.domain.cartoes import AlertaCartao
+    c = _c(900, "40.00", 15, 0)
+    alerta = AlertaCartao(codigo="CARTAO_MANUAL_SEM_VENDA", severidade="laranja", mensagem="Lançamento manual sem venda",
+                          valor=Decimal("40.00"), cartoes=(c,))
+    [o] = sugestoes.ocorrencias(_r(a_menor=(c,), alertas=(alerta,)), [])
+    assert o.acao == "excluir" and "lançamento manual sem venda" in " ".join(o.criterios)
+
+
+def test_cancelado_no_premmia_nao_e_ligado_a_venda_de_mesmo_valor():
+    inv = _inv(_t("40.00", 9, 0), Atribuicao.SEM_ABASTECIMENTO)
+    cancelado = _c(900, "40.00", 15, 0, motivo="cancelada no Premmia em 12/11/2026 15:10")
+    acoes = sorted(o.acao for o in sugestoes.ocorrencias(_r(a_maior=(inv,), a_menor=(cancelado,)), []))
+    assert acoes == ["analisar", "excluir"]
+
+
+def test_pagamento_dividido_sem_certeza_vira_uma_ocorrencia_so():
+    """13/11 22:27: Premmia 5,00 + 95,00 e nenhum abastecimento de 100,00 certo."""
+    partes = (_inv(_t("5.00", 22, 27, nsu="A"), Atribuicao.SEM_ABASTECIMENTO),
+              _inv(_t("95.00", 22, 27, nsu="B"), Atribuicao.SEM_ABASTECIMENTO))
+    [o] = sugestoes.ocorrencias(_r(a_maior=partes), [_a(1, "100.00", 22, 20), _a(2, "100.00", 22, 22, frentista=8)])
+    assert o.acao == "analisar" and o.valor == Decimal("100.00") and o.nao_resolvida
+    assert "R$ 5,00 + R$ 95,00" in o.explicacao and "2 abastecimentos de R$ 100,00 possíveis" in " ".join(o.criterios)

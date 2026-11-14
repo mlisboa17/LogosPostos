@@ -186,3 +186,4 @@ td.num, th.num { text-align: right; white-space: nowrap; }
 .ocorrencia.acao-excluir { border-left: 4px solid var(--erro); }
 .ocorrencia.acao-incluir, .ocorrencia.acao-corrigir_forma, .ocorrencia.acao-corrigir_valor { border-left: 4px solid var(--destaque); }
 .ocorrencia.acao-analisar { border-left: 4px solid var(--alerta); }
+.ocorrencia.acao-vincular { border-left: 4px solid var(--ok); }

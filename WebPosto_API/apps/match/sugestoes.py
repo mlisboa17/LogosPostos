@@ -1,6 +1,7 @@
 """Ação sugerida para cada divergência Premmia x webPosto (só sugere; nada é gravado no webPosto).
 
-Ações: incluir (está no Premmia, falta no webPosto), excluir (está no webPosto, sem Premmia e sem
+Ações: vincular (a mesma venda está nos dois lados com hora/NSU/forma diferentes; nada a incluir nem
+excluir), incluir (está no Premmia, falta no webPosto), excluir (está no webPosto, sem Premmia e sem
 abastecimento), corrigir_forma (a venda existe, mas a forma de pagamento está errada), corrigir_valor
 (mesmo cartão com valor diferente) e analisar (não dá para decidir com segurança: divergência não resolvida).
 Cada ocorrência leva os critérios usados, para o log e para quem confere.
@@ -25,6 +26,7 @@ ACOES = {
     "excluir": "Excluir do webPosto",
     "corrigir_forma": "Corrigir a forma de pagamento",
     "corrigir_valor": "Corrigir o valor",
+    "vincular": "Mesma venda: acertar o lançamento",
     "analisar": "Analisar manualmente",
 }
 _SEM_FRENTISTA = "funcionário não identificado"
@@ -155,12 +157,134 @@ def _a_menor(c: CartaoErp, abastecimentos, janela, tolerancia) -> Ocorrencia:
                       correcao="Excluir o lançamento no webPosto depois de conferir com o frentista.")
 
 
+_JUNTO = timedelta(minutes=2)  # partes de um mesmo pagamento dividido no Premmia
+
+
+def _livre(c: CartaoErp) -> bool:
+    """Lançamento do webPosto que pode ser a contrapartida de uma venda (não cancelado nem NSU repetido)."""
+    return not c.motivo or "não encontrado no portal" in c.motivo
+
+
+def _grupos(invs: list[Investigacao]) -> list[list[Investigacao]]:
+    """Vendas do Premmia feitas no mesmo minuto (pagamento dividido), na ordem do horário."""
+    grupos: list[list[Investigacao]] = []
+    for inv in sorted(invs, key=lambda i: i.transacao.momento):
+        if grupos and inv.transacao.momento - grupos[-1][-1].transacao.momento <= _JUNTO:
+            grupos[-1].append(inv)
+        else:
+            grupos.append([inv])
+    return grupos
+
+
+def _partes(g: list[Investigacao]) -> str:
+    return " + ".join(dinheiro(i.transacao.valor) for i in g)
+
+
+def _vinculo(g: list[Investigacao], c: CartaoErp) -> Ocorrencia:
+    t0 = g[0].transacao
+    soma = sum((i.transacao.valor for i in g), Decimal(0))
+    atrib = next((i for i in g if i.atribuicao == Atribuicao.ATRIBUIDO), None)
+    quem = atrib.responsavel if atrib else _funcionario_cartao(c)
+    venda = (f"Premmia de {_partes(g)} às {formatar_hora(t0.momento)}" if len(g) > 1
+             else f"Premmia de {dinheiro(soma)} às {formatar_hora(t0.momento)}")
+    extra = " (a venda foi lançada como dinheiro)" if any(i.troca_de_forma for i in g) else ""
+    criterios = ["soma igual ao lançamento" if len(g) > 1 else "mesmo valor", "mesmo dia",
+                 "lançamento do webPosto sem Premmia correspondente"]
+    if len(g) > 1:
+        criterios.insert(0, f"pagamento dividido em {len(g)} partes no Premmia")
+    if c.tipo_inclusao == "Manualmente" or not c.venda_codigo:
+        criterios.append("lançamento manual sem venda")
+    return Ocorrencia(
+        acao="vincular", tipo="mesma_venda", valor=soma, funcionario=quem,
+        referencia=f"Premmia NSU {', '.join(i.transacao.nsu or '—' for i in g)} · {_ref_cartao(c)}",
+        nsu=t0.nsu, caixa_codigo=c.caixa_codigo, valor_premmia=soma, valor_webposto=c.valor, criterios=criterios,
+        abastecimento=_abast(atrib.candidatos[0].abastecimento) if atrib and atrib.candidatos else None,
+        explicacao=f"{venda}{extra} e lançamento de {dinheiro(c.valor)} às {formatar_hora(c.momento)} no webPosto"
+                   " são, muito provavelmente, a mesma venda: o dinheiro está certo, o lançamento ficou com"
+                   " horário, NSU ou forma diferentes.",
+        correcao="Não incluir nem excluir. Conferir e, se for a mesma venda, acertar o lançamento"
+                 " (venda, horário e NSU) no webPosto.")
+
+
+def _dividido_com_abastecimento(g: list[Investigacao], abastecimentos, janela, tolerancia) -> Ocorrencia | None:
+    soma = sum((i.transacao.valor for i in g), Decimal(0))
+    t0 = g[0].transacao
+    achados = [a for a in abastecimentos if a.valor == soma and -tolerancia <= t0.momento - a.momento <= janela]
+    if len(achados) != 1:
+        return None
+    a = achados[0]
+    quem = _frentista_abast(a)
+    return Ocorrencia(
+        acao="incluir", tipo="falta_no_webposto", valor=soma, funcionario=quem, nsu=t0.nsu, valor_premmia=soma,
+        referencia=f"Premmia NSU {', '.join(i.transacao.nsu or '—' for i in g)} · {formatar_hora(t0.momento)}",
+        abastecimento=_abast(a),
+        criterios=[f"pagamento dividido em {len(g)} partes no Premmia ({_partes(g)})",
+                   "soma igual ao abastecimento", "único abastecimento compatível"],
+        explicacao=f"Venda de {dinheiro(soma)} paga com Premmia em {len(g)} partes ({_partes(g)}) às"
+                   f" {formatar_hora(t0.momento)} não foi lançada no webPosto. Responsável: {quem}.",
+        correcao=f"Lançar o Premmia de {dinheiro(soma)} no caixa de {quem}.")
+
+
+def _dividido_sem_certeza(g: list[Investigacao], abastecimentos, janela, tolerancia) -> Ocorrencia:
+    soma = sum((i.transacao.valor for i in g), Decimal(0))
+    t0 = g[0].transacao
+    achados = [a for a in abastecimentos if a.valor == soma and -tolerancia <= t0.momento - a.momento <= janela]
+    criterios = [f"pagamento dividido em {len(g)} partes no Premmia ({_partes(g)})"]
+    if achados:
+        criterios += [f"{len(achados)} abastecimentos de {dinheiro(soma)} possíveis, nenhum com certeza"] + [
+            _abast(a) for a in achados[:3]]
+    else:
+        criterios.append(f"sem abastecimento de {dinheiro(soma)} até "
+                         f"{int(janela / timedelta(minutes=1))} min antes da venda")
+    return Ocorrencia(
+        acao="analisar", tipo="falta_no_webposto", valor=soma, funcionario=_SEM_FRENTISTA, nsu=t0.nsu,
+        valor_premmia=soma, nao_resolvida=True, criterios=criterios,
+        referencia=f"Premmia NSU {', '.join(i.transacao.nsu or '—' for i in g)} · {formatar_hora(t0.momento)}",
+        explicacao=f"Venda de {dinheiro(soma)} paga com Premmia em {len(g)} partes ({_partes(g)}) às"
+                   f" {formatar_hora(t0.momento)} não foi lançada no webPosto, e não dá para saber com certeza"
+                   " quem atendeu.",
+        correcao=f"Conferir com os frentistas do horário e lançar o Premmia de {dinheiro(soma)} no caixa certo.")
+
+
 def ocorrencias(resultado: ResultadoCartoes, abastecimentos: Iterable[Abastecimento] = (), *,
                 janela: timedelta = JANELA_ABASTECIMENTO,
                 tolerancia: timedelta = TOLERANCIA_RELOGIO) -> list[Ocorrencia]:
     abastecimentos = list(abastecimentos)
-    saida = [_a_maior(inv) for inv in resultado.a_maior]
-    saida += [_a_menor(c, abastecimentos, janela, tolerancia) for c in resultado.a_menor]
+    saida: list[Ocorrencia] = []
+    invs, cartoes = list(resultado.a_maior), list(resultado.a_menor)
+    usados_inv: set[str] = set()
+    usados_c: set[int] = set()
+
+    def contrapartida(valor, dia, momento):
+        livres = [c for c in cartoes if c.codigo not in usados_c and _livre(c) and c.valor == valor
+                  and c.momento.date() == dia]
+        return min(livres, key=lambda c: abs(c.momento - momento)) if livres else None
+
+    # 1) pagamento dividido: as partes somam um lançamento do webPosto ou um abastecimento
+    for g in _grupos(invs):
+        if len(g) < 2:
+            continue
+        soma = sum((i.transacao.valor for i in g), Decimal(0))
+        t0 = g[0].transacao
+        c = contrapartida(soma, t0.momento.date(), t0.momento)
+        oc = (_vinculo(g, c) if c else _dividido_com_abastecimento(g, abastecimentos, janela, tolerancia)
+              or _dividido_sem_certeza(g, abastecimentos, janela, tolerancia))
+        if oc:
+            saida.append(oc)
+            usados_inv.update(i.transacao.identificador for i in g)
+            if c:
+                usados_c.add(c.codigo)
+    # 2) mesma venda dos dois lados com mesmo valor (lançada à mão, em outra hora ou forma)
+    for inv in invs:
+        if inv.transacao.identificador in usados_inv:
+            continue
+        c = contrapartida(inv.transacao.valor, inv.transacao.momento.date(), inv.transacao.momento)
+        if c:
+            saida.append(_vinculo([inv], c))
+            usados_inv.add(inv.transacao.identificador)
+            usados_c.add(c.codigo)
+    saida += [_a_maior(inv) for inv in invs if inv.transacao.identificador not in usados_inv]
+    saida += [_a_menor(c, abastecimentos, janela, tolerancia) for c in cartoes if c.codigo not in usados_c]
     for par in resultado.pares_provaveis:
         t, c = par.investigacao.transacao, par.cartao
         saida.append(Ocorrencia(
@@ -184,10 +308,21 @@ def ocorrencias(resultado: ResultadoCartoes, abastecimentos: Iterable[Abastecime
             explicacao=f"O Premmia registrou {dinheiro(t.valor)} e o webPosto tem {dinheiro(c.valor)}"
                        f" ({_funcionario_cartao(c)}).",
             correcao=f"Corrigir o valor do lançamento para {dinheiro(t.valor)} no webPosto."))
+    por_cartao: dict[int, Ocorrencia] = {}
+    for o in saida:
+        for parte in o.referencia.split(" · "):
+            if parte.startswith("cartão ") and parte[7:].isdigit():
+                por_cartao[int(parte[7:])] = o
     for a in resultado.alertas:
         if a.codigo in _ALERTAS_DE_VALOR:
             continue
         c = a.cartoes[0] if a.cartoes else None
+        alvo = por_cartao.get(c.codigo) if c is not None else None
+        if alvo is not None:  # o mesmo cartão já tem ocorrência: o alerta vira critério dela
+            texto = "lançamento manual sem venda" if a.codigo == "CARTAO_MANUAL_SEM_VENDA" else a.mensagem
+            if texto not in alvo.criterios:
+                alvo.criterios.append(texto)
+            continue
         saida.append(Ocorrencia(
             acao="analisar", tipo=a.codigo, valor=a.valor, funcionario=_funcionario_cartao(c) if c else _SEM_FRENTISTA,
             referencia=_ref_cartao(c) if c else "—", nsu=c.nsu if c else None,
