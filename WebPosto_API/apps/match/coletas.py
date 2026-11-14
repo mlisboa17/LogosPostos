@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from decimal import Decimal
 
-from apps.match import banco, caminhos, credenciais, explicar, registro_rede, unidades
+from apps.match import banco, caminhos, credenciais, explicar, registro_rede, sugestoes, unidades
 from src.modules.cash_reconciliation.adapters import pagbank_edi, premmia_portal
 from src.modules.cash_reconciliation.application import conciliar_cartoes
 
@@ -80,14 +80,14 @@ async def _premmia(unidade, posto_id: int, dia: date, visivel: bool, comparar: b
     await premmia_portal.coletar(unidade, ate=dia, visivel=visivel, diretorio=diretorio)
     transacoes = premmia_portal.buscar_transacoes(unidade, dia, diretorio)
     if not comparar:
-        return transacoes, None
+        return transacoes, None, []
     emp = unidade.empresa_codigo
     cartoes, abastecimentos, itens = await conciliar_cartoes.coletar_contexto_cartoes(emp, dia)
     cartoes = [c for c in cartoes
                if conciliar_cartoes.da_adquirente(c, "PREMMIA", unidade.administradoras)]
     _exigir_vendas([t for t in transacoes if t.momento.date() == dia], cartoes, dia, "Premmia")
     return transacoes, conciliar_cartoes.conciliar(
-        emp, "PREMMIA", dia, transacoes, cartoes, abastecimentos, itens)
+        emp, "PREMMIA", dia, transacoes, cartoes, abastecimentos, itens), abastecimentos
 
 
 async def _pagbank(unidade, dia: date, comparar: bool):
@@ -124,12 +124,19 @@ async def _coletar_fonte(con, posto, fonte, unidade, dia, visivel, comparar) -> 
     tipo, posto_id = fonte["tipo"], posto["id"]
     try:
         if tipo == "premmia":
-            transacoes, resultado = await _premmia(unidade, posto_id, dia, visivel, comparar)
+            transacoes, resultado, abastecimentos = await _premmia(unidade, posto_id, dia, visivel, comparar)
         else:
             transacoes, resultado = await _pagbank(unidade, dia, comparar)
         do_dia = [t for t in transacoes if t.momento.date() == dia]
         total = sum((t.valor for t in do_dia if t.situacao is None), Decimal(0))
-        itens = explicar.divergencias(resultado) if resultado is not None else []
+        if resultado is None:
+            itens = []
+        elif tipo == "premmia":  # ação sugerida (incluir/excluir/corrigir/analisar) com os critérios
+            janela, relogio = banco.tolerancias(con)
+            itens = [o.para_banco() for o in sugestoes.ocorrencias(
+                resultado, abastecimentos, janela=timedelta(minutes=janela), tolerancia=timedelta(minutes=relogio))]
+        else:
+            itens = explicar.divergencias(resultado)
         situacao_coleta = "ok" if do_dia else "sem_movimento"
         coleta_id = banco.registrar_coleta(con, fonte["id"], dia, situacao_coleta, len(do_dia), total, None)
         banco.gravar_transacoes(con, coleta_id, posto_id, tipo, do_dia)

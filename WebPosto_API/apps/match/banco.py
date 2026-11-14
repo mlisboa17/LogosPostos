@@ -274,11 +274,34 @@ CREATE TABLE sessao_lembrada (
     expira_em TEXT NOT NULL);
 """
 
+# v13: ação sugerida e critérios de cada divergência; tolerâncias de horário da conciliação.
+_SCHEMA_V13 = """
+ALTER TABLE divergencia ADD COLUMN acao TEXT;
+ALTER TABLE divergencia ADD COLUMN criterios_json TEXT;
+ALTER TABLE divergencia ADD COLUMN abastecimento TEXT;
+ALTER TABLE divergencia ADD COLUMN referencia TEXT;
+ALTER TABLE instalacao ADD COLUMN janela_abastecimento_min INTEGER NOT NULL DEFAULT 15;
+ALTER TABLE instalacao ADD COLUMN tolerancia_relogio_min INTEGER NOT NULL DEFAULT 2;
+"""
+
 _MIGRACOES = [
     (1, _SCHEMA_V1), (2, _SCHEMA_V2), (3, _SCHEMA_V3), (4, _SCHEMA_V4),
     (5, _SCHEMA_V5), (6, _SCHEMA_V6), (7, _SCHEMA_V7), (8, _SCHEMA_V8), (9, _SCHEMA_V9),
-    (10, _SCHEMA_V10), (11, _SCHEMA_V11), (12, _SCHEMA_V12),
+    (10, _SCHEMA_V10), (11, _SCHEMA_V11), (12, _SCHEMA_V12), (13, _SCHEMA_V13),
 ]
+
+
+def tolerancias(con) -> tuple[int, int]:
+    """(janela do abastecimento, tolerância do relógio) em minutos, para a conciliação."""
+    r = con.execute("SELECT janela_abastecimento_min, tolerancia_relogio_min FROM instalacao LIMIT 1").fetchone()
+    return (r[0], r[1]) if r else (15, 2)
+
+
+def salvar_tolerancias(con, janela: int, relogio: int) -> None:
+    if not (1 <= janela <= 120 and 0 <= relogio <= 30):
+        raise ValueError("Use de 1 a 120 minutos para o abastecimento e de 0 a 30 para o relógio.")
+    con.execute("UPDATE instalacao SET janela_abastecimento_min=?, tolerancia_relogio_min=?", (janela, relogio))
+    con.commit()
 
 
 def formato_debito(con) -> str | None:
@@ -414,11 +437,14 @@ def gravar_divergencias(con, posto_id, dia, fonte, itens: list[dict]) -> None:
     for i in itens:
         con.execute(
             "INSERT INTO divergencia(posto_id, dia, caixa_codigo, responsavel, fonte, tipo,"
-            " valor_esperado, valor_encontrado, nsu, explicacao_pt, correcao_pt)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            " valor_esperado, valor_encontrado, nsu, explicacao_pt, correcao_pt,"
+            " acao, criterios_json, abastecimento, referencia)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (posto_id, str(dia), i.get("caixa_codigo"), i.get("responsavel"), fonte, i["tipo"],
              _txt(i.get("valor_esperado")), _txt(i.get("valor_encontrado")), i.get("nsu"),
-             i.get("explicacao_pt"), i.get("correcao_pt")))
+             i.get("explicacao_pt"), i.get("correcao_pt"), i.get("acao"),
+             json.dumps(i["criterios"], ensure_ascii=False) if i.get("criterios") else None,
+             i.get("abastecimento"), i.get("referencia")))
     con.commit()
 
 

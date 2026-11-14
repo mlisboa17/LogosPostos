@@ -358,3 +358,19 @@ def test_coleta_segue_com_pasta_indisponivel(con, adaptadores, tmp_path):
     for r in res.values():
         assert r.mensagem.endswith("\nNão foi possível conferir a pasta da rede.")
     assert adaptadores[0]["coletar"] and adaptadores[0]["pagbank"]
+
+
+def test_premmia_grava_acao_sugerida_e_criterios(con, adaptadores):
+    _, estado = adaptadores
+    estado["premmia"] = []  # nada no Premmia...
+    estado["cartoes"] = [_cartao(1, "P1", "50.00", "PREMMIA")]  # ...mas um Premmia lançado no webPosto
+    pid = _posto(con, pagbank=False)
+    res = _rodar(con, pid)
+    assert res["premmia"].situacao == "erro"  # Premmia vazio com cartões: espera o arquivo (regra antiga)
+    estado["premmia"] = [_t("PREMMIA", "OUTRO", "20.00")]
+    res = _rodar(con, pid)
+    [d] = [x for x in res["premmia"].divergencias if x["tipo"] == "sobra_no_webposto"]
+    assert d["acao"] == "excluir" and "possível divergência de caixa" in d["explicacao_pt"]
+    linha = con.execute("SELECT acao, criterios_json, referencia FROM divergencia WHERE tipo='sobra_no_webposto'").fetchone()
+    assert linha["acao"] == "excluir" and "não está no portal Premmia" in linha["criterios_json"]
+    assert "venda 1" in linha["referencia"]
