@@ -239,8 +239,29 @@ def redefinir_admin() -> int:
     return 0
 
 
+def importar_env(caminho: str) -> int:
+    """Copia as credenciais do Premmia e as chaves do webPosto de um .env do LOGOS. Nunca mostra os valores."""
+    from pathlib import Path
+
+    from dotenv import dotenv_values
+
+    from apps.match import importar_env as imp
+    arquivo = Path(caminho.strip('"'))
+    if not arquivo.is_file():
+        print(f"Não achei o arquivo {arquivo}.")
+        return 1
+    con = banco.conectar()
+    try:
+        for linha in imp.importar(con, dotenv_values(arquivo)):
+            print(linha)
+    finally:
+        con.close()
+    print("Pronto. Abra o Logos Match > Premmia e clique em Coletar agora em cada posto.")
+    return 0
+
+
 # o PyInstaller pode deixar de fora: sem python_multipart todo POST do painel dá 500
-_IMPORTS = ("python_multipart", "windows_toasts", "pystray", "apscheduler")
+_IMPORTS = ("python_multipart", "windows_toasts", "pystray", "apscheduler", "dotenv")
 
 
 def _recursos() -> list[tuple[str, bool, str]]:
@@ -296,6 +317,8 @@ def _argumentos(argv: list[str]) -> argparse.Namespace:
                    help="remove da pasta da rede os postos desta instalação e sai")
     p.add_argument("--redefinir-admin", action="store_true",
                    help="define uma nova senha para o administrador e sai")
+    p.add_argument("--importar-env", metavar="ARQUIVO",
+                   help="copia usuário/senha do Premmia e chaves do webPosto de um .env do LOGOS e sai")
     return p.parse_args(argv)
 
 
@@ -309,6 +332,8 @@ def main(argv: list[str] | None = None) -> int:
         return apagar_credenciais()
     if args.redefinir_admin:
         return redefinir_admin()
+    if args.importar_env:
+        return importar_env(args.importar_env)
     os.environ.setdefault("LOGOS_NAVEGADOR_CANAL", "msedge")
     if not instancia_unica():
         _abrir_instancia_viva()
