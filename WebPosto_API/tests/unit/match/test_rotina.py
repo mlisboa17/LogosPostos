@@ -430,3 +430,38 @@ def test_envio_grava_execucao_id(con, monkeypatch):
     envio.enviar_dia(con, [_res(pid, "ok")], DIA)
     assert [e["execucao_id"] for e in con.execute("SELECT execucao_id FROM envio ORDER BY id")] == [ex, None]
     assert len(banco.envios_da_execucao(con, ex)) == 1
+
+
+def test_coleta_de_periodo_dia_a_dia_sem_avisos_e_um_login_no_premmia(con, falsos, monkeypatch):
+    from datetime import timedelta
+    from src.modules.cash_reconciliation.adapters import premmia_portal
+    pid = banco.inserir_posto(con, "Doze", "Doze", None, 74014)
+    banco.salvar_fonte(con, pid, "premmia", True, {})
+    dias, logins = [], []
+
+    async def posto(c, p, dia, **_):
+        dias.append(dia)
+        return [coletas.ResultadoFonte(p, "premmia", dia, "erro", 0, Decimal(0), "x", [])]
+
+    monkeypatch.setattr(coletas, "coletar_posto", posto)
+    monkeypatch.setattr(rotina, "ontem", lambda: date(2026, 11, 14))
+    monkeypatch.setattr(premmia_portal, "coletar_sync", lambda u, ds, **kw: logins.append(list(ds)))
+    asyncio.run(rotina.executar_periodo(con, pid, date(2026, 11, 3), date(2026, 11, 20)))
+    assert dias == [date(2026, 11, 3) + timedelta(days=n) for n in range(12)]  # só até ontem (14/11)
+    assert len(logins) == 1 and date(2026, 11, 3) in logins[0] and date(2026, 11, 14) in logins[0]
+    assert falsos["enviados"] == [] and falsos["toasts"] == []  # período não manda aviso por dia
+    assert not rotina.em_andamento() and rotina.PERIODO == {}
+
+
+def test_periodo_limitado_a_31_dias(con, falsos, monkeypatch):
+    pid = banco.inserir_posto(con, "Doze", "Doze", None, 74014)
+    dias = []
+
+    async def posto(c, p, dia, **_):
+        dias.append(dia)
+        return []
+
+    monkeypatch.setattr(coletas, "coletar_posto", posto)
+    monkeypatch.setattr(rotina, "ontem", lambda: date(2026, 11, 14))
+    asyncio.run(rotina.executar_periodo(con, pid, date(2026, 9, 1), date(2026, 11, 14)))
+    assert len(dias) == 31

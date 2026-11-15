@@ -98,3 +98,29 @@ def test_ligar_pagbank_pela_tela(cli, con, postos, monkeypatch):
     assert {f["tipo"]: f["ativo"] for f in banco.fontes_do_posto(con, postos["cc"])} == {"pagbank_edi": 1}
     assert feito.wait(2)
     assert cli.post(f"/pagbank/{postos['cc']}/ligar", data={"csrf": csrf}).status_code == 303  # já tem: mantém
+
+
+def test_coletar_periodo_pela_tela(cli, postos, monkeypatch):
+    from datetime import timedelta
+    chamadas, feito = [], threading.Event()
+
+    async def falso(con, posto_id, inicio, fim, **kw):
+        chamadas.append((posto_id, inicio, fim))
+        feito.set()
+        return []
+
+    monkeypatch.setattr(rotina, "executar_periodo", falso)
+    monkeypatch.setattr(rotina, "em_andamento", lambda: False)  # independente da ordem dos testes
+    csrf = _logado(cli)
+    assert "Coletar outro dia ou período" in cli.get("/pagbank").text
+    ini = ontem() - timedelta(days=5)
+    r = cli.post(f"/pagbank/periodo?posto_id={postos['doze']}",
+                 data={"csrf": csrf, "inicio": ini.isoformat(), "fim": ontem().isoformat()})
+    assert r.status_code == 303 and feito.wait(2) and chamadas == [(postos["doze"], ini, ontem())]
+    longe = cli.post(f"/pagbank/periodo?posto_id={postos['doze']}",
+                     data={"csrf": csrf, "inicio": (ontem() - timedelta(days=40)).isoformat(), "fim": ontem().isoformat()})
+    assert longe.status_code == 400 and "31 dias" in longe.text
+    futuro = cli.post(f"/pagbank/periodo?posto_id={postos['doze']}",
+                      data={"csrf": csrf, "inicio": (ontem() + timedelta(days=2)).isoformat(),
+                            "fim": (ontem() + timedelta(days=3)).isoformat()})
+    assert futuro.status_code == 400 and "até ontem" in futuro.text

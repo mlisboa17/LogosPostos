@@ -4,7 +4,8 @@
 {% block conteudo %}
 <h1>PagBank</h1>
 <p class="sub">Vendas em cartão e PIX da maquininha PagBank de cada posto, comparadas com o webPosto. A coleta roda sozinha todo dia.</p>
-{% if rodando %}<p class="aviso alerta" role="status">Coleta em andamento… Esta página atualiza sozinha.</p>{% endif %}
+{% if periodo %}<p class="aviso alerta" role="status"><strong>{{ periodo.posto }}</strong>: coletando o período{% if periodo.dia %} · dia {{ periodo.dia.strftime("%d/%m") }}{% endif %} ({{ periodo.feitos }} de {{ periodo.total }} dias prontos). Esta página atualiza sozinha.</p>{% endif %}
+{% if rodando and not periodo %}<p class="aviso alerta" role="status">Coleta em andamento… Esta página atualiza sozinha.</p>{% endif %}
 
 <div class="cartoes-premmia">
   {% for c in cartoes %}
@@ -36,6 +37,15 @@
       {% if c.pode_coletar %}<form method="post" action="/pagbank/coletar?posto_id={{ c.posto.id }}"><input type="hidden" name="csrf" value="{{ csrf }}">
         <button type="submit"{% if rodando %} disabled{% endif %}>Coletar agora</button></form>{% endif %}
       {% if c.ativo and c.tem_credencial %}<a class="botao secundario" href="/pagbank/{{ c.posto.id }}/conciliacao">Ver conciliação</a>{% endif %}
+      {% if c.pode_coletar %}<details class="coletar-periodo"><summary class="botao secundario">Coletar outro dia ou período</summary>
+        <form method="post" action="/pagbank/periodo?posto_id={{ c.posto.id }}" class="periodo-livre">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <label>De <input type="date" name="inicio" max="{{ ontem.isoformat() }}" required></label>
+          <label>Até <input type="date" name="fim" max="{{ ontem.isoformat() }}" value="{{ ontem.isoformat() }}" required></label>
+          <button type="submit"{% if rodando %} disabled{% endif %}>Coletar</button>
+          <small>até {{ max_dias }} dias; compara cada dia com o webPosto</small>
+        </form></details>{% endif %}
+
     </div>
   </section>
   {% else %}<p class="vazio">Nenhum posto seu.</p>{% endfor %}

@@ -1,6 +1,7 @@
 """Rotina diária do Logos Match: coleta, envio, repescagem, recuperação e retenção."""
 from __future__ import annotations
 
+import asyncio
 import logging
 import threading
 from datetime import date, datetime, time as hora_t, timedelta, timezone
@@ -86,32 +87,93 @@ async def executar(con, *, dia: date | None = None, so_falhas: bool = False,
         logger.info("coleta já em andamento")
         return []
     try:
-        dia = dia or ontem()
-        execucao_id = banco.abrir_execucao(con, origem, usuario_id, dia)
-        try:
-            unidades.ativar(con)
-            _listar_aguardando(con, execucao_id, posto_id)
+        return await _executar_dia(con, dia=dia or ontem(), so_falhas=so_falhas, visivel=visivel,
+                                   posto_id=posto_id, origem=origem, usuario_id=usuario_id)
+    finally:
+        _TRAVA.release()
 
-            def ao_progresso(pid: int, fonte: str, situacao: str, mensagem: str | None) -> None:
-                banco.item_execucao(con, execucao_id, pid, fonte, situacao, mensagem)
 
-            if posto_id is None:
-                resultados = await coletas.coletar_todos(con, dia, so_falhas=so_falhas,
-                                                         visivel=visivel, ao_progresso=ao_progresso)
-            else:
-                resultados = await coletas.coletar_posto(con, posto_id, dia, visivel=visivel,
-                                                         so_falhas=so_falhas,
-                                                         ao_progresso=ao_progresso)
+MAX_DIAS_PERIODO = 31
+PERIODO: dict = {}  # coleta de período em andamento (lido pela tela): posto, dia, feitos, total
+
+
+async def executar_periodo(con, posto_id: int, inicio: date, fim: date, *, visivel: bool = False,
+                           usuario_id: int | None = None) -> list:
+    """Coleta e compara dia a dia um período passado de um posto, sem mandar avisos.
+    No Premmia entra no portal uma vez só para todos os dias que faltam."""
+    if fim < inicio:
+        inicio, fim = fim, inicio
+    fim = min(fim, ontem())
+    dias = [inicio + timedelta(days=n) for n in range((fim - inicio).days + 1)][:MAX_DIAS_PERIODO]
+    if not dias or not _TRAVA.acquire(blocking=False):
+        return []
+    posto = banco.obter_posto(con, posto_id)
+    PERIODO.update(posto=(posto["apelido"] or posto["nome"]) if posto else "", dia=None, feitos=0, total=len(dias))
+    try:
+        unidades.ativar(con)
+        await _premmia_do_periodo(con, posto_id, dias, visivel)
+        resultados = []
+        for dia in dias:
+            PERIODO.update(dia=dia)
+            resultados += await _executar_dia(con, dia=dia, so_falhas=False, visivel=visivel, posto_id=posto_id,
+                                              origem="painel", usuario_id=usuario_id, avisar=False)
+            PERIODO.update(feitos=PERIODO["feitos"] + 1)
+        return resultados
+    finally:
+        PERIODO.clear()
+        _TRAVA.release()
+
+
+async def _premmia_do_periodo(con, posto_id: int, dias: list[date], visivel: bool) -> None:
+    """Baixa de uma vez (um login) todos os dias do Premmia que faltam até o fim do período."""
+    from src.modules.cash_reconciliation.adapters import premmia_portal
+    fonte = next((f for f in banco.fontes_do_posto(con, posto_id) if f["tipo"] == "premmia" and f["ativo"]), None)
+    posto = banco.obter_posto(con, posto_id)
+    if fonte is None or posto is None or coletas.posto_com_mesmo_login(con, posto_id):
+        return
+    unidade = unidades.do_posto(con, posto)
+    pasta = caminhos.premmia(posto_id)
+    try:
+        coletados = premmia_portal.dias_coletados(premmia_portal.caminho_mensal(unidade, dias[0], pasta)) | \
+            premmia_portal.dias_coletados(premmia_portal.caminho_mensal(unidade, dias[-1], pasta))
+        faltam = sorted(set(premmia_portal.dias_faltantes(unidade, dias[-1], pasta))
+                        | {d for d in dias if d not in coletados})
+        if not faltam:
+            return
+        if visivel:
+            premmia_portal.liberar_nova_tentativa(unidade, pasta)
+        await asyncio.to_thread(premmia_portal.coletar_sync, unidade, faltam, visivel=visivel, diretorio=pasta)
+    except Exception as exc:  # noqa: BLE001 - cada dia registra o próprio erro na coleta seguinte
+        logger.warning("Premmia do período falhou posto=%s tipo=%s", posto_id, type(exc).__name__)
+
+
+async def _executar_dia(con, *, dia: date, so_falhas: bool, visivel: bool, posto_id: int | None,
+                        origem: str, usuario_id: int | None, avisar: bool = True):
+    """Uma execução (um dia). Quem chama segura a trava."""
+    execucao_id = banco.abrir_execucao(con, origem, usuario_id, dia)
+    try:
+        unidades.ativar(con)
+        _listar_aguardando(con, execucao_id, posto_id)
+
+        def ao_progresso(pid: int, fonte: str, situacao: str, mensagem: str | None) -> None:
+            banco.item_execucao(con, execucao_id, pid, fonte, situacao, mensagem)
+
+        if posto_id is None:
+            resultados = await coletas.coletar_todos(con, dia, so_falhas=so_falhas,
+                                                     visivel=visivel, ao_progresso=ao_progresso)
+        else:
+            resultados = await coletas.coletar_posto(con, posto_id, dia, visivel=visivel,
+                                                     so_falhas=so_falhas,
+                                                     ao_progresso=ao_progresso)
+        if avisar:
             _avisar_falhas(con, resultados, dia, so_falhas)
             if resultados:
                 envio.enviar_dia(con, resultados, dia, execucao_id)
-        except BaseException:
-            banco.fechar_execucao(con, execucao_id, "falhou")
-            raise
-        banco.fechar_execucao(con, execucao_id, "concluida")
-        return resultados
-    finally:
-        _TRAVA.release()
+    except BaseException:
+        banco.fechar_execucao(con, execucao_id, "falhou")
+        raise
+    banco.fechar_execucao(con, execucao_id, "concluida")
+    return resultados
 
 
 def precisa_recuperar(con, agora_: datetime) -> bool:

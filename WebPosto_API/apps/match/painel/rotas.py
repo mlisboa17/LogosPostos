@@ -564,7 +564,8 @@ async def premmia(ctx: Ctx = Depends(_ctx), iniciada: int = 0):
         c.pode_coletar = ctx.pode(Acao.COLETAR, c.posto["id"]) and c.estado not in ("desligado", "sem_credencial")
         c.pode_ligar = ctx.pode(Acao.TROCAR_CREDENCIAL, c.posto["id"])
     cartoes = [c for c in cartoes if c.ativo or c.pode_ligar or c.estado != "desligado"]
-    return _pagina(ctx, "premmia.html", cartoes=cartoes, rodando=rodando,
+    return _pagina(ctx, "premmia.html", cartoes=cartoes, rodando=rodando, periodo=dict(rotina.PERIODO),
+                   ontem=ontem(), max_dias=rotina.MAX_DIAS_PERIODO,
                    andamento=premmia_tela.andamento(ctx.con),
                    mensagem="Coleta iniciada. Esta página mostra cada etapa." if iniciada and rodando else None)
 
@@ -714,7 +715,8 @@ async def pagbank(ctx: Ctx = Depends(_ctx), iniciada: int = 0):
         c.pode_coletar = ctx.pode(Acao.COLETAR, c.posto["id"]) and c.ativo and c.tem_credencial
         c.pode_ligar = ctx.pode(Acao.TROCAR_CREDENCIAL, c.posto["id"])
     rodando = rotina.em_andamento()
-    return _pagina(ctx, "pagbank.html", cartoes=cartoes, rodando=rodando,
+    return _pagina(ctx, "pagbank.html", cartoes=cartoes, rodando=rodando, periodo=dict(rotina.PERIODO),
+                   ontem=ontem(), max_dias=rotina.MAX_DIAS_PERIODO,
                    mensagem="Coleta iniciada. Esta página atualiza sozinha." if iniciada and rodando else None)
 
 
@@ -762,6 +764,53 @@ async def premmia_tolerancias(ctx: Ctx = Depends(_ctx_post)):
         raise Recusado(400, str(exc))
     acesso.registrar(ctx.con, ctx.uid, "configurar", "tolerancias da conciliacao premmia")
     return _ir(volta)
+
+
+def _coletar_periodo(con_factory, posto_id: int, inicio: date, fim: date, visivel: bool, usuario_id: int | None):
+    _com_conexao(con_factory, lambda con: asyncio.run(
+        rotina.executar_periodo(con, posto_id, inicio, fim, visivel=visivel, usuario_id=usuario_id)))
+
+
+async def _iniciar_periodo(ctx: Ctx, posto_id: int, volta: str, visivel: bool):
+    ctx.exigir(Acao.COLETAR, posto_id)
+    posto = _posto_ou_404(ctx, posto_id)
+    if not posto["ativo"]:
+        raise Recusado(400, "Este posto está desativado.")
+    ini, fi = _data_form(ctx.form, "inicio"), _data_form(ctx.form, "fim")
+    if ini is None or fi is None:
+        raise Recusado(400, "Escolha o dia inicial e o dia final.")
+    if fi < ini:
+        ini, fi = fi, ini
+    if ini > ontem():
+        raise Recusado(400, "Escolha dias até ontem: o dia de hoje ainda não fechou.")
+    if (min(fi, ontem()) - ini).days >= rotina.MAX_DIAS_PERIODO:
+        raise Recusado(400, f"Escolha até {rotina.MAX_DIAS_PERIODO} dias por vez.")
+    if rotina.em_andamento():
+        return _ir(volta)
+    t = _em_segundo_plano("coleta-periodo", _coletar_periodo, ctx.request.app.state.con_factory, posto_id, ini, fi,
+                          visivel, ctx.uid)
+    acesso.registrar(ctx.con, ctx.uid, "coletar", f"posto={posto_id} periodo={ini}..{fi} visivel={int(visivel)}")
+    limite = _relogio() + 2
+    while t.is_alive() and not rotina.em_andamento() and _relogio() < limite:
+        await asyncio.sleep(0.02)
+    return _ir(volta + "?iniciada=1")
+
+
+def _data_form(form, nome: str) -> date | None:
+    try:
+        return date.fromisoformat(_txt(form, nome))
+    except ValueError:
+        return None
+
+
+@router.post("/premmia/periodo")
+async def premmia_periodo(posto_id: int, visivel: int = 0, ctx: Ctx = Depends(_ctx_post)):
+    return await _iniciar_periodo(ctx, posto_id, "/premmia", bool(visivel))
+
+
+@router.post("/pagbank/periodo")
+async def pagbank_periodo(posto_id: int, ctx: Ctx = Depends(_ctx_post)):
+    return await _iniciar_periodo(ctx, posto_id, "/pagbank", False)
 
 
 @router.get("/premmia/planilha/{posto_id}")
