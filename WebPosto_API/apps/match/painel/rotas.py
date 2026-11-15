@@ -635,18 +635,25 @@ def _relatorio(ctx: Ctx, posto_id: int, inicio: str, fim: str, fonte: str):
     return rel, aviso
 
 
-def _tela_conciliacao(ctx: Ctx, posto_id: int, inicio: str, fim: str, acao: str, fonte: str):
+def _tela_conciliacao(ctx: Ctx, posto_id: int, inicio: str, fim: str, acao: str, fonte: str, ver: str = ""):
     rel, aviso = _relatorio(ctx, posto_id, inicio, fim, fonte)
+    ver = ver if ver in ("todas", "resolvidas") else "abertas"
     hoje_ = ontem()
     mes_passado = hoje_.replace(day=1) - timedelta(days=1)
     atalhos = [("Ontem", hoje_, hoje_), ("Últimos 7 dias", hoje_ - timedelta(days=6), hoje_),
                ("Este mês", hoje_.replace(day=1), hoje_), ("Mês passado", mes_passado.replace(day=1), mes_passado)]
-    lista = [(d, o) for d, o in rel.ocorrencias if not acao or o.acao == acao]
+    lista = [(d, o) for d, o in rel.ocorrencias if (not acao or o.acao == acao) and (
+        ver == "todas" or (ver == "abertas") == (o.situacao == "aberta"))]
+    contagem = {"abertas": sum(1 for _, o in rel.ocorrencias if o.situacao == "aberta"),
+                "resolvidas": sum(1 for _, o in rel.ocorrencias if o.situacao != "aberta"),
+                "todas": len(rel.ocorrencias)}
     janela, relogio = banco.tolerancias(ctx.con)
     return _pagina(ctx, "premmia_conciliacao.html", rel=rel, ocorrencias=lista, acao=acao, acoes=sugestoes.ACOES,
                    atalhos=[(n, a.isoformat(), b.isoformat(), (a, b) == (rel.inicio, rel.fim)) for n, a, b in atalhos],
                    aviso=aviso, janela=janela, relogio=relogio, pode_configurar=ctx.pode(Acao.CONFIGURAR),
-                   max_dias=relatorio_premmia.MAX_DIAS, rota=_ROTA_FONTE[fonte])
+                   max_dias=relatorio_premmia.MAX_DIAS, rota=_ROTA_FONTE[fonte], ver=ver, contagem=contagem,
+                   reincidencia=relatorio_premmia.reincidencia(rel.ocorrencias),
+                   pode_resolver=ctx.pode(Acao.COLETAR, posto_id))
 
 
 def _planilha_conciliacao(ctx: Ctx, posto_id: int, inicio: str, fim: str, fonte: str):
@@ -659,9 +666,9 @@ def _planilha_conciliacao(ctx: Ctx, posto_id: int, inicio: str, fim: str, fonte:
 
 
 @router.get("/premmia/{posto_id}/conciliacao")
-async def premmia_conciliacao(posto_id: int, inicio: str = "", fim: str = "", acao: str = "",
+async def premmia_conciliacao(posto_id: int, inicio: str = "", fim: str = "", acao: str = "", ver: str = "",
                               ctx: Ctx = Depends(_ctx)):
-    return _tela_conciliacao(ctx, posto_id, inicio, fim, acao, "premmia")
+    return _tela_conciliacao(ctx, posto_id, inicio, fim, acao, "premmia", ver)
 
 
 @router.get("/premmia/{posto_id}/conciliacao.xlsx")
@@ -670,9 +677,28 @@ async def premmia_conciliacao_xlsx(posto_id: int, inicio: str = "", fim: str = "
 
 
 @router.get("/pagbank/{posto_id}/conciliacao")
-async def pagbank_conciliacao(posto_id: int, inicio: str = "", fim: str = "", acao: str = "",
+async def pagbank_conciliacao(posto_id: int, inicio: str = "", fim: str = "", acao: str = "", ver: str = "",
                               ctx: Ctx = Depends(_ctx)):
-    return _tela_conciliacao(ctx, posto_id, inicio, fim, acao, "pagbank_edi")
+    return _tela_conciliacao(ctx, posto_id, inicio, fim, acao, "pagbank_edi", ver)
+
+
+@router.post("/ocorrencia/{divergencia_id}/resolver")
+async def ocorrencia_resolver(divergencia_id: int, ctx: Ctx = Depends(_ctx_post)):
+    """Resolvido / Não procede / Reabrir. Só registra no Logos Match; nada muda no webPosto."""
+    d = banco.obter_divergencia(ctx.con, divergencia_id)
+    if d is None:
+        raise Recusado(404, "Ocorrência não encontrada.")
+    ctx.exigir(Acao.COLETAR, d["posto_id"])
+    if d["posto_id"] not in ctx.postos():
+        raise Recusado(403, SEM_ACESSO)
+    situacao = _txt(ctx.form, "situacao")
+    try:
+        banco.resolver_divergencia(ctx.con, divergencia_id, situacao, ctx.uid, _txt(ctx.form, "motivo"))
+    except ValueError as exc:
+        raise Recusado(400, str(exc))
+    acesso.registrar(ctx.con, ctx.uid, "resolver_ocorrencia", f"divergencia={divergencia_id} situacao={situacao}")
+    volta = _txt(ctx.form, "volta")
+    return _ir(volta if volta.startswith(("/premmia/", "/pagbank/")) else "/premmia")
 
 
 @router.get("/pagbank/{posto_id}/conciliacao.xlsx")

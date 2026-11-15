@@ -285,10 +285,17 @@ ALTER TABLE instalacao ADD COLUMN janela_abastecimento_min INTEGER NOT NULL DEFA
 ALTER TABLE instalacao ADD COLUMN tolerancia_relogio_min INTEGER NOT NULL DEFAULT 2;
 """
 
+# v14: quem resolveu cada divergência (Resolvido / Não procede), quando e por quê.
+_SCHEMA_V14 = """
+ALTER TABLE divergencia ADD COLUMN resolvida_por INTEGER REFERENCES usuario(id);
+ALTER TABLE divergencia ADD COLUMN resolvida_em TEXT;
+ALTER TABLE divergencia ADD COLUMN resolucao_motivo TEXT;
+"""
+
 _MIGRACOES = [
     (1, _SCHEMA_V1), (2, _SCHEMA_V2), (3, _SCHEMA_V3), (4, _SCHEMA_V4),
     (5, _SCHEMA_V5), (6, _SCHEMA_V6), (7, _SCHEMA_V7), (8, _SCHEMA_V8), (9, _SCHEMA_V9),
-    (10, _SCHEMA_V10), (11, _SCHEMA_V11), (12, _SCHEMA_V12), (13, _SCHEMA_V13),
+    (10, _SCHEMA_V10), (11, _SCHEMA_V11), (12, _SCHEMA_V12), (13, _SCHEMA_V13), (14, _SCHEMA_V14),
 ]
 
 
@@ -447,7 +454,18 @@ def apagar_premmia(con, posto_id: int) -> None:
     con.commit()
 
 
+SITUACOES_DIVERGENCIA = ("aberta", "resolvida", "nao_procede")
+
+
+def _chave_divergencia(tipo, referencia, esperado, encontrado) -> tuple:
+    return (tipo, referencia or "", _txt(esperado) or "", _txt(encontrado) or "")
+
+
 def gravar_divergencias(con, posto_id, dia, fonte, itens: list[dict]) -> None:
+    """Regrava as divergências do dia. A mesma ocorrência que já foi resolvida continua resolvida."""
+    tratadas = {_chave_divergencia(r["tipo"], r["referencia"], r["valor_esperado"], r["valor_encontrado"]): r
+                for r in con.execute("SELECT * FROM divergencia WHERE posto_id=? AND dia=? AND fonte=?"
+                                     " AND situacao != 'aberta'", (posto_id, str(dia), fonte))}
     con.execute("DELETE FROM divergencia WHERE posto_id=? AND dia=? AND fonte=?",
                 (posto_id, str(dia), fonte))
     for i in itens:
@@ -461,7 +479,35 @@ def gravar_divergencias(con, posto_id, dia, fonte, itens: list[dict]) -> None:
              i.get("explicacao_pt"), i.get("correcao_pt"), i.get("acao"),
              json.dumps(i["criterios"], ensure_ascii=False) if i.get("criterios") else None,
              i.get("abastecimento"), i.get("referencia")))
+        antiga = tratadas.get(_chave_divergencia(i["tipo"], i.get("referencia"), i.get("valor_esperado"),
+                                                 i.get("valor_encontrado")))
+        if antiga is not None:
+            con.execute("UPDATE divergencia SET situacao=?, resolvida_por=?, resolvida_em=?, resolucao_motivo=?"
+                        " WHERE id=last_insert_rowid()",
+                        (antiga["situacao"], antiga["resolvida_por"], antiga["resolvida_em"],
+                         antiga["resolucao_motivo"]))
     con.commit()
+
+
+def resolver_divergencia(con, divergencia_id: int, situacao: str, usuario_id: int | None,
+                         motivo: str | None = None) -> None:
+    """Resolvido, Não procede (motivo obrigatório) ou reabrir. Não mexe no webPosto."""
+    if situacao not in SITUACOES_DIVERGENCIA:
+        raise ValueError("Situação inválida.")
+    motivo = (motivo or "").strip() or None
+    if situacao == "nao_procede" and not motivo:
+        raise ValueError("Diga por que não procede.")
+    if situacao == "aberta":
+        con.execute("UPDATE divergencia SET situacao='aberta', resolvida_por=NULL, resolvida_em=NULL,"
+                    " resolucao_motivo=NULL WHERE id=?", (divergencia_id,))
+    else:
+        con.execute("UPDATE divergencia SET situacao=?, resolvida_por=?, resolvida_em=?, resolucao_motivo=?"
+                    " WHERE id=?", (situacao, usuario_id, _agora(), motivo, divergencia_id))
+    con.commit()
+
+
+def obter_divergencia(con, divergencia_id: int):
+    return con.execute("SELECT * FROM divergencia WHERE id=?", (divergencia_id,)).fetchone()
 
 
 def id_instalacao(con) -> str:

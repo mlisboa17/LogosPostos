@@ -50,10 +50,24 @@
 </table></div>
 {% endif %}
 
+{% if reincidencia %}
+<h2>Reincidência por funcionário no período</h2>
+<div class="tabela"><table>
+  <thead><tr><th>Funcionário</th><th class="num">Ocorrências</th><th class="num">Valor</th><th class="num">Abertas</th><th class="num">Resolvidas</th><th class="num">Não procede</th></tr></thead>
+  <tbody>{% for f in reincidencia %}<tr><td>{{ f.funcionario }}</td><td class="num"><b>{{ f.total }}</b></td><td class="num">{{ f.valor|dinheiro }}</td>
+    <td class="num">{{ f.abertas }}</td><td class="num">{{ f.resolvidas }}</td><td class="num">{{ f.nao_procede }}</td></tr>{% endfor %}</tbody>
+</table></div>
+<p class="dica">Conta incluir, excluir e corrigir; "Mesma venda" e funcionário não identificado ficam de fora.</p>
+{% endif %}
+
 <h2>Ocorrências</h2>
+{% set base_q = "inicio=" ~ rel.inicio.isoformat() ~ "&fim=" ~ rel.fim.isoformat() %}
+<nav class="chips" aria-label="Situação">
+  {% for k, n in (("abertas", "A tratar"), ("resolvidas", "Tratadas"), ("todas", "Todas")) %}<a class="chip" href="?{{ base_q }}&amp;ver={{ k }}"{% if ver == k %} aria-current="true"{% endif %}>{{ n }} · {{ contagem[k] }}</a>{% endfor %}
+</nav>
 <nav class="chips" aria-label="Ação sugerida">
-  <a class="chip" href="?inicio={{ rel.inicio.isoformat() }}&amp;fim={{ rel.fim.isoformat() }}"{% if not acao %} aria-current="true"{% endif %}>Todas · {{ rel.ocorrencias|length }}</a>
-  {% for k, n in acoes.items() %}{% if c.por_acao.get(k) %}<a class="chip" href="?inicio={{ rel.inicio.isoformat() }}&amp;fim={{ rel.fim.isoformat() }}&amp;acao={{ k }}"{% if acao == k %} aria-current="true"{% endif %}>{{ n }} · {{ c.por_acao[k] }}</a>{% endif %}{% endfor %}
+  <a class="chip" href="?{{ base_q }}&amp;ver={{ ver }}"{% if not acao %} aria-current="true"{% endif %}>Todas as ações</a>
+  {% for k, n in acoes.items() %}{% if c.por_acao.get(k) %}<a class="chip" href="?{{ base_q }}&amp;ver={{ ver }}&amp;acao={{ k }}"{% if acao == k %} aria-current="true"{% endif %}>{{ n }} · {{ c.por_acao[k] }}</a>{% endif %}{% endfor %}
 </nav>
 {% if ocorrencias %}
 <div class="lista-ocorrencias">
@@ -68,6 +82,23 @@
     <p><b>O que fazer:</b> {{ o.correcao }}</p>
     <p class="dica">{{ o.referencia }}{% if o.abastecimento %} · {{ o.abastecimento }}{% endif %}</p>
     {% if o.criterios %}<details><summary>Critérios usados</summary><ul>{% for cr in o.criterios %}<li>{{ cr }}</li>{% endfor %}</ul></details>{% endif %}
+    {% set volta = rota ~ "/" ~ rel.posto.id ~ "/conciliacao?" ~ base_q ~ "&ver=" ~ ver ~ ("&acao=" ~ acao if acao else "") %}
+    {% if o.situacao != "aberta" %}
+    <p class="resolucao {{ 'estado-ok' if o.situacao == 'resolvida' else '' }}">{{ "✅" if o.situacao == "resolvida" else "➖" }} {{ o.resolucao }}</p>
+    {% if pode_resolver and o.id %}<form method="post" action="/ocorrencia/{{ o.id }}/resolver" class="acoes-empresa">
+      <input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="volta" value="{{ volta }}">
+      <button type="submit" name="situacao" value="aberta" class="secundario">Reabrir</button></form>{% endif %}
+    {% elif pode_resolver and o.id %}
+    <div class="acoes-empresa">
+      <form method="post" action="/ocorrencia/{{ o.id }}/resolver"><input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="volta" value="{{ volta }}"><button type="submit" name="situacao" value="resolvida">Resolvido</button></form>
+      <details class="nao-procede"><summary class="botao secundario">Não procede</summary>
+        <form method="post" action="/ocorrencia/{{ o.id }}/resolver" class="periodo-livre"><input type="hidden" name="csrf" value="{{ csrf }}">
+          <input type="hidden" name="volta" value="{{ volta }}"><input type="hidden" name="situacao" value="nao_procede">
+          <label>Por quê? <input name="motivo" required maxlength="200" placeholder="ex.: venda conferida, era outra forma de pagamento"></label>
+          <button type="submit" class="secundario">Salvar</button></form></details>
+    </div>
+    {% endif %}
   </article>
   {% endfor %}
 </div>

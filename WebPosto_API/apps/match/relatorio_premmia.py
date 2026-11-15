@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from io import BytesIO
 
@@ -12,6 +12,7 @@ from openpyxl.styles import Font
 
 from apps.match import banco, sugestoes
 from apps.match.explicar import dinheiro
+from src.modules.cash_reconciliation.domain.tempo import formatar_data_hora
 
 MAX_DIAS = 90
 FONTES = {"premmia": "Premmia", "pagbank_edi": "PagBank"}  # tipo da fonte -> nome na tela
@@ -58,7 +59,44 @@ def _ocorrencia(r) -> sugestoes.Ocorrencia:
         criterios=json.loads(r["criterios_json"]) if r["criterios_json"] else [],
         abastecimento=r["abastecimento"], nao_resolvida=acao == "analisar", nsu=r["nsu"],
         caixa_codigo=r["caixa_codigo"], valor_premmia=Decimal(r["valor_esperado"] or 0),
-        valor_webposto=Decimal(r["valor_encontrado"] or 0))
+        valor_webposto=Decimal(r["valor_encontrado"] or 0), id=r["id"], situacao=r["situacao"],
+        resolucao=_resolucao(r))
+
+
+def _resolucao(r) -> str:
+    if r["situacao"] == "aberta":
+        return ""
+    quando = formatar_data_hora(datetime.fromisoformat(r["resolvida_em"])) if r["resolvida_em"] else ""
+    texto = f"{'Resolvido' if r['situacao'] == 'resolvida' else 'Não procede'} · {r['resolvida_por_nome'] or '—'} · {quando}"
+    return texto + (f" — {r['resolucao_motivo']}" if r["resolucao_motivo"] else "")
+
+
+@dataclass
+class Reincidencia:
+    funcionario: str
+    total: int = 0
+    abertas: int = 0
+    resolvidas: int = 0
+    nao_procede: int = 0
+    valor: Decimal = Decimal(0)
+
+
+def reincidencia(ocorrencias) -> list[Reincidencia]:
+    """Por funcionário identificado: quantas ocorrências no período e como foram tratadas ('Mesma venda' não conta)."""
+    por: dict[str, Reincidencia] = {}
+    for _, o in ocorrencias:
+        if o.acao == "vincular" or o.funcionario.startswith("funcionário não identificado"):
+            continue
+        f = por.setdefault(o.funcionario, Reincidencia(o.funcionario))
+        f.total += 1
+        f.valor += o.valor
+        if o.situacao == "resolvida":
+            f.resolvidas += 1
+        elif o.situacao == "nao_procede":
+            f.nao_procede += 1
+        else:
+            f.abertas += 1
+    return sorted(por.values(), key=lambda f: (-f.total, -f.valor))
 
 
 def montar(con, posto_id: int, inicio: date, fim: date, fonte: str = "premmia") -> Relatorio | None:
@@ -69,8 +107,10 @@ def montar(con, posto_id: int, inicio: date, fim: date, fonte: str = "premmia") 
         return None
     linhas = con.execute("SELECT dia, situacao, total, total_webposto FROM coleta WHERE fonte_id=? AND dia BETWEEN ? AND ?"
                          " ORDER BY dia", (fonte["id"], str(inicio), str(fim))).fetchall()
-    divs = con.execute("SELECT * FROM divergencia WHERE posto_id=? AND fonte=? AND dia BETWEEN ? AND ?"
-                       " ORDER BY dia, id", (posto_id, tipo, str(inicio), str(fim))).fetchall()
+    divs = con.execute("SELECT d.*, u.nome AS resolvida_por_nome FROM divergencia d"
+                       " LEFT JOIN usuario u ON u.id = d.resolvida_por"
+                       " WHERE d.posto_id=? AND d.fonte=? AND d.dia BETWEEN ? AND ? ORDER BY d.dia, d.id",
+                       (posto_id, tipo, str(inicio), str(fim))).fetchall()
     por_dia: dict[str, int] = {}
     for d in divs:
         por_dia[d["dia"]] = por_dia.get(d["dia"], 0) + 1
@@ -79,7 +119,7 @@ def montar(con, posto_id: int, inicio: date, fim: date, fonte: str = "premmia") 
             for r in linhas]
     comparados = [d for d in dias if d.webposto is not None and d.situacao in ("ok", "sem_movimento")]
     ocorrencias = [(date.fromisoformat(r["dia"]), _ocorrencia(r)) for r in divs]
-    consolidado = sugestoes.consolidar([o for _, o in ocorrencias],
+    consolidado = sugestoes.consolidar([o for _, o in ocorrencias if o.situacao == "aberta"],  # o que falta tratar
                                        sum((d.premmia for d in comparados), Decimal(0)),
                                        sum((d.webposto for d in comparados), Decimal(0)))
     coletados = {d.dia for d in dias if d.situacao in ("ok", "sem_movimento")}
@@ -120,10 +160,16 @@ def planilha(rel: Relatorio) -> bytes:
 
     ws = wb.create_sheet("Ocorrências")
     ws.append(("Dia", "Ação sugerida", "Funcionário", "Valor", "Referência", "Abastecimento", "O que houve",
-               "O que fazer", "Critérios usados"))
+               "O que fazer", "Critérios usados", "Situação"))
     for dia, o in rel.ocorrencias:
         ws.append((dia.strftime("%d/%m/%Y"), sugestoes.ACOES.get(o.acao, o.acao), o.funcionario, float(o.valor),
-                   o.referencia, o.abastecimento or "", o.explicacao, o.correcao, "; ".join(o.criterios)))
+                   o.referencia, o.abastecimento or "", o.explicacao, o.correcao, "; ".join(o.criterios),
+                   o.resolucao or "A tratar"))
+
+    ws = wb.create_sheet("Reincidência")
+    ws.append(("Funcionário", "Ocorrências", "Valor", "Abertas", "Resolvidas", "Não procede"))
+    for f in reincidencia(rel.ocorrencias):
+        ws.append((f.funcionario, f.total, float(f.valor), f.abertas, f.resolvidas, f.nao_procede))
     for folha in wb.worksheets:
         for cel in folha[1]:
             cel.font = negrito

@@ -210,7 +210,7 @@ def test_relatorio_em_planilha(cli, con, postos):
     r = cli.get(f"/premmia/{postos['doze']}/conciliacao.xlsx")
     assert r.status_code == 200 and "Conciliacao_Premmia_Doze" in r.headers["content-disposition"]
     wb = load_workbook(io.BytesIO(r.content))
-    assert wb.sheetnames == ["Resumo", "Por funcionário", "Por dia", "Ocorrências"]
+    assert wb.sheetnames == ["Resumo", "Por funcionário", "Por dia", "Ocorrências", "Reincidência"]
     linhas = list(wb["Ocorrências"].iter_rows(values_only=True))
     assert linhas[1][1] == "Incluir no webPosto" and "abastecido 3 min antes" in linhas[1][8]
 
@@ -269,3 +269,53 @@ def test_trocar_o_usuario_do_premmia_apaga_o_que_veio_do_login_antigo(cli, con, 
     cli.post(f"/premmia/{postos['doze']}/ligar", data={"csrf": csrf, "usuario": "outro-usuario", "senha": "x"})
     assert con.execute("SELECT COUNT(*) FROM coleta").fetchone()[0] == 0
     assert not list(caminhos.premmia(postos["doze"]).glob("*.xlsx"))
+
+
+def _ids(con):
+    return [r[0] for r in con.execute("SELECT id FROM divergencia ORDER BY id")]
+
+
+def test_marcar_resolvido_e_nao_procede_e_reabrir(cli, con, postos):
+    cid = banco.registrar_coleta(con, postos["f_doze"], ontem(), "ok", 12, Decimal("1000.00"), None)
+    banco.salvar_total_webposto(con, cid, Decimal("982.70"))
+    _divergencias_exemplo(con, postos["doze"])
+    incluir, excluir = _ids(con)
+    csrf = _logado(cli)
+    url = f"/premmia/{postos['doze']}/conciliacao"
+    assert "A tratar · 2" in cli.get(url).text
+    r = cli.post(f"/ocorrencia/{incluir}/resolver", data={"csrf": csrf, "situacao": "resolvida", "volta": url})
+    assert r.status_code == 303 and r.headers["location"] == url
+    assert cli.post(f"/ocorrencia/{excluir}/resolver",
+                    data={"csrf": csrf, "situacao": "nao_procede", "motivo": ""}).status_code == 400
+    cli.post(f"/ocorrencia/{excluir}/resolver",
+             data={"csrf": csrf, "situacao": "nao_procede", "motivo": "era dinheiro, conferido"})
+    html = cli.get(url).text
+    assert "A tratar · 0" in html and "Tratadas · 2" in html and "Pendentes de lançar" in html
+    tratadas = cli.get(url + "?ver=resolvidas").text
+    assert "Resolvido · Admin ·" in tratadas and "Não procede · Admin ·" in tratadas and "era dinheiro, conferido" in tratadas
+    cli.post(f"/ocorrencia/{incluir}/resolver", data={"csrf": csrf, "situacao": "aberta"})
+    assert "A tratar · 1" in cli.get(url).text
+    assert "resolver_ocorrencia" in " ".join(r[0] for r in con.execute("SELECT acao FROM log_acesso"))
+
+
+def test_resolucao_sobrevive_a_nova_coleta_do_mesmo_dia(con, postos):
+    _divergencias_exemplo(con, postos["doze"])
+    incluir, _ = _ids(con)
+    banco.resolver_divergencia(con, incluir, "resolvida", None)
+    _divergencias_exemplo(con, postos["doze"])  # repescagem regrava o dia
+    situacoes = [r[0] for r in con.execute("SELECT situacao FROM divergencia ORDER BY id")]
+    assert situacoes == ["resolvida", "aberta"]
+
+
+def test_reincidencia_por_funcionario(cli, con, postos):
+    _divergencias_exemplo(con, postos["doze"])
+    _logado(cli)
+    html = cli.get(f"/premmia/{postos['doze']}/conciliacao").text
+    assert "Reincidência por funcionário" in html and "JOSÉ (7)" in html and "MARIA (9)" in html
+
+
+def test_conferente_nao_resolve_ocorrencia_de_outro_posto(cli, con, postos):
+    _divergencias_exemplo(con, postos["doze"])
+    incluir, _ = _ids(con)
+    csrf = _logado(cli, "bia")
+    assert cli.post(f"/ocorrencia/{incluir}/resolver", data={"csrf": csrf, "situacao": "resolvida"}).status_code == 403

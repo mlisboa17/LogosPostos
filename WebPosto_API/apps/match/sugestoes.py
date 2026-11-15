@@ -48,6 +48,9 @@ class Ocorrencia:
     caixa_codigo: int | None = None
     valor_premmia: Decimal = Decimal(0)
     valor_webposto: Decimal = Decimal(0)
+    id: int | None = None            # linha da divergência no banco (para marcar como resolvida)
+    situacao: str = "aberta"         # aberta | resolvida | nao_procede
+    resolucao: str = ""              # "Resolvido por Ana em 15/11/2026 10:20 — motivo"
 
     def para_banco(self) -> dict:
         """Formato de `banco.gravar_divergencias` (mais ação, critérios e abastecimento)."""
@@ -157,6 +160,7 @@ def _a_menor(c: CartaoErp, abastecimentos, janela, tolerancia) -> Ocorrencia:
                       correcao="Excluir o lançamento no webPosto depois de conferir com o frentista.")
 
 
+_MESMO_HORARIO = timedelta(minutes=10)  # par de mesmo valor tão perto é a mesma venda
 _JUNTO = timedelta(minutes=2)  # partes de um mesmo pagamento dividido no Premmia
 
 
@@ -223,6 +227,57 @@ def _dividido_com_abastecimento(g: list[Investigacao], abastecimentos, janela, t
         explicacao=f"Venda de {dinheiro(soma)} paga com Premmia em {len(g)} partes ({_partes(g)}) às"
                    f" {formatar_hora(t0.momento)} não foi lançada no webPosto. Responsável: {quem}.",
         correcao=f"Lançar o Premmia de {dinheiro(soma)} no caixa de {quem}.")
+
+
+_MAX_LOTE = 80                 # vendas soltas consideradas para achar um lançamento em lote
+_MAX_LOTE_CENTAVOS = 5_000_000  # R$ 50.000
+
+
+def _manual(c: CartaoErp) -> bool:
+    return c.tipo_inclusao == "Manualmente" or not c.venda_codigo
+
+
+def _subconjunto(alvo: Decimal, invs: list[Investigacao]) -> list[Investigacao] | None:
+    """Vendas cuja soma é exatamente `alvo` (em centavos), preferindo as primeiras do dia."""
+    centavos = int(alvo * 100)
+    if centavos <= 0 or centavos > _MAX_LOTE_CENTAVOS or len(invs) > _MAX_LOTE:
+        return None
+    ordem = sorted(invs, key=lambda i: i.transacao.momento)
+    alcancado: dict[int, list[int]] = {0: []}
+    for n, inv in enumerate(ordem):
+        v = int(inv.transacao.valor * 100)
+        for soma, usados in list(alcancado.items()):
+            nova = soma + v
+            if nova <= centavos and nova not in alcancado:
+                alcancado[nova] = usados + [n]
+        if centavos in alcancado:
+            break
+    achado = alcancado.get(centavos)
+    return [ordem[n] for n in achado] if achado else None
+
+
+def _lote(g: list[Investigacao], c: CartaoErp) -> Ocorrencia:
+    nome_fonte = "Premmia"  # trocado pelo nome da adquirente em `ocorrencias`
+    por: dict[str, Decimal] = {}
+    for i in g:
+        quem = i.responsavel if i.atribuicao == Atribuicao.ATRIBUIDO else _SEM_FRENTISTA
+        por[quem] = por.get(quem, Decimal(0)) + i.transacao.valor
+    em_dinheiro = sum(1 for i in g if i.troca_de_forma)
+    ini, fim = g[0].transacao.momento, max(i.transacao.momento for i in g)
+    criterios = [f"soma exata de {len(g)} vendas soltas do dia", "lançamento manual sem venda"]
+    if em_dinheiro:
+        criterios.append(f"{em_dinheiro} delas lançadas como dinheiro")
+    criterios += [f"{quem}: {dinheiro(v)}" for quem, v in sorted(por.items(), key=lambda x: -x[1])]
+    return Ocorrencia(
+        acao="vincular", tipo="mesma_venda", valor=c.valor, funcionario=_SEM_FRENTISTA if len(por) > 1 else next(iter(por)),
+        referencia=f"{_ref_cartao(c)} · {len(g)} vendas de {formatar_hora(ini)} a {formatar_hora(fim)}",
+        nsu=None, caixa_codigo=c.caixa_codigo, valor_premmia=c.valor, valor_webposto=c.valor, criterios=criterios,
+        explicacao=f"O lançamento manual de {dinheiro(c.valor)} às {formatar_hora(c.momento)} no webPosto é a soma de"
+                   f" {len(g)} vendas {nome_fonte} de {formatar_hora(ini)} a {formatar_hora(fim)} lançadas em lote"
+                   + (f" ({em_dinheiro} tinham sido lançadas como dinheiro)" if em_dinheiro else "")
+                   + ". O caixa fecha, mas o controle por frentista se perde.",
+        correcao="Não incluir nem excluir. Para o controle por frentista, lançar as vendas uma a uma (trocando a"
+                 " forma das que foram como dinheiro) e apagar o lançamento em lote.")
 
 
 def _dividido_sem_certeza(g: list[Investigacao], abastecimentos, janela, tolerancia) -> Ocorrencia:
@@ -302,12 +357,30 @@ def _ocorrencias(resultado: ResultadoCartoes, abastecimentos: Iterable[Abastecim
             saida.append(_vinculo([inv], c))
             usados_inv.add(inv.transacao.identificador)
             usados_c.add(c.codigo)
+    soltas = [i for i in invs if i.transacao.identificador not in usados_inv]
+    for c in sorted((c for c in cartoes if c.codigo not in usados_c and _livre(c) and _manual(c)),
+                    key=lambda c: -c.valor):
+        candidatas = [i for i in soltas if i.transacao.momento.date() == c.momento.date()]
+        escolhidas = _subconjunto(c.valor, candidatas)
+        if escolhidas and len(escolhidas) >= 2:
+            saida.append(_lote(escolhidas, c))
+            usados_c.add(c.codigo)
+            ids = {i.transacao.identificador for i in escolhidas}
+            usados_inv.update(ids)
+            soltas = [i for i in soltas if i.transacao.identificador not in ids]
     saida += [_a_maior(inv) for inv in invs if inv.transacao.identificador not in usados_inv]
     saida += [_a_menor(c, abastecimentos, janela, tolerancia) for c in cartoes if c.codigo not in usados_c]
     for grupo in resultado.grupos_provaveis:
         saida.append(_vinculo(sorted(grupo.investigacoes, key=lambda i: i.transacao.momento), grupo.cartao))
     for par in resultado.pares_provaveis:
         t, c = par.investigacao.transacao, par.cartao
+        hora_redonda = _manual(c) and c.momento.minute == 0 and c.momento.second == 0
+        if abs(t.momento - c.momento) <= _MESMO_HORARIO or hora_redonda:
+            oc = _vinculo([par.investigacao], c)
+            oc.criterios.insert(0, "mesmo valor no mesmo horário" if not hora_redonda
+                                else f"lançado à mão com hora redonda ({formatar_hora(c.momento)}), sem a hora real")
+            saida.append(oc)
+            continue
         saida.append(Ocorrencia(
             acao="analisar", tipo="par_provavel", valor=t.valor, funcionario=_funcionario_cartao(c),
             referencia=f"Premmia NSU {t.nsu or '—'} · {_ref_cartao(c)}", nsu=t.nsu, caixa_codigo=c.caixa_codigo,

@@ -189,3 +189,6 @@ td.num, th.num { text-align: right; white-space: nowrap; }
 .ocorrencia.acao-vincular { border-left: 4px solid var(--ok); }
 .diferenca-dia { margin: 4px 0 8px; }
 .cabeca-dia { font-size: 15px; margin: 10px 0 0; }
+.resolucao { font-size: 13.5px; margin: 6px 0; }
+.nao-procede summary { list-style: none; cursor: pointer; }
+.nao-procede[open] { flex-basis: 100%; }

@@ -230,3 +230,44 @@ def test_pagbank_varias_transacoes_somando_um_lancamento_viram_mesma_venda():
     [o] = sugestoes.ocorrencias(_rp(grupos_provaveis=(grupo,)), [])
     assert o.acao == "vincular" and o.valor == Decimal("50.00") and "R$ 30,00 + R$ 20,00" in o.explicacao
     assert "PagBank" in o.explicacao
+
+
+# ---------------------------------------------------------------- casos reais do PagBank (novembro/2026)
+
+def test_lancamento_manual_em_lote_soma_as_vendas_soltas():
+    """Casa Caiada 11/11: vendas PagBank da manhã lançadas como dinheiro; acerto com um cartão manual em lote."""
+    a = _a(1, "100.00", 6, 10, frentista=83139, nome="DAVI")
+    cand = Candidato(abastecimento=a, pontos=84, motivos=("valor igual",), venda_em_dinheiro=True)
+    invs = (_inv(_t("100.00", 6, 11, nsu="1"), Atribuicao.ATRIBUIDO, [cand], frentista=83139, nome="DAVI", troca=True),
+            _inv(_t("190.08", 6, 35, nsu="2"), Atribuicao.ATRIBUIDO, [cand], frentista=83139, nome="DAVI", troca=True),
+            _inv(_t("30.00", 7, 47, nsu="3"), Atribuicao.ATRIBUIDO, [cand], frentista=63048, nome="HENRIQUE", troca=True),
+            _inv(_t("104.87", 9, 23, nsu="4"), Atribuicao.SEM_ABASTECIMENTO),
+            _inv(_t("50.00", 9, 30, nsu="5"), Atribuicao.SEM_ABASTECIMENTO))
+    lote = _c(215102552, "424.95", 0, 32, frentista=None, nome=None)  # 100 + 190,08 + 30 + 104,87
+    oc = sugestoes.ocorrencias(_rp(a_maior=invs, a_menor=(lote,)), [a])
+    acoes = sorted(o.acao for o in oc)
+    assert acoes == ["analisar", "vincular"]  # sobra só a venda de 50,00
+    o = next(o for o in oc if o.acao == "vincular")
+    assert o.valor == Decimal("424.95") and "4 vendas" in o.explicacao and "em lote" in o.explicacao
+    assert any("DAVI (83139)" in c and "R$ 290,08" in c for c in o.criterios)
+    r = sugestoes.consolidar(oc, Decimal("474.95"), Decimal("424.95"))
+    assert r.excedentes == 0
+
+
+def test_mesmo_valor_no_mesmo_minuto_e_mesma_venda():
+    inv = _inv(_t("100.00", 11, 22), Atribuicao.SEM_ABASTECIMENTO)
+    par = ParProvavel(investigacao=inv, cartao=_c(214093973, "100.00", 11, 22, frentista=None, nome=None))
+    [o] = sugestoes.ocorrencias(_rp(pares_provaveis=(par,)), [])
+    assert o.acao == "vincular" and not o.nao_resolvida
+    longe = ParProvavel(investigacao=inv, cartao=_c(1, "100.00", 15, 7, venda=555))
+    [o2] = sugestoes.ocorrencias(_rp(pares_provaveis=(longe,)), [])
+    assert o2.acao == "analisar"
+
+
+
+def test_lancamento_manual_com_hora_redonda_e_mesma_venda():
+    """Doze 02/11: PagBank 371,23 às 08:16; lançamento manual de 371,23 às 01:00 (hora padrão)."""
+    inv = _inv(_t("371.23", 8, 16), Atribuicao.SEM_ABASTECIMENTO)
+    par = ParProvavel(investigacao=inv, cartao=_c(214221200, "371.23", 1, 0, frentista=None, nome=None))
+    [o] = sugestoes.ocorrencias(_rp(pares_provaveis=(par,)), [])
+    assert o.acao == "vincular" and "hora redonda (01:00)" in o.criterios[0]
