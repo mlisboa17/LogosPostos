@@ -246,9 +246,28 @@ def _dividido_sem_certeza(g: list[Investigacao], abastecimentos, janela, toleran
         correcao=f"Conferir com os frentistas do horário e lançar o Premmia de {dinheiro(soma)} no caixa certo.")
 
 
+NOME_FONTE = {"PREMMIA": "Premmia", "PAGBANK": "PagBank"}
+
+
+def _renomear(o: Ocorrencia, nome: str) -> Ocorrencia:
+    """As frases foram escritas para o Premmia; para outra adquirente troca só o nome."""
+    def t(x: str) -> str:
+        return x.replace("portal Premmia", nome).replace("Premmia", nome)
+    o.explicacao, o.correcao, o.referencia = t(o.explicacao), t(o.correcao), t(o.referencia)
+    o.criterios = [t(c) for c in o.criterios]
+    return o
+
+
 def ocorrencias(resultado: ResultadoCartoes, abastecimentos: Iterable[Abastecimento] = (), *,
                 janela: timedelta = JANELA_ABASTECIMENTO,
                 tolerancia: timedelta = TOLERANCIA_RELOGIO) -> list[Ocorrencia]:
+    saida = _ocorrencias(resultado, abastecimentos, janela, tolerancia)
+    nome = NOME_FONTE.get(resultado.adquirente, resultado.adquirente.title())
+    return saida if nome == "Premmia" else [_renomear(o, nome) for o in saida]
+
+
+def _ocorrencias(resultado: ResultadoCartoes, abastecimentos: Iterable[Abastecimento],
+                 janela: timedelta, tolerancia: timedelta) -> list[Ocorrencia]:
     abastecimentos = list(abastecimentos)
     saida: list[Ocorrencia] = []
     invs, cartoes = list(resultado.a_maior), list(resultado.a_menor)
@@ -285,6 +304,8 @@ def ocorrencias(resultado: ResultadoCartoes, abastecimentos: Iterable[Abastecime
             usados_c.add(c.codigo)
     saida += [_a_maior(inv) for inv in invs if inv.transacao.identificador not in usados_inv]
     saida += [_a_menor(c, abastecimentos, janela, tolerancia) for c in cartoes if c.codigo not in usados_c]
+    for grupo in resultado.grupos_provaveis:
+        saida.append(_vinculo(sorted(grupo.investigacoes, key=lambda i: i.transacao.momento), grupo.cartao))
     for par in resultado.pares_provaveis:
         t, c = par.investigacao.transacao, par.cartao
         saida.append(Ocorrencia(

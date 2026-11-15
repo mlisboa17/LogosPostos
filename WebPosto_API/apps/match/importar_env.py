@@ -1,4 +1,4 @@
-"""Copia as credenciais do Premmia e as chaves do webPosto de um .env do LOGOS para o Logos Match.
+"""Copia as credenciais do Premmia e do PagBank e as chaves do webPosto de um .env do LOGOS para o Logos Match.
 
 Liga cada posto ao .env pelo units.json do robô (empresa_codigo -> nomes das variáveis). Nunca devolve
 nem registra os valores, só o que foi feito em cada posto. Trocar o usuário do Premmia apaga as vendas
@@ -10,7 +10,7 @@ import json
 import unicodedata
 from pathlib import Path
 
-from apps.match import banco, coletas, credenciais, premmia_tela
+from apps.match import banco, coletas, credenciais, pagbank_tela, premmia_tela
 from src.modules.cash_reconciliation import config as config_cr
 
 UNITS = Path(config_cr.__file__).resolve().parent / "units.json"  # o mesmo do robô (vai junto no instalador)
@@ -70,6 +70,11 @@ def importar(con, env: dict, lista: list[dict] | None = None) -> list[str]:
             banco.salvar_fonte(con, pid, "webposto", True, json.loads(atual["config_json"] or "{}") if atual else {})
             credenciais.salvar(f"{pid}/webposto/chave", chave)
             feito.append("chave do webPosto (sem Premmia no .env)")
+        codigo = u.get("empresa_codigo")
+        pb_user, pb_token = valor(f"PAGBANK_USER_{codigo}"), valor(f"PAGBANK_TOKEN_{codigo}")
+        if pb_user and pb_token:
+            pagbank_tela.ligar(con, pid, pb_user, pb_token, chave)
+            feito.append("PagBank ligado")
         linhas.append(f"{nome}: " + (", ".join(feito) if feito else "nada no .env para este posto."))
     for posto in banco.listar_postos(con):
         outro = coletas.posto_com_mesmo_login(con, posto["id"])

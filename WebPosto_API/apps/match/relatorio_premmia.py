@@ -1,4 +1,4 @@
-"""Relatório consolidado Premmia x webPosto de um posto num período (tela e planilha)."""
+"""Relatório consolidado Premmia/PagBank x webPosto de um posto num período (tela e planilha)."""
 from __future__ import annotations
 
 import json
@@ -14,6 +14,7 @@ from apps.match import banco, sugestoes
 from apps.match.explicar import dinheiro
 
 MAX_DIAS = 90
+FONTES = {"premmia": "Premmia", "pagbank_edi": "PagBank"}  # tipo da fonte -> nome na tela
 
 
 @dataclass
@@ -39,6 +40,11 @@ class Relatorio:
     consolidado: sugestoes.Consolidado
     dias_sem_comparacao: int
     dias_sem_coleta: list[date] = field(default_factory=list)
+    fonte: str = "premmia"
+
+    @property
+    def nome_fonte(self) -> str:
+        return FONTES.get(self.fonte, self.fonte)
 
 
 def _ocorrencia(r) -> sugestoes.Ocorrencia:
@@ -55,15 +61,16 @@ def _ocorrencia(r) -> sugestoes.Ocorrencia:
         valor_webposto=Decimal(r["valor_encontrado"] or 0))
 
 
-def montar(con, posto_id: int, inicio: date, fim: date) -> Relatorio | None:
+def montar(con, posto_id: int, inicio: date, fim: date, fonte: str = "premmia") -> Relatorio | None:
     posto = banco.obter_posto(con, posto_id)
-    fonte = next((f for f in banco.fontes_do_posto(con, posto_id) if f["tipo"] == "premmia"), None)
+    tipo = fonte
+    fonte = next((f for f in banco.fontes_do_posto(con, posto_id) if f["tipo"] == tipo), None)
     if posto is None or fonte is None:
         return None
     linhas = con.execute("SELECT dia, situacao, total, total_webposto FROM coleta WHERE fonte_id=? AND dia BETWEEN ? AND ?"
                          " ORDER BY dia", (fonte["id"], str(inicio), str(fim))).fetchall()
-    divs = con.execute("SELECT * FROM divergencia WHERE posto_id=? AND fonte='premmia' AND dia BETWEEN ? AND ?"
-                       " ORDER BY dia, id", (posto_id, str(inicio), str(fim))).fetchall()
+    divs = con.execute("SELECT * FROM divergencia WHERE posto_id=? AND fonte=? AND dia BETWEEN ? AND ?"
+                       " ORDER BY dia, id", (posto_id, tipo, str(inicio), str(fim))).fetchall()
     por_dia: dict[str, int] = {}
     for d in divs:
         por_dia[d["dia"]] = por_dia.get(d["dia"], 0) + 1
@@ -79,7 +86,7 @@ def montar(con, posto_id: int, inicio: date, fim: date) -> Relatorio | None:
     faltam = [date.fromordinal(n) for n in range(inicio.toordinal(), fim.toordinal() + 1)
               if date.fromordinal(n) not in coletados]
     return Relatorio(posto, inicio, fim, dias, ocorrencias, consolidado,
-                     sum(1 for d in dias if d.webposto is None and d.situacao in ("ok", "sem_movimento")), faltam)
+                     sum(1 for d in dias if d.webposto is None and d.situacao in ("ok", "sem_movimento")), faltam, tipo)
 
 
 def planilha(rel: Relatorio) -> bytes:
@@ -90,8 +97,8 @@ def planilha(rel: Relatorio) -> bytes:
     c = rel.consolidado
     nome = rel.posto["apelido"] or rel.posto["nome"]
     for linha in (("Posto", nome), ("Período", f"{rel.inicio:%d/%m/%Y} a {rel.fim:%d/%m/%Y}"),
-                  ("Total no Premmia", float(c.total_premmia)), ("Total no webPosto", float(c.total_webposto)),
-                  ("Diferença (Premmia − webPosto)", float(c.diferenca)),
+                  (f"Total no {rel.nome_fonte}", float(c.total_premmia)), ("Total no webPosto", float(c.total_webposto)),
+                  (f"Diferença ({rel.nome_fonte} − webPosto)", float(c.diferenca)),
                   ("Pendentes de lançar no webPosto", float(c.pendentes)),
                   ("Lançados a mais no webPosto", float(c.excedentes)),
                   ("Divergências não resolvidas", c.nao_resolvidas),
@@ -101,12 +108,12 @@ def planilha(rel: Relatorio) -> bytes:
         ws.cell(ws.max_row, 1).font = negrito
 
     ws = wb.create_sheet("Por funcionário")
-    ws.append(("Funcionário", "A lançar (Premmia sem webPosto)", "Lançado a mais", "Ocorrências"))
+    ws.append(("Funcionário", f"A lançar ({rel.nome_fonte} sem webPosto)", "Lançado a mais", "Ocorrências"))
     for f in c.por_funcionario:
         ws.append((f.funcionario, float(f.a_lancar), float(f.lancado_a_mais), f.ocorrencias))
 
     ws = wb.create_sheet("Por dia")
-    ws.append(("Dia", "Premmia", "webPosto", "Diferença", "Ocorrências", "Situação da coleta"))
+    ws.append(("Dia", rel.nome_fonte, "webPosto", "Diferença", "Ocorrências", "Situação da coleta"))
     for d in rel.dias:
         ws.append((d.dia.strftime("%d/%m/%Y"), float(d.premmia), None if d.webposto is None else float(d.webposto),
                    None if d.diferenca is None else float(d.diferenca), d.ocorrencias, d.situacao))
@@ -129,5 +136,5 @@ def planilha(rel: Relatorio) -> bytes:
 
 def texto_resumo(rel: Relatorio) -> str:
     c = rel.consolidado
-    return (f"{rel.posto['apelido'] or rel.posto['nome']} · {rel.inicio:%d/%m} a {rel.fim:%d/%m}: Premmia "
+    return (f"{rel.posto['apelido'] or rel.posto['nome']} · {rel.inicio:%d/%m} a {rel.fim:%d/%m}: {rel.nome_fonte} "
             f"{dinheiro(c.total_premmia)}, webPosto {dinheiro(c.total_webposto)}, diferença {dinheiro(c.diferenca)}.")

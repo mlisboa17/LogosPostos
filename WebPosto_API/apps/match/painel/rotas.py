@@ -30,7 +30,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
 from apps.match import (acesso, agendador, banco, caminhos, coletas, credenciais, explicar, inicio,
-                        premmia_tela, recuperar_senha, registro_rede, relatorio_premmia, relatorio_xlsx, rotina,
+                        pagbank_tela, premmia_tela, recuperar_senha, registro_rede, relatorio_premmia, relatorio_xlsx, rotina,
                         sugestoes, unidades)
 from apps.match.acesso import Acao, Perfil
 from apps.match.canais import envio
@@ -305,6 +305,7 @@ def _menu(ctx: Ctx) -> list[tuple[str, str]]:
         itens.append(("/notas", "Notas fiscais"))
     itens.append(("/caixa", "Caixa"))
     itens.append(("/premmia", "Premmia"))
+    itens.append(("/pagbank", "PagBank"))
     if _itens_configuracao(ctx):
         itens.append(("/configuracoes", "Configurações"))
     return itens
@@ -620,21 +621,22 @@ def _periodo_conciliacao(inicio: str, fim: str) -> tuple[date, date, str | None]
     return ini, fi, aviso
 
 
-def _relatorio_premmia(ctx: Ctx, posto_id: int, inicio: str, fim: str):
+_ROTA_FONTE = {"premmia": "/premmia", "pagbank_edi": "/pagbank"}
+
+
+def _relatorio(ctx: Ctx, posto_id: int, inicio: str, fim: str, fonte: str):
     ctx.exigir(Acao.VER, posto_id)
     if posto_id not in ctx.postos():
         raise Recusado(403, SEM_ACESSO)
     ini, fi, aviso = _periodo_conciliacao(inicio, fim)
-    rel = relatorio_premmia.montar(ctx.con, posto_id, ini, fi)
+    rel = relatorio_premmia.montar(ctx.con, posto_id, ini, fi, fonte)
     if rel is None:
-        raise Recusado(404, "Este posto não usa o Premmia.")
+        raise Recusado(404, f"Este posto não usa o {relatorio_premmia.FONTES[fonte]}.")
     return rel, aviso
 
 
-@router.get("/premmia/{posto_id}/conciliacao")
-async def premmia_conciliacao(posto_id: int, inicio: str = "", fim: str = "", acao: str = "",
-                              ctx: Ctx = Depends(_ctx)):
-    rel, aviso = _relatorio_premmia(ctx, posto_id, inicio, fim)
+def _tela_conciliacao(ctx: Ctx, posto_id: int, inicio: str, fim: str, acao: str, fonte: str):
+    rel, aviso = _relatorio(ctx, posto_id, inicio, fim, fonte)
     hoje_ = ontem()
     mes_passado = hoje_.replace(day=1) - timedelta(days=1)
     atalhos = [("Ontem", hoje_, hoje_), ("Últimos 7 dias", hoje_ - timedelta(days=6), hoje_),
@@ -644,17 +646,83 @@ async def premmia_conciliacao(posto_id: int, inicio: str = "", fim: str = "", ac
     return _pagina(ctx, "premmia_conciliacao.html", rel=rel, ocorrencias=lista, acao=acao, acoes=sugestoes.ACOES,
                    atalhos=[(n, a.isoformat(), b.isoformat(), (a, b) == (rel.inicio, rel.fim)) for n, a, b in atalhos],
                    aviso=aviso, janela=janela, relogio=relogio, pode_configurar=ctx.pode(Acao.CONFIGURAR),
-                   max_dias=relatorio_premmia.MAX_DIAS)
+                   max_dias=relatorio_premmia.MAX_DIAS, rota=_ROTA_FONTE[fonte])
+
+
+def _planilha_conciliacao(ctx: Ctx, posto_id: int, inicio: str, fim: str, fonte: str):
+    rel, _ = _relatorio(ctx, posto_id, inicio, fim, fonte)
+    nome = re.sub(r"[^A-Za-z0-9]+", "", rel.posto["apelido"] or rel.posto["nome"]) or "posto"
+    return Response(relatorio_premmia.planilha(rel),
+                    media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f'attachment; filename="Conciliacao_{rel.nome_fonte}_{nome}_'
+                                                    f'{rel.inicio:%Y%m%d}_{rel.fim:%Y%m%d}.xlsx"'})
+
+
+@router.get("/premmia/{posto_id}/conciliacao")
+async def premmia_conciliacao(posto_id: int, inicio: str = "", fim: str = "", acao: str = "",
+                              ctx: Ctx = Depends(_ctx)):
+    return _tela_conciliacao(ctx, posto_id, inicio, fim, acao, "premmia")
 
 
 @router.get("/premmia/{posto_id}/conciliacao.xlsx")
 async def premmia_conciliacao_xlsx(posto_id: int, inicio: str = "", fim: str = "", ctx: Ctx = Depends(_ctx)):
-    rel, _ = _relatorio_premmia(ctx, posto_id, inicio, fim)
-    nome = re.sub(r"[^A-Za-z0-9]+", "", rel.posto["apelido"] or rel.posto["nome"]) or "posto"
-    return Response(relatorio_premmia.planilha(rel),
-                    media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    headers={"Content-Disposition": f'attachment; filename="Conciliacao_Premmia_{nome}_'
-                                                    f'{rel.inicio:%Y%m%d}_{rel.fim:%Y%m%d}.xlsx"'})
+    return _planilha_conciliacao(ctx, posto_id, inicio, fim, "premmia")
+
+
+@router.get("/pagbank/{posto_id}/conciliacao")
+async def pagbank_conciliacao(posto_id: int, inicio: str = "", fim: str = "", acao: str = "",
+                              ctx: Ctx = Depends(_ctx)):
+    return _tela_conciliacao(ctx, posto_id, inicio, fim, acao, "pagbank_edi")
+
+
+@router.get("/pagbank/{posto_id}/conciliacao.xlsx")
+async def pagbank_conciliacao_xlsx(posto_id: int, inicio: str = "", fim: str = "", ctx: Ctx = Depends(_ctx)):
+    return _planilha_conciliacao(ctx, posto_id, inicio, fim, "pagbank_edi")
+
+
+@router.get("/pagbank")
+async def pagbank(ctx: Ctx = Depends(_ctx), iniciada: int = 0):
+    ctx.exigir(Acao.VER)
+    cartoes = pagbank_tela.cartoes(ctx.con, ctx.postos())
+    for c in cartoes:
+        c.pode_coletar = ctx.pode(Acao.COLETAR, c.posto["id"]) and c.ativo and c.tem_credencial
+        c.pode_ligar = ctx.pode(Acao.TROCAR_CREDENCIAL, c.posto["id"])
+    rodando = rotina.em_andamento()
+    return _pagina(ctx, "pagbank.html", cartoes=cartoes, rodando=rodando,
+                   mensagem="Coleta iniciada. Esta página atualiza sozinha." if iniciada and rodando else None)
+
+
+@router.post("/pagbank/{posto_id}/ligar")
+async def pagbank_ligar(posto_id: int, ctx: Ctx = Depends(_ctx_post)):
+    ctx.exigir(Acao.TROCAR_CREDENCIAL, posto_id)
+    posto = _posto_ou_404(ctx, posto_id)
+    try:
+        trocados = pagbank_tela.ligar(ctx.con, posto_id, _txt(ctx.form, "usuario"), _txt(ctx.form, "token", cru=True),
+                                      _txt(ctx.form, "chave_webposto"))
+    except ValueError as exc:
+        cartoes = pagbank_tela.cartoes(ctx.con, ctx.postos())
+        for c in cartoes:
+            c.pode_ligar = ctx.pode(Acao.TROCAR_CREDENCIAL, c.posto["id"])
+        return _pagina(ctx, "pagbank.html", 400, erro=str(exc), cartoes=cartoes, rodando=rotina.em_andamento())
+    acesso.registrar(ctx.con, ctx.uid, "salvar_fonte", f"posto={posto_id} fonte=pagbank_edi ativo=1 tela=pagbank")
+    if trocados:
+        acesso.registrar(ctx.con, ctx.uid, "trocar_credencial", f"posto={posto_id} campos={','.join(trocados)}")
+    if posto["ativo"] and ctx.pode(Acao.COLETAR, posto_id) and not rotina.em_andamento():
+        _em_segundo_plano("coleta", _coletar, ctx.request.app.state.con_factory, posto_id, False, ctx.uid)
+        return _ir("/pagbank?iniciada=1")
+    return _ir("/pagbank")
+
+
+@router.post("/pagbank/coletar")
+async def pagbank_coletar(posto_id: int, ctx: Ctx = Depends(_ctx_post)):
+    ctx.exigir(Acao.COLETAR, posto_id)
+    posto = _posto_ou_404(ctx, posto_id)
+    if not posto["ativo"]:
+        raise Recusado(400, "Este posto está desativado.")
+    if not rotina.em_andamento():
+        _em_segundo_plano("coleta", _coletar, ctx.request.app.state.con_factory, posto_id, False, ctx.uid)
+        acesso.registrar(ctx.con, ctx.uid, "coletar", f"posto={posto_id} tela=pagbank")
+    return _ir("/pagbank?iniciada=1")
 
 
 @router.post("/premmia/tolerancias")

@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block titulo %}PagBank{% endblock %}
+{% block cabeca %}{% if rodando %}<meta http-equiv="refresh" content="3">{% endif %}{% endblock %}
+{% block conteudo %}
+<h1>PagBank</h1>
+<p class="sub">Vendas em cartão e PIX da maquininha PagBank de cada posto, comparadas com o webPosto. A coleta roda sozinha todo dia.</p>
+{% if rodando %}<p class="aviso alerta" role="status">Coleta em andamento… Esta página atualiza sozinha.</p>{% endif %}
+
+<div class="cartoes-premmia">
+  {% for c in cartoes %}
+  <section class="cartao premmia-posto" aria-labelledby="pb-{{ c.posto.id }}">
+    <div class="premmia-topo">
+      <h2 id="pb-{{ c.posto.id }}">{{ c.posto.apelido or c.posto.nome }}</h2>
+      <span class="estado {{ c.classe }}">{{ c.rotulo }}</span>
+    </div>
+    {% if c.estado == "ok" %}<p class="premmia-total">{{ c.total|dinheiro }} <small>{{ c.qtd }} venda(s) em {{ c.dia.strftime("%d/%m/%Y") }}</small></p>
+    {% if c.total_webposto is not none and c.total_webposto != c.total %}
+    <p class="diferenca-dia">PagBank <b>{{ c.total|dinheiro }}</b> · lançado no webPosto <b>{{ c.total_webposto|dinheiro }}</b> ·
+      diferença <b class="texto-critico">{{ (c.total - c.total_webposto)|dinheiro }}</b>
+      <a href="/pagbank/{{ c.posto.id }}/conciliacao?inicio={{ c.dia.isoformat() }}&amp;fim={{ c.dia.isoformat() }}">ver o que houve</a></p>{% endif %}
+    {% elif c.mensagem %}<p class="{{ 'erro-busca' if c.estado == 'erro' else 'dica' }}">{{ c.mensagem }}</p>{% endif %}
+    {% if c.ativo and c.tem_credencial %}<p class="dica">{% if c.comparacao %}✅ Compara com o webPosto a cada coleta.{% else %}⚠ Sem comparação com o webPosto: falta {{ "a chave" if c.tem_codigo else "o código da empresa e a chave" }} do webPosto.{% endif %}</p>{% endif %}
+    {% if c.pode_ligar and (not c.ativo or not c.tem_credencial or not c.comparacao or c.estado == "erro") %}
+    <details class="ligar-premmia"{% if not c.ativo or not c.tem_credencial or c.estado == "erro" %} open{% endif %}>
+      <summary>{% if not c.ativo or not c.tem_credencial %}Ligar o PagBank neste posto{% elif c.estado == "erro" %}Corrigir usuário e token{% else %}Ligar a comparação com o webPosto{% endif %}</summary>
+      <form method="post" action="/pagbank/{{ c.posto.id }}/ligar" class="linha">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <label>Usuário do PagBank (EDI) <input name="usuario" autocomplete="off"{% if c.tem_credencial %} placeholder="já salvo — em branco mantém"{% endif %}></label>
+        <label>Token do PagBank <input type="password" name="token" autocomplete="new-password"{% if c.tem_credencial %} placeholder="já salvo — em branco mantém"{% endif %}></label>
+        {% if c.tem_codigo %}<label>Chave do webPosto <input type="password" name="chave_webposto" autocomplete="off" placeholder="{{ 'já salva' if c.comparacao else 'para comparar as vendas' }}"></label>{% endif %}
+        <button type="submit">Ligar e coletar</button>
+      </form>
+    </details>
+    {% endif %}
+    <div class="acoes-empresa">
+      {% if c.pode_coletar %}<form method="post" action="/pagbank/coletar?posto_id={{ c.posto.id }}"><input type="hidden" name="csrf" value="{{ csrf }}">
+        <button type="submit"{% if rodando %} disabled{% endif %}>Coletar agora</button></form>{% endif %}
+      {% if c.ativo and c.tem_credencial %}<a class="botao secundario" href="/pagbank/{{ c.posto.id }}/conciliacao">Ver conciliação</a>{% endif %}
+    </div>
+  </section>
+  {% else %}<p class="vazio">Nenhum posto seu.</p>{% endfor %}
+</div>
+{% endblock %}

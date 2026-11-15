@@ -94,7 +94,7 @@ async def _pagbank(unidade, dia: date, comparar: bool):
     emp = unidade.empresa_codigo
     do_dia = await pagbank_edi.buscar_transacoes(emp, dia)
     if not comparar:
-        return do_dia, None
+        return do_dia, None, [], None
     cartoes, abastecimentos, itens = await conciliar_cartoes.coletar_contexto_cartoes(emp, dia)
     if unidade.premmia_ativo:
         cartoes = [c for c in cartoes if "PREMMIA" not in c.administradora.upper()]
@@ -104,8 +104,10 @@ async def _pagbank(unidade, dia: date, comparar: bool):
         dia, "PagBank")
     vizinhos = [t for d in (dia - timedelta(days=1), dia + timedelta(days=1))
                 for t in await pagbank_edi.buscar_transacoes(emp, d)]
+    do_pagbank = [c for c in cartoes if conciliar_cartoes.da_adquirente(c, "PAGBANK", unidade.administradoras)]
     return do_dia, conciliar_cartoes.conciliar(
-        emp, "PAGBANK", dia, do_dia + vizinhos, cartoes, abastecimentos, itens)
+        emp, "PAGBANK", dia, do_dia + vizinhos, cartoes, abastecimentos, itens), abastecimentos, \
+        sum((c.valor for c in do_pagbank if c.momento.date() == dia), Decimal(0))
 
 
 def _mensagem(nome: str, qtd: int, total: Decimal, comparou: bool, n_div: int) -> str:
@@ -150,17 +152,15 @@ async def _coletar_fonte(con, posto, fonte, unidade, dia, visivel, comparar) -> 
             transacoes, resultado, abastecimentos, total_webposto = await _premmia(
                 unidade, posto_id, dia, visivel, comparar)
         else:
-            (transacoes, resultado), total_webposto = await _pagbank(unidade, dia, comparar), None
+            transacoes, resultado, abastecimentos, total_webposto = await _pagbank(unidade, dia, comparar)
         do_dia = [t for t in transacoes if t.momento.date() == dia]
         total = sum((t.valor for t in do_dia if t.situacao is None), Decimal(0))
         if resultado is None:
             itens = []
-        elif tipo == "premmia":  # ação sugerida (incluir/excluir/corrigir/analisar) com os critérios
+        else:  # ação sugerida (incluir/excluir/corrigir/vincular/analisar) com os critérios
             janela, relogio = banco.tolerancias(con)
             itens = [o.para_banco() for o in sugestoes.ocorrencias(
                 resultado, abastecimentos, janela=timedelta(minutes=janela), tolerancia=timedelta(minutes=relogio))]
-        else:
-            itens = explicar.divergencias(resultado)
         situacao_coleta = "ok" if do_dia else "sem_movimento"
         coleta_id = banco.registrar_coleta(con, fonte["id"], dia, situacao_coleta, len(do_dia), total, None)
         if total_webposto is not None:

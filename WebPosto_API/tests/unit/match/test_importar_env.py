@@ -13,7 +13,8 @@ LISTA = [
     {"empresa_codigo": 118508, "apelido": "Conv. 24h", "chave_env": "K_CONV"},
 ]
 ENV = {"PU_DOZE": "doze-user", "PS_DOZE": "doze-pass", "K_DOZE": "kd",
-       "PU_CC": "70001", "PS_CC": "cc-pass", "K_CC": "kc", "K_CONV": "kv"}
+       "PU_CC": "70001", "PS_CC": "cc-pass", "K_CC": "kc", "K_CONV": "kv",
+       "PAGBANK_USER_118508": "pb-conv", "PAGBANK_TOKEN_118508": "pb-tok"}
 
 
 @pytest.fixture
@@ -40,6 +41,8 @@ def test_importa_premmia_e_chaves_e_corrige_login_trocado(con):
     assert credenciais.ler(f"{cc}/premmia/usuario") == "70001" and credenciais.ler(f"{cc}/webposto/chave") == "kc"
     assert banco.obter_posto(con, cc)["empresa_codigo_webposto"] == 5555
     assert credenciais.ler(f"{conv}/webposto/chave") == "kv" and "sem Premmia no .env" in texto
+    assert "Conv. 24h: chave do webPosto (sem Premmia no .env), PagBank ligado" in texto
+    assert credenciais.ler(f"{conv}/pagbank/token") == "pb-tok"
     assert con.execute("SELECT COUNT(*) FROM coleta").fetchone()[0] == 0  # vendas do login antigo apagadas
     for segredo in ENV.values():
         assert segredo not in texto

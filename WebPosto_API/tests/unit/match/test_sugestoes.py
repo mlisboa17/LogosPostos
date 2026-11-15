@@ -207,3 +207,26 @@ def test_pagamento_dividido_sem_certeza_vira_uma_ocorrencia_so():
     [o] = sugestoes.ocorrencias(_r(a_maior=partes), [_a(1, "100.00", 22, 20), _a(2, "100.00", 22, 22, frentista=8)])
     assert o.acao == "analisar" and o.valor == Decimal("100.00") and o.nao_resolvida
     assert "R$ 5,00 + R$ 95,00" in o.explicacao and "2 abastecimentos de R$ 100,00 possíveis" in " ".join(o.criterios)
+
+
+# ---------------------------------------------------------------- PagBank
+
+def _rp(**kw):
+    r = _r(**kw)
+    return r.model_copy(update={"adquirente": "PAGBANK"})
+
+
+def test_pagbank_usa_a_mesma_regra_com_o_nome_certo():
+    [o] = sugestoes.ocorrencias(_rp(a_menor=(_c(900, "40.00", 15, 0, venda=777),)), [])
+    assert o.acao == "excluir" and "PagBank" in o.explicacao and "Premmia" not in o.explicacao
+    assert "não está no PagBank" in o.criterios
+
+
+def test_pagbank_varias_transacoes_somando_um_lancamento_viram_mesma_venda():
+    from src.modules.cash_reconciliation.domain.cartoes import GrupoProvavel
+    invs = (_inv(_t("30.00", 10, 0, nsu="1"), Atribuicao.SEM_ABASTECIMENTO),
+            _inv(_t("20.00", 10, 1, nsu="2"), Atribuicao.SEM_ABASTECIMENTO))
+    grupo = GrupoProvavel(investigacoes=invs, cartao=_c(901, "50.00", 10, 3))
+    [o] = sugestoes.ocorrencias(_rp(grupos_provaveis=(grupo,)), [])
+    assert o.acao == "vincular" and o.valor == Decimal("50.00") and "R$ 30,00 + R$ 20,00" in o.explicacao
+    assert "PagBank" in o.explicacao
