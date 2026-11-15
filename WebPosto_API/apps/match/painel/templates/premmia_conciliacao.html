@@ -80,6 +80,15 @@
     <div class="premmia-topo"><strong>{{ acoes.get(o.acao, o.acao) }} · {{ o.valor|dinheiro }}</strong><span class="estado {{ 'estado-alerta' if o.nao_resolvida else '' }}">{{ dia.strftime("%d/%m") }} · {{ o.funcionario }}</span></div>
     <p>{{ o.explicacao }}</p>
     <p><b>O que fazer:</b> {{ o.correcao }}</p>
+    {% if o.dados %}
+    <div class="tabela dados-lancar"><table>
+      <caption>{{ {"incluir": "Dados para lançar", "corrigir_forma": "Dados para corrigir", "corrigir_valor": "Dados para corrigir",
+                   "excluir": "Dados do lançamento"}.get(o.acao, "Os dois lados") }}</caption>
+      <thead><tr><th>Lado</th><th>Administradora</th><th>Autorização</th><th>NSU</th><th class="num">Valor</th><th>Hora</th><th>Funcionário</th></tr></thead>
+      <tbody>{% for d in o.dados %}<tr><td>{{ d.lado }}</td><td>{{ d.administradora }}</td><td>{{ d.autorizacao }}</td><td>{{ d.nsu }}</td>
+        <td class="num">{{ d.valor }}</td><td>{{ d.hora }}</td><td>{{ d.funcionario }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+    {% endif %}
     <p class="dica">{{ o.referencia }}{% if o.abastecimento %} · {{ o.abastecimento }}{% endif %}</p>
     {% if o.criterios %}<details><summary>Critérios usados</summary><ul>{% for cr in o.criterios %}<li>{{ cr }}</li>{% endfor %}</ul></details>{% endif %}
     {% set volta = rota ~ "/" ~ rel.posto.id ~ "/conciliacao?" ~ base_q ~ "&ver=" ~ ver ~ ("&acao=" ~ acao if acao else "") %}

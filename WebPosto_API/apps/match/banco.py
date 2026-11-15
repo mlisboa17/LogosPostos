@@ -292,10 +292,15 @@ ALTER TABLE divergencia ADD COLUMN resolvida_em TEXT;
 ALTER TABLE divergencia ADD COLUMN resolucao_motivo TEXT;
 """
 
+# v15: dados de cada lado da divergência (administradora, autorização, NSU, valor, hora, funcionário).
+_SCHEMA_V15 = """
+ALTER TABLE divergencia ADD COLUMN dados_json TEXT;
+"""
+
 _MIGRACOES = [
     (1, _SCHEMA_V1), (2, _SCHEMA_V2), (3, _SCHEMA_V3), (4, _SCHEMA_V4),
     (5, _SCHEMA_V5), (6, _SCHEMA_V6), (7, _SCHEMA_V7), (8, _SCHEMA_V8), (9, _SCHEMA_V9),
-    (10, _SCHEMA_V10), (11, _SCHEMA_V11), (12, _SCHEMA_V12), (13, _SCHEMA_V13), (14, _SCHEMA_V14),
+    (10, _SCHEMA_V10), (11, _SCHEMA_V11), (12, _SCHEMA_V12), (13, _SCHEMA_V13), (14, _SCHEMA_V14), (15, _SCHEMA_V15),
 ]
 
 
@@ -472,13 +477,14 @@ def gravar_divergencias(con, posto_id, dia, fonte, itens: list[dict]) -> None:
         con.execute(
             "INSERT INTO divergencia(posto_id, dia, caixa_codigo, responsavel, fonte, tipo,"
             " valor_esperado, valor_encontrado, nsu, explicacao_pt, correcao_pt,"
-            " acao, criterios_json, abastecimento, referencia)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            " acao, criterios_json, abastecimento, referencia, dados_json)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (posto_id, str(dia), i.get("caixa_codigo"), i.get("responsavel"), fonte, i["tipo"],
              _txt(i.get("valor_esperado")), _txt(i.get("valor_encontrado")), i.get("nsu"),
              i.get("explicacao_pt"), i.get("correcao_pt"), i.get("acao"),
              json.dumps(i["criterios"], ensure_ascii=False) if i.get("criterios") else None,
-             i.get("abastecimento"), i.get("referencia")))
+             i.get("abastecimento"), i.get("referencia"),
+             json.dumps(i["dados"], ensure_ascii=False) if i.get("dados") else None))
         antiga = tratadas.get(_chave_divergencia(i["tipo"], i.get("referencia"), i.get("valor_esperado"),
                                                  i.get("valor_encontrado")))
         if antiga is not None:

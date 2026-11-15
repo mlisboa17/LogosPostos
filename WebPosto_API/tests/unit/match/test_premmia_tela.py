@@ -177,7 +177,9 @@ def _divergencias_exemplo(con, pid):
         {"tipo": "falta_no_webposto", "valor_esperado": Decimal("57.30"), "valor_encontrado": Decimal(0),
          "responsavel": "JOSÉ (7)", "acao": "incluir", "criterios": ["valor igual", "abastecido 3 min antes"],
          "abastecimento": "abastecimento 123 · bico 4 · 10:02", "referencia": "Premmia NSU 1 · 10:05",
-         "explicacao_pt": "Venda no Premmia sem lançamento.", "correcao_pt": "Lançar no caixa de JOSÉ (7)."},
+         "explicacao_pt": "Venda no Premmia sem lançamento.", "correcao_pt": "Lançar no caixa de JOSÉ (7).",
+         "dados": [{"lado": "Premmia", "administradora": "Premmia Crédito", "autorizacao": "AUT77", "nsu": "884512",
+                    "valor": "R$ 57,30", "hora": "10:05", "funcionario": "JOSÉ (7)"}]},
         {"tipo": "sobra_no_webposto", "valor_esperado": Decimal(0), "valor_encontrado": Decimal("40.00"),
          "responsavel": "MARIA (9)", "acao": "excluir", "criterios": ["não está no portal Premmia"],
          "referencia": "cartão 900 · venda 777", "explicacao_pt": "possível divergência de caixa",
@@ -194,6 +196,7 @@ def test_relatorio_consolidado_com_totais_funcionarios_e_acoes(cli, con, postos)
     assert f'/premmia/{postos["doze"]}/conciliacao' in cli.get("/premmia").text
     html = cli.get(f"/premmia/{postos['doze']}/conciliacao").text
     for trecho in ("R$ 1.000,00", "R$ 982,70", "R$ 17,30", "JOSÉ (7)", "MARIA (9)", "Incluir no webPosto · 1",
+                   "Dados para lançar", "Premmia Crédito", "AUT77", "884512",
                    "Excluir do webPosto · 1", "abastecido 3 min antes", "bico 4"):
         assert trecho in html, trecho
     so_excluir = cli.get(f"/premmia/{postos['doze']}/conciliacao?acao=excluir").text
@@ -210,7 +213,9 @@ def test_relatorio_em_planilha(cli, con, postos):
     r = cli.get(f"/premmia/{postos['doze']}/conciliacao.xlsx")
     assert r.status_code == 200 and "Conciliacao_Premmia_Doze" in r.headers["content-disposition"]
     wb = load_workbook(io.BytesIO(r.content))
-    assert wb.sheetnames == ["Resumo", "Por funcionário", "Por dia", "Ocorrências", "Reincidência"]
+    assert wb.sheetnames == ["Resumo", "Por funcionário", "Por dia", "Ocorrências", "Dados para lançar", "Reincidência"]
+    dados = list(wb["Dados para lançar"].iter_rows(values_only=True))
+    assert dados[1][3:7] == ("Premmia Crédito", "AUT77", "884512", "R$ 57,30")
     linhas = list(wb["Ocorrências"].iter_rows(values_only=True))
     assert linhas[1][1] == "Incluir no webPosto" and "abastecido 3 min antes" in linhas[1][8]
 

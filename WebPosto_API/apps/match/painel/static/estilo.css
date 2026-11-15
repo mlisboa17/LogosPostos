@@ -192,3 +192,6 @@ td.num, th.num { text-align: right; white-space: nowrap; }
 .resolucao { font-size: 13.5px; margin: 6px 0; }
 .nao-procede summary { list-style: none; cursor: pointer; }
 .nao-procede[open] { flex-basis: 100%; }
+.dados-lancar { margin: 8px 0; }
+.dados-lancar caption { text-align: left; font-weight: 600; font-size: 13px; padding: 0 0 4px; }
+.dados-lancar td, .dados-lancar th { font-size: 13px; white-space: nowrap; }

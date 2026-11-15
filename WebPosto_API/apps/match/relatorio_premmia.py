@@ -60,7 +60,7 @@ def _ocorrencia(r) -> sugestoes.Ocorrencia:
         abastecimento=r["abastecimento"], nao_resolvida=acao == "analisar", nsu=r["nsu"],
         caixa_codigo=r["caixa_codigo"], valor_premmia=Decimal(r["valor_esperado"] or 0),
         valor_webposto=Decimal(r["valor_encontrado"] or 0), id=r["id"], situacao=r["situacao"],
-        resolucao=_resolucao(r))
+        resolucao=_resolucao(r), dados=json.loads(r["dados_json"]) if r["dados_json"] else [])
 
 
 def _resolucao(r) -> str:
@@ -165,6 +165,14 @@ def planilha(rel: Relatorio) -> bytes:
         ws.append((dia.strftime("%d/%m/%Y"), sugestoes.ACOES.get(o.acao, o.acao), o.funcionario, float(o.valor),
                    o.referencia, o.abastecimento or "", o.explicacao, o.correcao, "; ".join(o.criterios),
                    o.resolucao or "A tratar"))
+
+    ws = wb.create_sheet("Dados para lançar")
+    ws.append(("Dia", "Ação sugerida", "Lado", "Administradora", "Autorização", "NSU", "Valor", "Hora", "Funcionário"))
+    for dia, o in rel.ocorrencias:
+        for d in o.dados:
+            ws.append((dia.strftime("%d/%m/%Y"), sugestoes.ACOES.get(o.acao, o.acao), d.get("lado"),
+                       d.get("administradora"), d.get("autorizacao"), d.get("nsu"), d.get("valor"), d.get("hora"),
+                       d.get("funcionario")))
 
     ws = wb.create_sheet("Reincidência")
     ws.append(("Funcionário", "Ocorrências", "Valor", "Abertas", "Resolvidas", "Não procede"))

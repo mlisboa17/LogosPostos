@@ -16,7 +16,7 @@ from typing import Iterable
 
 from apps.match.explicar import _ALERTAS_DE_VALOR, dinheiro
 from src.modules.cash_reconciliation.domain.cartoes import (
-    Abastecimento, Atribuicao, CartaoErp, Investigacao, ResultadoCartoes,
+    Abastecimento, Atribuicao, CartaoErp, Investigacao, ResultadoCartoes, TransacaoAdquirente,
 )
 from src.modules.cash_reconciliation.domain.tempo import formatar_hora
 from src.modules.cash_reconciliation.rules.cartoes import JANELA_ABASTECIMENTO, TOLERANCIA_RELOGIO
@@ -51,13 +51,15 @@ class Ocorrencia:
     id: int | None = None            # linha da divergência no banco (para marcar como resolvida)
     situacao: str = "aberta"         # aberta | resolvida | nao_procede
     resolucao: str = ""              # "Resolvido por Ana em 15/11/2026 10:20 — motivo"
+    dados: list[dict] = field(default_factory=list)  # uma linha por registro: lado, administradora, autorização...
 
     def para_banco(self) -> dict:
         """Formato de `banco.gravar_divergencias` (mais ação, critérios e abastecimento)."""
         return {"tipo": self.tipo, "valor_esperado": self.valor_premmia, "valor_encontrado": self.valor_webposto,
                 "nsu": self.nsu, "caixa_codigo": self.caixa_codigo, "responsavel": self.funcionario,
                 "explicacao_pt": self.explicacao, "correcao_pt": self.correcao, "acao": self.acao,
-                "criterios": self.criterios, "abastecimento": self.abastecimento, "referencia": self.referencia}
+                "criterios": self.criterios, "abastecimento": self.abastecimento, "referencia": self.referencia,
+                "dados": self.dados}
 
 
 def _abast(a: Abastecimento) -> str:
@@ -89,7 +91,7 @@ def _ref_cartao(c: CartaoErp) -> str:
     return " · ".join(partes)
 
 
-def _a_maior(inv: Investigacao) -> Ocorrencia:
+def _a_maior_base(inv: Investigacao) -> Ocorrencia:
     t = inv.transacao
     ref = f"Premmia NSU {t.nsu or '—'} · {formatar_hora(t.momento)} · {dinheiro(t.valor)}"
     base = dict(tipo="falta_no_webposto", valor=t.valor, referencia=ref, nsu=t.nsu, valor_premmia=t.valor)
@@ -129,7 +131,7 @@ def _abastecimentos_do_cartao(c: CartaoErp, abastecimentos: list[Abastecimento],
     return perto, f"mesmo valor até {int(janela / timedelta(minutes=1))} min antes do lançamento"
 
 
-def _a_menor(c: CartaoErp, abastecimentos, janela, tolerancia) -> Ocorrencia:
+def _a_menor_base(c: CartaoErp, abastecimentos, janela, tolerancia) -> Ocorrencia:
     quem = _funcionario_cartao(c)
     base = dict(tipo="sobra_no_webposto", valor=c.valor, funcionario=quem, referencia=_ref_cartao(c), nsu=c.nsu,
                 caixa_codigo=c.caixa_codigo, valor_webposto=c.valor)
@@ -184,7 +186,7 @@ def _partes(g: list[Investigacao]) -> str:
     return " + ".join(dinheiro(i.transacao.valor) for i in g)
 
 
-def _vinculo(g: list[Investigacao], c: CartaoErp) -> Ocorrencia:
+def _vinculo_base(g: list[Investigacao], c: CartaoErp) -> Ocorrencia:
     t0 = g[0].transacao
     soma = sum((i.transacao.valor for i in g), Decimal(0))
     atrib = next((i for i in g if i.atribuicao == Atribuicao.ATRIBUIDO), None)
@@ -210,7 +212,7 @@ def _vinculo(g: list[Investigacao], c: CartaoErp) -> Ocorrencia:
                  " (venda, horário e NSU) no webPosto.")
 
 
-def _dividido_com_abastecimento(g: list[Investigacao], abastecimentos, janela, tolerancia) -> Ocorrencia | None:
+def _dividido_com_abastecimento_base(g: list[Investigacao], abastecimentos, janela, tolerancia) -> Ocorrencia | None:
     soma = sum((i.transacao.valor for i in g), Decimal(0))
     t0 = g[0].transacao
     achados = [a for a in abastecimentos if a.valor == soma and -tolerancia <= t0.momento - a.momento <= janela]
@@ -256,7 +258,7 @@ def _subconjunto(alvo: Decimal, invs: list[Investigacao]) -> list[Investigacao] 
     return [ordem[n] for n in achado] if achado else None
 
 
-def _lote(g: list[Investigacao], c: CartaoErp) -> Ocorrencia:
+def _lote_base(g: list[Investigacao], c: CartaoErp) -> Ocorrencia:
     nome_fonte = "Premmia"  # trocado pelo nome da adquirente em `ocorrencias`
     por: dict[str, Decimal] = {}
     for i in g:
@@ -280,7 +282,7 @@ def _lote(g: list[Investigacao], c: CartaoErp) -> Ocorrencia:
                  " forma das que foram como dinheiro) e apagar o lançamento em lote.")
 
 
-def _dividido_sem_certeza(g: list[Investigacao], abastecimentos, janela, tolerancia) -> Ocorrencia:
+def _dividido_sem_certeza_base(g: list[Investigacao], abastecimentos, janela, tolerancia) -> Ocorrencia:
     soma = sum((i.transacao.valor for i in g), Decimal(0))
     t0 = g[0].transacao
     achados = [a for a in abastecimentos if a.valor == soma and -tolerancia <= t0.momento - a.momento <= janela]
@@ -302,6 +304,67 @@ def _dividido_sem_certeza(g: list[Investigacao], abastecimentos, janela, toleran
 
 
 NOME_FONTE = {"PREMMIA": "Premmia", "PAGBANK": "PagBank"}
+
+
+def _administradora_t(t: TransacaoAdquirente) -> str:
+    nome = NOME_FONTE.get(t.adquirente, t.adquirente.title())
+    bandeira = "PIX" if (t.bandeira or "").strip().upper() == "BACEN" else t.bandeira  # o PagBank chama o PIX de BACEN
+    return f"{nome} {bandeira}" if bandeira else nome
+
+
+def _linha_t(t: TransacaoAdquirente, funcionario: str) -> dict:
+    """O que a maquininha registrou (para lançar no webPosto)."""
+    return {"lado": NOME_FONTE.get(t.adquirente, t.adquirente.title()), "administradora": _administradora_t(t),
+            "autorizacao": t.autorizacao or "—", "nsu": t.nsu or "—", "valor": dinheiro(t.valor),
+            "hora": formatar_hora(t.momento), "funcionario": funcionario}
+
+
+def _linha_c(c: CartaoErp) -> dict:
+    """O que está lançado no webPosto (para corrigir ou excluir)."""
+    return {"lado": "webPosto", "administradora": c.administradora or "—", "autorizacao": c.autorizacao or "—",
+            "nsu": c.nsu or c.nsu_tef or "—", "valor": dinheiro(c.valor), "hora": formatar_hora(c.momento),
+            "funcionario": _funcionario_cartao(c)}
+
+
+def _resp(i: Investigacao) -> str:
+    return i.responsavel if i.atribuicao == Atribuicao.ATRIBUIDO else _SEM_FRENTISTA
+
+
+def _a_maior(inv: Investigacao) -> Ocorrencia:
+    oc = _a_maior_base(inv)
+    oc.dados = [_linha_t(inv.transacao, oc.funcionario)]
+    return oc
+
+
+def _a_menor(c: CartaoErp, abastecimentos, janela, tolerancia) -> Ocorrencia:
+    oc = _a_menor_base(c, abastecimentos, janela, tolerancia)
+    oc.dados = [_linha_c(c)]
+    return oc
+
+
+def _vinculo(g: list[Investigacao], c: CartaoErp) -> Ocorrencia:
+    oc = _vinculo_base(g, c)
+    oc.dados = [_linha_t(i.transacao, _resp(i)) for i in g] + [_linha_c(c)]
+    return oc
+
+
+def _dividido_com_abastecimento(g, abastecimentos, janela, tolerancia) -> Ocorrencia | None:
+    oc = _dividido_com_abastecimento_base(g, abastecimentos, janela, tolerancia)
+    if oc is not None:
+        oc.dados = [_linha_t(i.transacao, oc.funcionario) for i in g]
+    return oc
+
+
+def _dividido_sem_certeza(g, abastecimentos, janela, tolerancia) -> Ocorrencia:
+    oc = _dividido_sem_certeza_base(g, abastecimentos, janela, tolerancia)
+    oc.dados = [_linha_t(i.transacao, _SEM_FRENTISTA) for i in g]
+    return oc
+
+
+def _lote(g: list[Investigacao], c: CartaoErp) -> Ocorrencia:
+    oc = _lote_base(g, c)
+    oc.dados = [_linha_t(i.transacao, _resp(i)) for i in g] + [_linha_c(c)]
+    return oc
 
 
 def _renomear(o: Ocorrencia, nome: str) -> Ocorrencia:
@@ -390,6 +453,7 @@ def _ocorrencias(resultado: ResultadoCartoes, abastecimentos: Iterable[Abastecim
                        f" {dinheiro(c.valor)} às {formatar_hora(c.momento)} no webPosto: provavelmente é a mesma"
                        " venda lançada à mão com outro horário ou NSU.",
             correcao="Confirmar e acertar o NSU/horário do lançamento no webPosto."))
+        saida[-1].dados = [_linha_t(t, _SEM_FRENTISTA), _linha_c(c)]
     for cas in resultado.casados:
         if not cas.valor_divergente:
             continue
@@ -402,6 +466,7 @@ def _ocorrencias(resultado: ResultadoCartoes, abastecimentos: Iterable[Abastecim
             explicacao=f"O Premmia registrou {dinheiro(t.valor)} e o webPosto tem {dinheiro(c.valor)}"
                        f" ({_funcionario_cartao(c)}).",
             correcao=f"Corrigir o valor do lançamento para {dinheiro(t.valor)} no webPosto."))
+        saida[-1].dados = [_linha_t(t, _funcionario_cartao(c)), _linha_c(c)]
     por_cartao: dict[int, Ocorrencia] = {}
     for o in saida:
         for parte in o.referencia.split(" · "):

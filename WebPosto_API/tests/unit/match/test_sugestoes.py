@@ -271,3 +271,44 @@ def test_lancamento_manual_com_hora_redonda_e_mesma_venda():
     par = ParProvavel(investigacao=inv, cartao=_c(214221200, "371.23", 1, 0, frentista=None, nome=None))
     [o] = sugestoes.ocorrencias(_rp(pares_provaveis=(par,)), [])
     assert o.acao == "vincular" and "hora redonda (01:00)" in o.criterios[0]
+
+
+# ---------------------------------------------------------------- dados para lançar/corrigir
+
+def test_incluir_traz_os_dados_da_maquininha_para_lancar():
+    t = TransacaoAdquirente(adquirente="PAGBANK", identificador="x", nsu="630713422704", autorizacao="A1B2C3",
+                            valor=Decimal("57.30"), momento=_h(10, 5), bandeira="ELO CREDITO")
+    a = _a(123, "57.30", 10, 2)
+    cand = Candidato(abastecimento=a, pontos=88, motivos=("valor igual",), venda_em_dinheiro=False)
+    [o] = sugestoes.ocorrencias(_rp(a_maior=(_inv(t, Atribuicao.ATRIBUIDO, [cand], frentista=7, nome="JOSÉ"),)), [a])
+    assert o.dados == [{"lado": "PagBank", "administradora": "PagBank ELO CREDITO", "autorizacao": "A1B2C3",
+                        "nsu": "630713422704", "valor": "R$ 57,30", "hora": "10:05", "funcionario": "JOSÉ (7)"}]
+
+
+def test_excluir_e_corrigir_valor_trazem_o_lancamento_do_webposto():
+    c = CartaoErp(codigo=900, empresa_codigo=1, venda_codigo=None, valor=Decimal("69.99"), momento=_h(1, 0),
+                  administradora="ELO CREDITO PAGSEGURO", nsu="555", nsu_tef=None, autorizacao="XYZ", frentista=9,
+                  nome_frentista="MARIA")
+    [o] = sugestoes.ocorrencias(_rp(a_menor=(c,)), [])
+    assert o.acao == "excluir" and o.dados[0]["administradora"] == "ELO CREDITO PAGSEGURO"
+    assert (o.dados[0]["autorizacao"], o.dados[0]["nsu"], o.dados[0]["funcionario"]) == ("XYZ", "555", "MARIA (9)")
+    cas = Casamento(transacao=_t("143.92", 10, 44), cartao=_c(902, "120.03", 10, 44), chave="nsu",
+                    valor_divergente=True, diferenca=Decimal("23.89"))
+    [v] = sugestoes.ocorrencias(_rp(casados=(cas,)), [])
+    assert [d["lado"] for d in v.dados] == ["Premmia", "webPosto"]  # o lado vem da transação (_t cria Premmia)
+    assert [d["valor"] for d in v.dados] == ["R$ 143,92", "R$ 120,03"]
+
+
+def test_lote_lista_cada_venda_e_o_lancamento():
+    invs = (_inv(_t("100.00", 6, 11, nsu="1"), Atribuicao.SEM_ABASTECIMENTO),
+            _inv(_t("40.00", 6, 35, nsu="2"), Atribuicao.SEM_ABASTECIMENTO))
+    [o] = sugestoes.ocorrencias(_rp(a_menor=(_c(1, "140.00", 0, 32, frentista=None, nome=None),), a_maior=invs), [])
+    assert o.acao == "vincular" and [d["lado"] for d in o.dados] == ["Premmia", "Premmia", "webPosto"]
+
+
+
+def test_pix_do_pagbank_aparece_como_pix():
+    t = TransacaoAdquirente(adquirente="PAGBANK", identificador="p", nsu=None, autorizacao=None,
+                            valor=Decimal("100.00"), momento=_h(5, 26), bandeira="BACEN")
+    [o] = sugestoes.ocorrencias(_rp(a_maior=(_inv(t, Atribuicao.SEM_ABASTECIMENTO),)), [])
+    assert o.dados[0]["administradora"] == "PagBank PIX"
