@@ -2,6 +2,7 @@ from datetime import date
 from decimal import Decimal
 
 import openpyxl
+import pytest
 
 from src.modules.cash_reconciliation.application.despesas_sem_lancamento import (
     DebitoComTituloAberto,
@@ -38,3 +39,31 @@ def test_construtores_legados_e_xlsx_continuam_compativeis(tmp_path):
         assert wb.active["D4"].value == 12.5
     finally:
         wb.close()
+
+
+@pytest.mark.parametrize("opcoes", [
+    ["--json-saida", "nao-gravar.json"],
+    ["--json-saida", ""],
+    ["--max-idade-horas", "168"],
+    ["--demo-sintetica", "--xlsx-saida", ""],
+    ["--demo-sintetica", "--unidade=0"],
+    ["--demo-sintetica", "--unid=0"],
+    ["--demo-sintetica", "--extrato", "nao-ler.ofx"],
+    ["--demo-sintetica", "--referencia-temporal", "2026-08-01T00:00:00"],
+    ["--demo-sintetica", "--max-idade-horas", "0"],
+    ["--demo-sintetica", "--xlsx-saida", "nao-gravar.json"],
+])
+def test_cli_rejeita_mistura_operacional_e_opcoes_invalidas(monkeypatch, opcoes):
+    from src.jobs import despesas_avulsas as job
+
+    def proibido(*args, **kwargs):
+        raise AssertionError("Nenhuma dependência operacional ou escrita deve ser executada.")
+
+    for nome in ("_executar", "load_dotenv", "gerar_planilha_despesas_xlsx", "gravar_relatorio_json"):
+        monkeypatch.setattr(job, nome, proibido)
+    monkeypatch.setattr("sys.argv", [
+        "despesas_avulsas", "--de", "01/08/2026", "--ate", "31/08/2026", *opcoes,
+    ])
+    with pytest.raises(SystemExit) as exc:
+        job.main()
+    assert exc.value.code == 2

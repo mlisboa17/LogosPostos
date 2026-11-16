@@ -817,11 +817,38 @@ async def identificar_despesas_sem_lancamento(
 def gerar_planilha_despesas_xlsx(
     resumo: ResumoDespesasAvulsas,
     caminho_saida: Path | str,
+    *,
+    sintetico: bool = False,
 ) -> Path:
     """Gera planilha Excel XLSX com os débitos avulsos e resumo por tipo."""
     import openpyxl
     from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
     from openpyxl.utils import get_column_letter
+
+    if sintetico:
+        if resumo.unidade_codigo != 0 or resumo.unidade_nome != "EMPRESA-SINTETICA-001":
+            raise ValueError("A planilha demonstrativa exige empresa sintética.")
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Candidatos sinteticos"
+        ws.append(["DEMONSTRAÇÃO — DADOS SINTÉTICOS", "COBERTURA_NAO_VERIFICADA"])
+        ws.append(["Não confirma despesa, perda ou autorização financeira."])
+        ws.append(["FITID", "Data", "Banco", "Conta", "Valor decimal exato", "Estado"])
+        for item in resumo.despesas:
+            ws.append([
+                item.fitid, item.data.isoformat(), item.banco, item.conta_sufixo,
+                format(item.valor, "f"), item.status_triagem,
+            ])
+        auditoria = wb.create_sheet("Ambiguidades sinteticas")
+        auditoria.append(["FITID", "Valor decimal exato", "Estado", "Evidência"])
+        for item in resumo.movimentacoes_auditadas:
+            auditoria.append([
+                item.fitid, format(item.valor, "f"), item.status, item.evidencia_conciliacao,
+            ])
+        caminho = Path(caminho_saida)
+        caminho.parent.mkdir(parents=True, exist_ok=True)
+        wb.save(caminho)
+        return caminho
 
     wb = openpyxl.Workbook()
     ws_despesas = wb.active
