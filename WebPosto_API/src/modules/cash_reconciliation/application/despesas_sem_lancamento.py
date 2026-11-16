@@ -224,6 +224,12 @@ class DespesaAvulsa:
     sugestao_fornecedor_nome: str
     origem_sugestao: str
     observacao: str = ""
+    empresa_codigo: int | None = None
+    conta_webposto_codigo: int | None = None
+    origem_extrato: str = ""
+    hash_extrato: str = ""
+    status_triagem: str = "PENDENTE_REVISAO"
+    evidencia_conciliacao: str = ""
 
 
 @dataclass(frozen=True)
@@ -238,6 +244,25 @@ class DebitoComTituloAberto:
     titulos_codigos: tuple[int, ...]
     fornecedor: str
     motivo: str
+
+
+@dataclass(frozen=True)
+class EvidenciaTriagem:
+    empresa_codigo: int
+    conta_webposto_codigo: int
+    banco: str
+    conta_sufixo: str
+    data: date
+    valor: Decimal
+    fitid: str
+    origem: str
+    origem_extrato: str
+    hash_extrato: str
+    descricao: str
+    classificacao: str
+    status: str
+    evidencia_conciliacao: str
+    origens_extrato: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -256,6 +281,10 @@ class ResumoDespesasAvulsas:
     debitos_com_titulo: tuple[DebitoComTituloAberto, ...] = ()
     debitos_com_titulo_qtd: int = 0
     debitos_com_titulo_total: Decimal = Decimal("0")
+    movimentacoes_auditadas: tuple[EvidenciaTriagem, ...] = ()
+    triagem_completa: bool = False
+    fontes_nao_mapeadas: tuple[str, ...] = ()
+    fontes_cobertura_incompleta: tuple[str, ...] = ()
 
 
 def resolver_caminhos_extratos_padrao(empresa_codigo: int) -> list[Path]:

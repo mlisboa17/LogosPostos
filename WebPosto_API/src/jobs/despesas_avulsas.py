@@ -9,6 +9,7 @@ import argparse
 import asyncio
 import logging
 import sys
+from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 
@@ -24,6 +25,19 @@ from src.modules.cash_reconciliation.application.despesas_sem_lancamento import 
     resolver_caminhos_extratos_padrao,
 )
 from src.modules.cash_reconciliation.config import carregar_unidades
+
+
+@dataclass(frozen=True)
+class SnapshotLocal:
+    endpoint: str
+    empresa_codigo: int
+    data_inicial: date
+    data_final: date
+    capturado_em: datetime
+    origem_atualizada_em: datetime
+    sha256: str
+    declaracao_cobertura: str
+    status_cobertura: str = "COBERTURA_NAO_VERIFICADA"
 
 
 def _parse_data_br(val: str) -> date:

@@ -5,6 +5,11 @@ Repositório canônico: C:\Projetos\LOGOS\LogosPostos · branch feature/cash-aud
 PR a abrir: https://github.com/mlisboa17/LogosPostos/pull/new/feature/cash-audit-fechamento
 Histórico de sprints: um prompt por sprint em docs/prompts/ (SPRINT_05 ... SPRINT_12, PREMMIA_00, TELEGRAM_00)
 
+# FIN-05B — Pré-requisitos sanitizados e demonstração JSON local — 16/11/2026
+
+- Extração mínima sobre `b0ed20099cfe6545f7e9c5439e6cb95d027cbe4d`, na worktree separada `LogosPostos-fin05b-clean`, branch `feature/fin-05b-local-demo-clean`. Nenhum dos quatro commits anteriores foi transportado.
+- Pré-requisitos: `SnapshotLocal`, `EvidenciaTriagem` e campos opcionais de identidade/proveniência/diagnóstico nos modelos existentes. Defaults conservadores preservam construtores posicionais, terminal e XLSX legado; teste de compatibilidade usa somente dados fictícios.
+
 # GIT-PUSH-PREP-01 — Higienização sem Reescrita — 03/11/2026
 
 - Decisão explícita: preservar integralmente o histórico publicado e os dez commits locais existentes. Os artefatos gerados `_archive/sprints_e_relatorios/reflex_run_debug.log` e `validation_result.txt` foram retirados somente do versionamento atual; cópias locais permanecem preservadas e ignoradas.
