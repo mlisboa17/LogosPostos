@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Fin02DemoPanel } from "@/components/fin02-demo-panel";
 import {
   Table,
   TableBody,
@@ -46,6 +47,10 @@ import {
   SparklesIcon,
   XCircleIcon,
 } from "lucide-react";
+
+const FIN02_DEMO_ENABLED =
+  process.env.NODE_ENV === "development" &&
+  process.env.NEXT_PUBLIC_FIN02_DEMO === "true";
 
 const EMPRESAS_NOMES: Record<number, string> = {
   5555: "AP Casa Caiada",
@@ -65,6 +70,7 @@ export function ClassificationReviewLive() {
   // Filtros
   const [filtroStatus, setFiltroStatus] = useState<string>("TODOS");
   const [filtroEmpresa, setFiltroEmpresa] = useState<string>("todas");
+  const [mostrarDemoFin02, setMostrarDemoFin02] = useState(false);
 
   // Item selecionado para revisão
   const [selecionado, setSelecionado] = useState<ItemFilaRevisao | null>(null);
@@ -224,6 +230,22 @@ export function ClassificationReviewLive() {
         </div>
       </div>
 
+      {FIN02_DEMO_ENABLED && (
+        <div className="space-y-3">
+          <Button type="button" variant="outline" disabled={filtroEmpresa !== "todas"}
+            aria-expanded={mostrarDemoFin02 && filtroEmpresa === "todas"}
+            aria-controls="fin02-demo-panel" onClick={() => setMostrarDemoFin02((value) => !value)}>
+            {mostrarDemoFin02 ? "Ocultar demonstração FIN-02" : "Mostrar demonstração FIN-02"}
+          </Button>
+          <p className="text-xs text-amber-200">
+            {filtroEmpresa !== "todas"
+              ? "A demonstração está oculta porque os dados sintéticos não pertencem à empresa selecionada."
+              : "Demonstração local sintética, separada da fila de classificação e sem ações financeiras."}
+          </p>
+          {mostrarDemoFin02 && filtroEmpresa === "todas" && <Fin02DemoPanel />}
+        </div>
+      )}
+
       {/* KPIs & Métricas da IA */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <Card className="border-amber-900/40 bg-slate-900/80">
@@ -305,7 +327,10 @@ export function ClassificationReviewLive() {
                   <select
                     className="rounded-md border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-white"
                     value={filtroEmpresa}
-                    onChange={(e) => setFiltroEmpresa(e.target.value)}
+                    onChange={(e) => {
+                      setMostrarDemoFin02(false);
+                      setFiltroEmpresa(e.target.value);
+                    }}
                   >
                     <option value="todas">Todas empresas</option>
                     <option value="5555">Casa Caiada (5555)</option>

@@ -224,6 +224,12 @@ class DespesaAvulsa:
     sugestao_fornecedor_nome: str
     origem_sugestao: str
     observacao: str = ""
+    empresa_codigo: int | None = None
+    conta_webposto_codigo: int | None = None
+    origem_extrato: str = ""
+    hash_extrato: str = ""
+    status_triagem: str = "PENDENTE_REVISAO"
+    evidencia_conciliacao: str = ""
 
 
 @dataclass(frozen=True)
@@ -238,6 +244,25 @@ class DebitoComTituloAberto:
     titulos_codigos: tuple[int, ...]
     fornecedor: str
     motivo: str
+
+
+@dataclass(frozen=True)
+class EvidenciaTriagem:
+    empresa_codigo: int
+    conta_webposto_codigo: int
+    banco: str
+    conta_sufixo: str
+    data: date
+    valor: Decimal
+    fitid: str
+    origem: str
+    origem_extrato: str
+    hash_extrato: str
+    descricao: str
+    classificacao: str
+    status: str
+    evidencia_conciliacao: str
+    origens_extrato: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -256,6 +281,10 @@ class ResumoDespesasAvulsas:
     debitos_com_titulo: tuple[DebitoComTituloAberto, ...] = ()
     debitos_com_titulo_qtd: int = 0
     debitos_com_titulo_total: Decimal = Decimal("0")
+    movimentacoes_auditadas: tuple[EvidenciaTriagem, ...] = ()
+    triagem_completa: bool = False
+    fontes_nao_mapeadas: tuple[str, ...] = ()
+    fontes_cobertura_incompleta: tuple[str, ...] = ()
 
 
 def resolver_caminhos_extratos_padrao(empresa_codigo: int) -> list[Path]:
@@ -788,11 +817,38 @@ async def identificar_despesas_sem_lancamento(
 def gerar_planilha_despesas_xlsx(
     resumo: ResumoDespesasAvulsas,
     caminho_saida: Path | str,
+    *,
+    sintetico: bool = False,
 ) -> Path:
     """Gera planilha Excel XLSX com os débitos avulsos e resumo por tipo."""
     import openpyxl
     from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
     from openpyxl.utils import get_column_letter
+
+    if sintetico:
+        if resumo.unidade_codigo != 0 or resumo.unidade_nome != "EMPRESA-SINTETICA-001":
+            raise ValueError("A planilha demonstrativa exige empresa sintética.")
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Candidatos sinteticos"
+        ws.append(["DEMONSTRAÇÃO — DADOS SINTÉTICOS", "COBERTURA_NAO_VERIFICADA"])
+        ws.append(["Não confirma despesa, perda ou autorização financeira."])
+        ws.append(["FITID", "Data", "Banco", "Conta", "Valor decimal exato", "Estado"])
+        for item in resumo.despesas:
+            ws.append([
+                item.fitid, item.data.isoformat(), item.banco, item.conta_sufixo,
+                format(item.valor, "f"), item.status_triagem,
+            ])
+        auditoria = wb.create_sheet("Ambiguidades sinteticas")
+        auditoria.append(["FITID", "Valor decimal exato", "Estado", "Evidência"])
+        for item in resumo.movimentacoes_auditadas:
+            auditoria.append([
+                item.fitid, format(item.valor, "f"), item.status, item.evidencia_conciliacao,
+            ])
+        caminho = Path(caminho_saida)
+        caminho.parent.mkdir(parents=True, exist_ok=True)
+        wb.save(caminho)
+        return caminho
 
     wb = openpyxl.Workbook()
     ws_despesas = wb.active

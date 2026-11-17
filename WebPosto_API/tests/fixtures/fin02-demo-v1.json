@@ -1,0 +1,106 @@
+{
+  "cnpj_sintetico": "00.000.000/0000-00",
+  "max_idade_horas": 168,
+  "referencia_temporal": "2026-11-16T18:21:05.260123+00:00",
+  "resumo": {
+    "data_ate": "2026-08-31",
+    "data_de": "2026-08-01",
+    "debitos_com_titulo": [],
+    "debitos_com_titulo_qtd": 0,
+    "debitos_com_titulo_total": "0",
+    "debitos_ignorados_qtd": 0,
+    "debitos_ignorados_total": "0",
+    "debitos_registrados_qtd": 0,
+    "debitos_registrados_total": "0",
+    "despesas": [
+      {
+        "banco": "BANCO-FICTICIO",
+        "conta_sufixo": "CONTA-SINTETICA",
+        "conta_webposto_codigo": 0,
+        "data": "2026-08-15",
+        "descricao_extrato": "PIX ENVIADO - FAVORECIDO FICTICIO",
+        "empresa_codigo": 0,
+        "evidencia_conciliacao": "Cobertura ERP não verificada; candidato pendente de revisão humana. Não é possível concluir conciliação ou ausência de lançamento.",
+        "favorecido": "FAVORECIDO FICTICIO",
+        "fitid": "FITID-SINTETICO-001",
+        "hash_extrato": "2ec85f59d20a5dba38b8342d2b9f48ce1e48d42e975f390e5e15adfda3216862",
+        "observacao": "Candidato provável; não confirmado como despesa sem lançamento.",
+        "origem_extrato": "OFX-SINTETICO-001.ofx:2ec85f59d20a5dba38b8342d2b9f48ce1e48d42e975f390e5e15adfda3216862",
+        "origem_sugestao": "pendente de evidência; revisão humana obrigatória",
+        "status_triagem": "PENDENTE_REVISAO",
+        "sugestao_centro_codigo": null,
+        "sugestao_centro_nome": "",
+        "sugestao_fornecedor_codigo": null,
+        "sugestao_fornecedor_nome": "",
+        "sugestao_plano_codigo": null,
+        "sugestao_plano_nome": "",
+        "tipo": "PIX pessoa",
+        "valor": "125.600000000000000001"
+      }
+    ],
+    "fontes_cobertura_incompleta": [
+      "OFX-SINTETICO-005.ofx:c83a4dc92935906ae4b454d3f1d5b741eb8c1096e55d3ae910b5134b21b59dec"
+    ],
+    "fontes_nao_mapeadas": [
+      "OFX-SINTETICO-004.ofx:c7bdb9ebc0e1505e6db68a19c584e6f018e95337962d2db5dabdb7949367a71d"
+    ],
+    "movimentacoes_auditadas": [
+      {
+        "banco": "BANCO-FICTICIO",
+        "classificacao": "CLASSIFICACAO_DESCONHECIDA",
+        "conta_sufixo": "CONTA-SINTETICA",
+        "conta_webposto_codigo": 0,
+        "data": "2026-08-15",
+        "descricao": "PIX ENVIADO - FAVORECIDO FICTICIO",
+        "empresa_codigo": 0,
+        "evidencia_conciliacao": "FITID repetido com dados divergentes entre extratos.",
+        "fitid": "FITID-SINTETICO-002",
+        "hash_extrato": "046f99f745a24d6b763c53aaf99ce7e2bacafad41848dcffb2b3f1523b465f34",
+        "origem": "OFX:BANCO-FICTICIO",
+        "origem_extrato": "OFX-SINTETICO-002.ofx:046f99f745a24d6b763c53aaf99ce7e2bacafad41848dcffb2b3f1523b465f34",
+        "origens_extrato": [
+          "OFX-SINTETICO-002.ofx:046f99f745a24d6b763c53aaf99ce7e2bacafad41848dcffb2b3f1523b465f34",
+          "OFX-SINTETICO-003.ofx:a460cd2d76de3242ec87d8ecfc74cb700873bcb2032f64693eac6ee9233e89ac"
+        ],
+        "status": "AMBIGUO",
+        "valor": "125.600000000000000001"
+      }
+    ],
+    "totais_por_tipo": {
+      "PIX pessoa": [
+        1,
+        "125.600000000000000001"
+      ]
+    },
+    "total_geral": "125.600000000000000001",
+    "triagem_completa": false,
+    "unidade_codigo": 0,
+    "unidade_nome": "EMPRESA-SINTETICA-001"
+  },
+  "schema_version": 1,
+  "sintetico": true,
+  "snapshots": {
+    "movimentos": {
+      "capturado_em": "2026-11-16T18:19:05.260123+00:00",
+      "data_final": "2026-08-31",
+      "data_inicial": "2026-08-01",
+      "declaracao_cobertura": "NAO_DECLARADA",
+      "empresa_codigo": 0,
+      "endpoint": "/INTEGRACAO/V1/MOVIMENTOS_CONTA",
+      "origem_atualizada_em": "2026-11-16T18:18:05.260123+00:00",
+      "sha256": "342d068e499721c6c7d97900c44f2259c2aae25e8923b2393f0f875416dae16e",
+      "status_cobertura": "COBERTURA_NAO_VERIFICADA"
+    },
+    "titulos": {
+      "capturado_em": "2026-11-16T18:19:05.260123+00:00",
+      "data_final": "2026-10-15",
+      "data_inicial": "2026-06-17",
+      "declaracao_cobertura": "DECLARADA",
+      "empresa_codigo": 0,
+      "endpoint": "/INTEGRACAO/V1/TITULOS_PAGAR",
+      "origem_atualizada_em": "2026-11-16T18:18:05.260123+00:00",
+      "sha256": "cc5550919a5019bc9294ed512ebef47119c8f27ed084a39c48dea7564545f1c6",
+      "status_cobertura": "COBERTURA_NAO_VERIFICADA"
+    }
+  }
+}
