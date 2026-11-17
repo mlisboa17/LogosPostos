@@ -29,7 +29,8 @@ from fastapi.responses import FileResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
-from apps.match import (acesso, agendador, banco, caminhos, coletas, credenciais, explicar, inicio,
+from apps.match import (acesso, agendador, banco, caminhos, coletas, conferencia_dia, credenciais, explicar,
+                        inicio,
                         pagbank_tela, premmia_tela, recuperar_senha, registro_rede, relatorio_premmia, relatorio_xlsx, rotina,
                         sugestoes, unidades)
 from apps.match.acesso import Acao, Perfil
@@ -303,6 +304,7 @@ def _menu(ctx: Ctx) -> list[tuple[str, str]]:
         itens.append(("/comecar", "Buscar notas"))
     if ctx.pode(Acao.VER_FISCAL):
         itens.append(("/notas", "Notas fiscais"))
+    itens.insert(1, ("/conferencia", "Conferência"))
     itens.append(("/caixa", "Caixa"))
     itens.append(("/premmia", "Premmia"))
     itens.append(("/pagbank", "PagBank"))
@@ -699,7 +701,7 @@ async def ocorrencia_resolver(divergencia_id: int, ctx: Ctx = Depends(_ctx_post)
         raise Recusado(400, str(exc))
     acesso.registrar(ctx.con, ctx.uid, "resolver_ocorrencia", f"divergencia={divergencia_id} situacao={situacao}")
     volta = _txt(ctx.form, "volta")
-    return _ir(volta if volta.startswith(("/premmia/", "/pagbank/")) else "/premmia")
+    return _ir(volta if volta.startswith(("/premmia/", "/pagbank/", "/conferencia")) else "/premmia")
 
 
 @router.get("/pagbank/{posto_id}/conciliacao.xlsx")
@@ -811,6 +813,38 @@ async def premmia_periodo(posto_id: int, visivel: int = 0, ctx: Ctx = Depends(_c
 @router.post("/pagbank/periodo")
 async def pagbank_periodo(posto_id: int, ctx: Ctx = Depends(_ctx_post)):
     return await _iniciar_periodo(ctx, posto_id, "/pagbank", False)
+
+
+@router.get("/conferencia")
+async def conferencia(ctx: Ctx = Depends(_ctx), posto_id: int = 0, dia: str = ""):
+    """Painel de auditoria do dia: totais webPosto x sites e status; a lista só das divergências."""
+    ctx.exigir(Acao.VER)
+    visiveis = [banco.obter_posto(ctx.con, p) for p in ctx.postos()]
+    visiveis = [p for p in visiveis if p is not None and p["ativo"]]
+    if not visiveis:
+        return _pagina(ctx, "conferencia.html", conf=None, postos=[], dia=ontem())
+    posto = next((p for p in visiveis if p["id"] == posto_id), visiveis[0])
+    try:
+        d = date.fromisoformat(dia) if dia else ontem()
+    except ValueError:
+        d = ontem()
+    d = min(d, ontem())
+    conf = conferencia_dia.montar(ctx.con, posto["id"], d)
+    return _pagina(ctx, "conferencia.html", conf=conf, postos=visiveis, dia=d, ontem=ontem(),
+                   anterior=d - timedelta(days=1), seguinte=min(d + timedelta(days=1), ontem()))
+
+
+@router.get("/conferencia/ocorrencia/{divergencia_id}")
+async def conferencia_ocorrencia(divergencia_id: int, ctx: Ctx = Depends(_ctx)):
+    d = banco.obter_divergencia(ctx.con, divergencia_id)
+    if d is None:
+        raise Recusado(404, "Ocorrência não encontrada.")
+    ctx.exigir(Acao.VER, d["posto_id"])
+    if d["posto_id"] not in ctx.postos():
+        raise Recusado(403, SEM_ACESSO)
+    det = conferencia_dia.detalhe(ctx.con, divergencia_id)
+    return _pagina(ctx, "conferencia_detalhe.html", det=det, posto_id=d["posto_id"],
+                   pode_resolver=ctx.pode(Acao.COLETAR, d["posto_id"]))
 
 
 @router.get("/premmia/planilha/{posto_id}")

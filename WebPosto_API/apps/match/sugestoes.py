@@ -323,7 +323,7 @@ def _linha_c(c: CartaoErp) -> dict:
     """O que está lançado no webPosto (para corrigir ou excluir)."""
     return {"lado": "webPosto", "administradora": c.administradora or "—", "autorizacao": c.autorizacao or "—",
             "nsu": c.nsu or c.nsu_tef or "—", "valor": dinheiro(c.valor), "hora": formatar_hora(c.momento),
-            "funcionario": _funcionario_cartao(c)}
+            "funcionario": _funcionario_cartao(c), "venda": str(c.venda_codigo) if c.venda_codigo else "—"}
 
 
 def _resp(i: Investigacao) -> str:

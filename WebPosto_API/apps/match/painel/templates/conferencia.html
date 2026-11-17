@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block titulo %}Conferência{% endblock %}
+{% block conteudo %}
+{% macro status(s) %}<span class="conf-status {{ s.split(' ')[0] }}">{{ s }}</span>{% endmacro %}
+<h1>Conferência do dia</h1>
+{% if not conf %}<p class="vazio">Nenhum posto seu.</p>{% else %}
+
+<form method="get" action="/conferencia" class="conf-topo">
+  <label>Posto <select name="posto_id" onchange="this.form.submit()">
+    {% for p in postos %}<option value="{{ p.id }}"{% if p.id == conf.posto.id %} selected{% endif %}>{{ p.apelido or p.nome }}</option>{% endfor %}
+  </select></label>
+  <a class="botao secundario" href="/conferencia?posto_id={{ conf.posto.id }}&amp;dia={{ anterior.isoformat() }}" aria-label="Dia anterior">‹</a>
+  <label>Data <input type="date" name="dia" value="{{ dia.isoformat() }}" max="{{ ontem.isoformat() }}" onchange="this.form.submit()"></label>
+  {% if dia < ontem %}<a class="botao secundario" href="/conferencia?posto_id={{ conf.posto.id }}&amp;dia={{ seguinte.isoformat() }}" aria-label="Dia seguinte">›</a>{% endif %}
+  <noscript><button type="submit">Ver</button></noscript>
+</form>
+<p class="sub"><b>DATA: {{ dia.strftime("%d/%m/%Y") }}</b> · {{ conf.posto.apelido or conf.posto.nome }} · sem tolerância: R$ 0,01 já é divergência.</p>
+
+<div class="conf-blocos">
+  {% for b in conf.blocos %}
+  <section class="cartao conf-bloco">
+    <h2>CONCILIAÇÃO {{ b.sistema }}</h2>
+    <div class="conf-linha"><span>WEBPOSTOS {{ b.sistema }}</span><b>{{ b.webposto|dinheiro if b.webposto is not none else "—" }}</b></div>
+    <div class="conf-linha"><span>{{ b.sistema }}{{ " SITE" if b.sistema == "PREMMIA" else "" }}</span><b>{{ b.site|dinheiro if b.site is not none else "—" }}</b></div>
+    <div class="conf-linha conf-dif"><span>DIFERENÇA</span><b class="{{ 'texto-critico' if b.status == 'DIVERGENTE' }}">{{ b.diferenca|dinheiro if b.diferenca is not none else "—" }}</b></div>
+    {{ status(b.status) }}
+    {% if b.motivo_sem_dados %}<p class="dica">{{ b.motivo_sem_dados }}</p>{% endif %}
+    {% if b.acao %}<div class="conf-acao"><b>{{ b.acao[0] }}</b><ul>{% for c in b.acao[1] %}<li>{{ c }}</li>{% endfor %}</ul></div>{% endif %}
+  </section>
+  {% else %}<p class="dica">Este posto não tem Premmia nem PagBank ligados.</p>{% endfor %}
+
+  <section class="cartao conf-bloco conf-geral">
+    <h2>RESUMO GERAL</h2>
+    <div class="conf-linha"><span>TOTAL WEBPOSTOS</span><b>{{ conf.total_webposto|dinheiro }}</b></div>
+    <div class="conf-linha"><span>TOTAL SITES</span><b>{{ conf.total_sites|dinheiro }}</b></div>
+    <div class="conf-linha conf-dif"><span>DIVERGÊNCIA TOTAL</span><b class="{{ 'texto-critico' if conf.divergencia != 0 }}">{{ conf.divergencia|dinheiro }}</b></div>
+    {{ status(conf.status) }}
+    {% if conf.status == "DIVERGENTE" %}<p class="conf-acao">{{ "WebPostos está MAIOR que os sites." if conf.divergencia > 0 else ("WebPostos está MENOR que os sites." if conf.divergencia < 0 else "Os totais batem, mas há sistema com diferença: veja acima.") }}</p>{% endif %}
+  </section>
+</div>
+
+<h2>DIVERGÊNCIAS ENCONTRADAS · Quantidade: {{ conf.linhas|length }}</h2>
+{% if conf.linhas %}
+<div class="tabela"><table>
+  <thead><tr><th>Data</th><th>Sistema</th><th>Identificador</th><th class="num">Valor Webpostos</th><th class="num">Valor Site</th><th class="num">Diferença</th><th>Resultado</th><th>Situação</th></tr></thead>
+  <tbody>{% for l in conf.linhas %}<tr>
+    <td>{{ dia.strftime("%d/%m/%Y") }}</td><td>{{ l.sistema }}</td>
+    <td><a href="/conferencia/ocorrencia/{{ l.id }}">{{ l.identificador }}</a></td>
+    <td class="num">{{ l.valor_webposto|dinheiro }}</td><td class="num">{{ l.valor_site|dinheiro }}</td>
+    <td class="num {{ 'texto-critico' if l.diferenca != 0 }}">{{ l.diferenca|dinheiro }}</td>
+    <td>{{ l.resultado }}</td><td>{{ {"aberta": "a tratar", "resolvida": "✅ resolvida", "nao_procede": "não procede"}[l.situacao] }}</td></tr>{% endfor %}</tbody>
+</table></div>
+<p class="dica">Clique no identificador para ver os dois lados e a ação recomendada.</p>
+{% elif conf.comparados %}<p class="aviso ok">Nenhuma divergência neste dia.</p>{% endif %}
+{% endif %}
+{% endblock %}

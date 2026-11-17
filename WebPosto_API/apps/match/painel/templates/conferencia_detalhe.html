@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block titulo %}Divergência{% endblock %}
+{% block conteudo %}
+{% set l = det.linha %}
+<p class="dica"><a href="/conferencia?posto_id={{ posto_id }}&amp;dia={{ det.dia.isoformat() }}">← Conferência de {{ det.dia.strftime("%d/%m/%Y") }}</a></p>
+<h1>{{ l.sistema }} · {{ l.identificador }}</h1>
+<p class="sub"><b>RESULTADO: {{ l.resultado }}</b> · WebPostos {{ l.valor_webposto|dinheiro }} · Site {{ l.valor_site|dinheiro }} · Diferença <span class="{{ 'texto-critico' if l.diferenca != 0 }}">{{ l.diferenca|dinheiro }}</span></p>
+
+<div class="lado-a-lado">
+  {% for titulo, lista in (("WEBPOSTOS", det.webposto), ("SITE (" ~ l.sistema ~ ")", det.site)) %}
+  <section class="cartao">
+    <h2>{{ titulo }}</h2>
+    {% for d in lista %}
+    <dl>{% for k in ("Data", "Hora", "CPF", "NSU", "Código da venda", "Valor", "Autorização", "Administradora", "Funcionário") %}<dt>{{ k }}</dt><dd>{{ d[k] }}</dd>{% endfor %}</dl>
+    {% if not loop.last %}<hr>{% endif %}
+    {% else %}<p class="dica">Nada encontrado aqui.</p>{% endfor %}
+  </section>
+  {% endfor %}
+</div>
+
+<section class="cartao">
+  <h2>AÇÃO NECESSÁRIA</h2>
+  <p>{{ det.explicacao }}</p>
+  <p><b>{{ l.acao }}</b></p>
+  {% if det.criterios %}<details><summary>Critérios usados</summary><ul>{% for c in det.criterios %}<li>{{ c }}</li>{% endfor %}</ul></details>{% endif %}
+  {% if pode_resolver %}
+  <div class="acoes-empresa">
+    {% set volta = "/conferencia?posto_id=" ~ posto_id ~ "&dia=" ~ det.dia.isoformat() %}
+    {% if l.situacao == "aberta" %}
+    <form method="post" action="/ocorrencia/{{ l.id }}/resolver"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="volta" value="{{ volta }}">
+      <button type="submit" name="situacao" value="resolvida">Resolvido</button></form>
+    <details class="nao-procede"><summary class="botao secundario">Não procede</summary>
+      <form method="post" action="/ocorrencia/{{ l.id }}/resolver" class="periodo-livre"><input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="volta" value="{{ volta }}"><input type="hidden" name="situacao" value="nao_procede">
+        <label>Por quê? <input name="motivo" required maxlength="200"></label><button type="submit" class="secundario">Salvar</button></form></details>
+    {% else %}
+    <form method="post" action="/ocorrencia/{{ l.id }}/resolver"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="volta" value="{{ volta }}">
+      <button type="submit" name="situacao" value="aberta" class="secundario">Reabrir</button></form>
+    {% endif %}
+  </div>
+  {% endif %}
+</section>
+{% endblock %}
