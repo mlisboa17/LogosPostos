@@ -35,7 +35,10 @@
 <main id="conteudo">
   {% if mensagem %}<p class="aviso ok" role="status">{{ mensagem }}</p>{% endif %}
   {% if erro %}<p class="aviso erro" role="alert">{{ erro }}</p>{% endif %}
-  {% block conteudo %}{% endblock %}
+  {% if atual == "/conferencia" and abas_conferencia %}
+<nav class="abas" aria-label="Conferência">{% for url, rotulo in abas_conferencia %}<a href="{{ url }}"{% if caminho.startswith(url) or (url == "/caixa" and caminho.startswith(("/coleta", "/historico"))) %} aria-current="page"{% endif %}>{{ rotulo }}</a>{% endfor %}</nav>
+{% endif %}
+{% block conteudo %}{% endblock %}
 </main>
 <script src="/static/painel.js" defer></script>
 </body>

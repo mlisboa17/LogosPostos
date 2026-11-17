@@ -1,12 +1,14 @@
 """Monta o resumo do dia e envia por todos os canais ativos."""
 from __future__ import annotations
 
+
 import json
 import logging
 from collections import defaultdict
 from datetime import date
 
 from apps.match import banco, relatorio_xlsx
+from apps.match.explicar import dinheiro
 from apps.match.canais import CanalErro, email_smtp, erro_envio_pt, telegram, toast
 from src.modules.cash_reconciliation.domain.tempo import ler_data_hora
 
@@ -18,11 +20,47 @@ _NOME_FONTE = {"premmia": "Premmia", "pagbank_edi": "PagBank"}
 _MAX_DIVERGENCIAS = 10
 
 
+def _conferencia(con, posto, dia: date):
+    """Conferência do dia (mesmo quadro da tela), ou None se o posto não tem Premmia/PagBank ligado."""
+    if con is None:
+        return None
+    from apps.match import conferencia_dia
+    conf = conferencia_dia.montar(con, posto["id"], dia)
+    return conf if conf is not None and conf.blocos else None
+
+
+def _linhas_conferencia(conf) -> list[str]:
+    icone = {"CONCILIADO": "✅", "DIVERGENTE": "❌", "SEM DADOS": "⚠️"}
+    linhas = []
+    for b in conf.blocos:
+        if b.diferenca is None:
+            linhas.append(f"{icone[b.status]} {b.sistema}: SEM DADOS — {b.motivo_sem_dados}")
+        else:
+            linhas.append(f"{icone[b.status]} {b.sistema}: {b.status} · webPosto {dinheiro(b.webposto)} · site "
+                          f"{dinheiro(b.site)} · diferença {dinheiro(b.diferenca)}")
+    if conf.comparados:
+        linhas.append(f"Total webPosto {dinheiro(conf.total_webposto)} · sites {dinheiro(conf.total_sites)} · "
+                      f"divergência {dinheiro(conf.divergencia)}")
+    abertas = [l for l in conf.linhas if l.situacao == "aberta"]
+    if abertas:
+        linhas.append(f"Divergências a tratar: {len(abertas)}")
+        for l in abertas[:_MAX_DIVERGENCIAS]:
+            linhas.append(f"• {l.sistema} {l.identificador}: {l.resultado}, diferença {dinheiro(l.diferenca)}. {l.acao}")
+        if len(abertas) > _MAX_DIVERGENCIAS:
+            linhas.append(f"e mais {len(abertas) - _MAX_DIVERGENCIAS}: abra o Logos Match › Conferência")
+    return linhas
+
+
 def texto_resumo(resultados, posto, dia: date, *, con=None) -> str:
     nome = posto["apelido"] or posto["nome"]
-    linhas = [f"Logos Match — {nome} — {dia:%d/%m/%Y}"]
+    conf = _conferencia(con, posto, dia)
+    if conf is not None:
+        linhas = [f"Logos Match — {nome} — {dia:%d/%m/%Y} — {conf.status}"]
+        linhas += _linhas_conferencia(conf)
+    else:
+        linhas = [f"Logos Match — {nome} — {dia:%d/%m/%Y}"]
     divergencias = []
-    for r in resultados:
+    for r in ([] if conf is not None else resultados):
         fonte = _NOME_FONTE.get(r.fonte, r.fonte)
         linhas.append(f"{_ICONE.get(r.situacao, '⚠️')} {fonte}: {r.mensagem}")
         divergencias.extend(r.divergencias)

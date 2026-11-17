@@ -79,7 +79,7 @@ def test_conciliacao_pagbank_usa_o_nome_certo(cli, con, postos):
     _logado(cli)
     html = cli.get(f"/pagbank/{postos['doze']}/conciliacao").text
     assert "Conciliação PagBank × webPosto" in html and "Venda no PagBank sem lançamento." in html
-    assert "Premmia" not in html.split("</nav>", 1)[1]  # fora do menu, nada de Premmia
+    assert "Premmia" not in html.split('class="abas"', 1)[1].split("</nav>", 1)[1]  # fora do menu e das abas
     r = cli.get(f"/pagbank/{postos['doze']}/conciliacao.xlsx")
     assert r.status_code == 200 and "Conciliacao_PagBank_Doze" in r.headers["content-disposition"]
 

@@ -105,7 +105,7 @@ def _cartao_caixa(con, postos: list[int], ontem: date) -> Cartao | None:
     return Cartao(f"Conferência de caixa ({ontem:%d/%m})", str(total),
                   "divergência(s) entre os postos" if total else "nenhuma divergência",
                   "critico" if total else "ok", "Ver o que houve" if total else "Tudo certo",
-                  link="/caixa", link_texto="Abrir conferência")
+                  link="/conferencia", link_texto="Abrir conferência")
 
 
 def _passos(con, usuario, empresas: list[int]) -> list[Passo]:

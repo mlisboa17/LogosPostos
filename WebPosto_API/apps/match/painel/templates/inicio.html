@@ -4,6 +4,24 @@
 <h1>{{ resumo.saudacao }}</h1>
 <p class="sub">Resumo de hoje, {{ hoje }}.</p>
 
+{% if conferencias %}
+<section class="conferencia-inicio" aria-labelledby="titulo-conf">
+  <h2 id="titulo-conf">Conferência de {{ dia_conferencia.strftime("%d/%m/%Y") }}</h2>
+  <div class="tabela"><table>
+    <thead><tr><th>Posto</th><th>Premmia</th><th>PagBank</th><th class="num">Divergência total</th><th>Status</th></tr></thead>
+    <tbody>{% for c in conferencias %}{% set por = {} %}{% for b in c.blocos %}{% set _ = por.update({b.sistema: b}) %}{% endfor %}
+      <tr><td><a href="/conferencia?posto_id={{ c.posto.id }}&amp;dia={{ c.dia.isoformat() }}">{{ c.posto.apelido or c.posto.nome }}</a></td>
+      {% for sis in ("PREMMIA", "PAGBANK") %}{% set b = por.get(sis) %}
+        <td>{% if not b %}<span class="dica">—</span>{% elif b.status == "CONCILIADO" %}<span class="conf-status CONCILIADO">✓ conciliado</span>
+        {% elif b.status == "DIVERGENTE" %}<span class="conf-status DIVERGENTE">{{ b.diferenca|dinheiro }}</span>
+        {% else %}<span class="conf-status SEM">sem dados</span>{% endif %}</td>{% endfor %}
+      <td class="num {{ 'texto-critico' if c.divergencia != 0 }}">{{ c.divergencia|dinheiro if c.comparados else "—" }}</td>
+      <td><span class="conf-status {{ c.status.split(' ')[0] }}">{{ c.status }}</span></td></tr>{% endfor %}</tbody>
+  </table></div>
+  <p class="dica">Diferença = webPosto − site: negativa, o site tem mais; positiva, o webPosto tem mais. Clique no posto para ver onde está.</p>
+</section>
+{% endif %}
+
 {% if resumo.cartoes %}
 <div class="cartoes">
   {% for c in resumo.cartoes %}

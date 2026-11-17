@@ -215,3 +215,7 @@ td.num, th.num { text-align: right; white-space: nowrap; }
 .lado-a-lado dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 0; font-size: 14px; }
 .lado-a-lado dt { color: var(--suave); }
 .lado-a-lado dd { margin: 0; font-variant-numeric: tabular-nums; }
+.abas { display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 1px solid var(--borda); margin: 0 0 16px; }
+.abas a { padding: 8px 14px; border-radius: 8px 8px 0 0; text-decoration: none; color: var(--suave); font-weight: 500; }
+.abas a[aria-current="page"] { color: var(--destaque); border-bottom: 2px solid var(--destaque); }
+.conferencia-inicio { margin: 0 0 20px; }

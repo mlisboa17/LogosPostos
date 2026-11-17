@@ -107,3 +107,31 @@ def test_data_futura_vira_ontem_e_anterior(cli, con, doze):
 def test_cpf_aparece_mascarado():
     assert conferencia_dia._mascarar_cpf("123.456.789-01") == "***.456.789-**"
     assert conferencia_dia._mascarar_cpf(None) == "—"
+
+
+def test_inicio_mostra_a_conferencia_de_ontem_de_cada_posto(cli, con, doze):
+    _coleta(con, doze["premmia"], "1922.43", "1822.09")
+    _coleta(con, doze["pagbank"], "5230.10", "5230.10")
+    tok = re.search(r'name="csrf" value="([^"]+)"', cli.get("/entrar").text).group(1)
+    cli.post("/entrar", data={"login": "admin", "senha": SENHA, "csrf": tok})
+    html = cli.get("/").text
+    assert f"Conferência de {ontem():%d/%m/%Y}" in html
+    assert f'/conferencia?posto_id={doze["pid"]}&amp;dia={ontem().isoformat()}' in html
+    assert "-R$ 100,34" in html and "✓ conciliado" in html and ">DIVERGENTE<" in html
+
+
+def test_aviso_do_dia_no_formato_da_conferencia(con, doze):
+    from apps.match.canais import envio
+    _coleta(con, doze["premmia"], "1922.43", "1822.09")
+    _coleta(con, doze["pagbank"], "5230.10", "5230.10")
+    banco.gravar_divergencias(con, doze["pid"], ontem(), "premmia", [
+        {"tipo": "falta_no_webposto", "valor_esperado": Decimal("100.34"), "valor_encontrado": Decimal(0),
+         "referencia": "Premmia NSU 884512", "correcao_pt": "Lançar no caixa de LENILSON (299249).",
+         "dados": [{"lado": "Premmia", "nsu": "884512"}]}])
+    texto = envio.texto_resumo([], banco.obter_posto(con, doze["pid"]), ontem(), con=con)
+    linhas = texto.splitlines()
+    assert linhas[0] == f"Logos Match — Doze — {ontem():%d/%m/%Y} — DIVERGENTE"
+    assert "❌ PREMMIA: DIVERGENTE · webPosto R$ 1.822,09 · site R$ 1.922,43 · diferença -R$ 100,34" in linhas
+    assert any(l.startswith("✅ PAGBANK: CONCILIADO") for l in linhas)
+    assert "Divergências a tratar: 1" in linhas
+    assert any("NSU 884512: Encontrado apenas no Site" in l and "LENILSON" in l for l in linhas)

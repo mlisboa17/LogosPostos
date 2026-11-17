@@ -304,18 +304,27 @@ def _menu(ctx: Ctx) -> list[tuple[str, str]]:
         itens.append(("/comecar", "Buscar notas"))
     if ctx.pode(Acao.VER_FISCAL):
         itens.append(("/notas", "Notas fiscais"))
-    itens.insert(1, ("/conferencia", "Conferência"))
-    itens.append(("/caixa", "Caixa"))
-    itens.append(("/premmia", "Premmia"))
-    itens.append(("/pagbank", "PagBank"))
+    itens.insert(1, ("/conferencia", "Conferência"))  # Premmia, PagBank e Coletas ficam nas abas da Conferência
     if _itens_configuracao(ctx):
         itens.append(("/configuracoes", "Configurações"))
     return itens
 
 
+_SECAO_CONFERENCIA = ("/conferencia", "/premmia", "/pagbank", "/caixa", "/coleta", "/historico")
+ABAS_CONFERENCIA = (("/conferencia", "Conferência do dia"), ("/premmia", "Premmia"), ("/pagbank", "PagBank"),
+                    ("/caixa", "Coletas"))
+
+
+def _secao(caminho: str) -> str:
+    """Item do menu que fica marcado: as abas da Conferência marcam 'Conferência'."""
+    return "/conferencia" if caminho.startswith(_SECAO_CONFERENCIA) else caminho
+
+
 def _pagina(ctx: Ctx, nome: str, status: int = 200, **dados):
+    caminho = ctx.request.url.path
     base = {"menu": _menu(ctx), "csrf": ctx.csrf, "usuario_nome": ctx.nome,
-            "atual": ctx.request.url.path, "mensagem": None, "erro": None}
+            "atual": _secao(caminho), "caminho": caminho, "abas_conferencia": ABAS_CONFERENCIA,
+            "mensagem": None, "erro": None}
     return _TPL.TemplateResponse(ctx.request, nome, {**base, **dados}, status_code=status)
 
 
@@ -521,8 +530,17 @@ async def inicio_pagina(ctx: Ctx = Depends(_ctx)):
     if _so_fiscal(ctx):
         return _ir("/notas")
     resumo = inicio.montar(ctx.con, ctx.uid)
-    return _pagina(ctx, "inicio.html", resumo=resumo, hoje=datetime.now(timezone.utc).astimezone(
-        inicio.FUSO).strftime("%d/%m/%Y"))
+    dia = ontem()
+    conferencias = []
+    if ctx.pode(Acao.VER):
+        for pid in ctx.postos():
+            p = banco.obter_posto(ctx.con, pid)
+            if p is not None and p["ativo"]:
+                c = conferencia_dia.montar(ctx.con, pid, dia)
+                if c is not None and c.blocos:
+                    conferencias.append(c)
+    return _pagina(ctx, "inicio.html", resumo=resumo, conferencias=conferencias, dia_conferencia=dia,
+                   hoje=datetime.now(timezone.utc).astimezone(inicio.FUSO).strftime("%d/%m/%Y"))
 
 
 @router.get("/caixa")

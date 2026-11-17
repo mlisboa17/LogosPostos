@@ -83,6 +83,9 @@ def test_tela_inicio_e_caixa(fab, con):
     html = cli.get("/").text
     assert "Primeiros passos" in html and 'href="/comecar"' in html
     nav = html[html.index("<nav"):html.index("</nav>")]
-    assert nav.index('href="/"') < nav.index('href="/comecar"') < nav.index('href="/notas"') < nav.index('href="/caixa"')
+    assert nav.index('href="/"') < nav.index('href="/conferencia"') < nav.index('href="/comecar"') < nav.index('href="/notas"')
+    assert 'href="/caixa"' not in nav and 'href="/premmia"' not in nav  # ficam nas abas da Conferência
+    abas = cli.get("/caixa").text
+    assert 'class="abas"' in abas and 'href="/premmia"' in abas and 'href="/pagbank"' in abas
     assert "<svg" in nav
     assert "Posto Alfa" in cli.get("/caixa").text
