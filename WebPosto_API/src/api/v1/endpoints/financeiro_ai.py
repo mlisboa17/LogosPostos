@@ -15,13 +15,16 @@ POST /api/v1/financeiro-ai/despesas-problematicas/analisar
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from src.api.v1.endpoints._webposto_factory import make_webposto_client
+from src.services.financeiro_ai import fontes as fontes_reais
 from src.services.financeiro_ai.financeiro_analyzer import (
     EMPRESA_DOZE_FILIAL,
     FinanceiroAnalyzer,
@@ -31,6 +34,7 @@ router = APIRouter(prefix="/financeiro-ai", tags=["Financeiro AI"])
 
 _webposto_client: Optional[object] = None
 _analyzer: Optional[FinanceiroAnalyzer] = None
+TZ_RECIFE = ZoneInfo("America/Recife")
 
 
 def get_analyzer() -> FinanceiroAnalyzer:
@@ -40,9 +44,38 @@ def get_analyzer() -> FinanceiroAnalyzer:
             _webposto_client = make_webposto_client()
         except Exception:  # noqa: BLE001 — análise offline ainda funciona
             _webposto_client = None
+
+        cash_flow = None
+        finance_center = None
+        try:
+            cash_flow, finance_center = fontes_reais.montar_servicos_corporativos()
+        except Exception:  # noqa: BLE001
+            cash_flow, finance_center = None, None
+
+        empresa = EMPRESA_DOZE_FILIAL
+
+        async def _cartoes_fonte():
+            hoje = datetime.now(TZ_RECIFE).date()
+            return await fontes_reais.carregar_fontes_cartao_cash_reconciliation(
+                empresa_codigo=empresa,
+                dia=hoje,
+            )
+
+        async def _despesas_fonte():
+            hoje = datetime.now(TZ_RECIFE).date()
+            return await fontes_reais.carregar_despesas_cash_reconciliation(
+                empresa_codigo=empresa,
+                inicio=hoje - timedelta(days=7),
+                fim=hoje,
+            )
+
         _analyzer = FinanceiroAnalyzer(
             _webposto_client,
-            empresa_codigo=EMPRESA_DOZE_FILIAL,
+            empresa_codigo=empresa,
+            cash_flow_service=cash_flow,
+            finance_center_service=finance_center,
+            cartoes_fonte=_cartoes_fonte,
+            despesas_fonte=_despesas_fonte,
         )
     return _analyzer
 
@@ -181,6 +214,12 @@ async def health() -> dict[str, Any]:
         "empresa_padrao": EMPRESA_DOZE_FILIAL,
         "pronto": analyzer is not None,
         "webposto_writes": "0",
+        "fontes": {
+            "cash_flow": analyzer.cash_flow_service is not None,
+            "finance_center": analyzer.finance_center_service is not None,
+            "cartoes": analyzer.cartoes_fonte is not None,
+            "despesas": analyzer.despesas_fonte is not None,
+        },
     }
 
 
