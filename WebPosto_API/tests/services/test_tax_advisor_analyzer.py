@@ -206,6 +206,40 @@ class TestTaxDivergenceDetection:
         # Não deve haver divergências
         assert len(divergencias) == 0
 
+    @pytest.mark.asyncio
+    async def test_divergencias_notas_nulas_fonte_indisponivel(
+        self, analyzer, mock_webposto_client
+    ):
+        mock_webposto_client.get.return_value = None
+
+        resultado = await analyzer.detect_tax_divergences()
+
+        assert resultado["status"] == "fonte_indisponivel"
+        assert "nulo" in resultado["motivo"]
+
+    @pytest.mark.asyncio
+    async def test_divergencias_cliente_falha_fonte_indisponivel(
+        self, analyzer, mock_webposto_client
+    ):
+        mock_webposto_client.get.side_effect = RuntimeError("notas_offline")
+
+        resultado = await analyzer.detect_tax_divergences()
+
+        assert resultado["status"] == "fonte_indisponivel"
+        assert "notas_offline" in resultado["motivo"]
+
+    @pytest.mark.asyncio
+    async def test_divergencias_notas_vazias_fonte_ok(
+        self, analyzer, mock_webposto_client
+    ):
+        mock_webposto_client.get.return_value = []
+
+        resultado = await analyzer.detect_tax_divergences()
+
+        assert resultado["fonte_ok"] is True
+        assert resultado["itens"] == []
+        assert resultado["status"] == "ok"
+
 
 class TestTaxCalculation:
     """Testes de cálculo de impostos"""

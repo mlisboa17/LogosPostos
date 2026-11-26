@@ -86,11 +86,10 @@ def get_analyzer() -> BuyerAnalyzer:
 
 @router.get(
     "/capital-parado",
-    response_model=list[dict],
     summary="Produtos imobilizando capital",
     description="Encontra produtos sem giro que estão ocupando espaço e capital",
 )
-async def get_immobilized_capital() -> list[dict]:
+async def get_immobilized_capital():
     """
     Identificar capital parado.
 
@@ -116,7 +115,6 @@ async def get_immobilized_capital() -> list[dict]:
 
 @router.get(
     "/ruptures-risk",
-    response_model=list[dict],
     summary="Produtos em risco de ruptura",
     description="Produtos que podem faltar nos próximos dias",
 )

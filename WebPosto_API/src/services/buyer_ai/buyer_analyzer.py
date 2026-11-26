@@ -21,6 +21,25 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+def _fonte_indisponivel(motivo: str) -> dict[str, Any]:
+    return {"status": "fonte_indisponivel", "motivo": motivo}
+
+
+def _leitura_vazia_ok() -> dict[str, Any]:
+    """Fonte respondeu com sucesso e não há registros."""
+    return {"status": "ok", "fonte_ok": True, "itens": []}
+
+
+def _extrair_itens(resultado: Any) -> list:
+    if isinstance(resultado, dict):
+        if resultado.get("fonte_ok"):
+            return list(resultado.get("itens") or [])
+        return []
+    if isinstance(resultado, list):
+        return resultado
+    return []
+
+
 @dataclass
 class ProdutoAnalise:
     """Análise de um produto"""
@@ -93,11 +112,12 @@ class BuyerAnalyzer:
 
     # ========== 1. ANÁLISE DE ESTOQUE ==========
 
-    async def find_immobilized_capital(self) -> list[dict]:
+    async def find_immobilized_capital(self) -> list[dict] | dict[str, Any]:
         """
         Encontrar capital parado (produtos sem giro).
 
-        Retorna: lista de produtos ordenados por capital parado.
+        Retorna lista de produtos, ``fonte_indisponivel`` se a leitura falhar/nula,
+        ou ``{fonte_ok: True, itens: []}`` se a fonte respondeu vazia com sucesso.
         """
 
         logger.info("Analisando capital parado...")
@@ -106,17 +126,35 @@ class BuyerAnalyzer:
         min_capital = Decimal("100")  # Mínimo para considerar problema
 
         # 1. Buscar estoque atual
-        estoques = await self.client.get("/INTEGRACAO/V1/ESTOQUES")
-        if not estoques:
-            logger.warning("Nenhum estoque encontrado")
-            return []
+        try:
+            estoques = await self.client.get("/INTEGRACAO/V1/ESTOQUES")
+        except Exception as exc:  # noqa: BLE001
+            return _fonte_indisponivel(
+                f"falha ao ler ESTOQUES: {type(exc).__name__}: {exc}"
+            )
+        if estoques is None:
+            logger.warning("ESTOQUES retornou nulo")
+            return _fonte_indisponivel("ESTOQUES retornou nulo")
+        if not isinstance(estoques, list):
+            return _fonte_indisponivel("ESTOQUES não retornou lista")
+        if len(estoques) == 0:
+            return _leitura_vazia_ok()
 
         # 2. Buscar vendas dos últimos dias_limite dias
         data_inicial = (datetime.now() - timedelta(days=dias_limite)).isoformat()
-        vendas = await self.client.get(
-            "/INTEGRACAO/V1/VENDAS",
-            params={"data_inicial": data_inicial},
-        )
+        try:
+            vendas = await self.client.get(
+                "/INTEGRACAO/V1/VENDAS",
+                params={"data_inicial": data_inicial},
+            )
+        except Exception as exc:  # noqa: BLE001
+            return _fonte_indisponivel(
+                f"falha ao ler VENDAS: {type(exc).__name__}: {exc}"
+            )
+        if vendas is None:
+            vendas = []
+        if vendas is not None and not isinstance(vendas, list):
+            return _fonte_indisponivel("VENDAS não retornou lista")
 
         # Agrupar vendas por produto
         produtos_vendidos = set()
@@ -166,7 +204,7 @@ class BuyerAnalyzer:
 
     # ========== 2. PREDIÇÃO DE RUPTURAS ==========
 
-    async def find_rupture_risk(self) -> list[dict]:
+    async def find_rupture_risk(self) -> list[dict] | dict[str, Any]:
         """
         Prever produtos que podem faltar nos próximos dias.
 
@@ -174,6 +212,8 @@ class BuyerAnalyzer:
         - Consumo histórico → consumo diário médio
         - Estoque atual / consumo diário = dias de estoque
         - Se dias_estoque < tempo_reabastecimento: RISCO
+
+        Sem estoque por falha/nulo → ``fonte_indisponivel``; vazio com sucesso → ``fonte_ok``.
         """
 
         logger.info("Analisando risco de rupturas...")
@@ -182,16 +222,34 @@ class BuyerAnalyzer:
         min_dias_aviso = 3  # Avisar com pelo menos 3 dias de antecedência
 
         # 1. Buscar estoque atual
-        estoques = await self.client.get("/INTEGRACAO/V1/ESTOQUES")
-        if not estoques:
-            return []
+        try:
+            estoques = await self.client.get("/INTEGRACAO/V1/ESTOQUES")
+        except Exception as exc:  # noqa: BLE001
+            return _fonte_indisponivel(
+                f"falha ao ler ESTOQUES: {type(exc).__name__}: {exc}"
+            )
+        if estoques is None:
+            return _fonte_indisponivel("ESTOQUES retornou nulo")
+        if not isinstance(estoques, list):
+            return _fonte_indisponivel("ESTOQUES não retornou lista")
+        if len(estoques) == 0:
+            return _leitura_vazia_ok()
 
         # 2. Buscar vendas dos últimos 30 dias (para calcular consumo)
         data_inicial = (datetime.now() - timedelta(days=30)).isoformat()
-        vendas = await self.client.get(
-            "/INTEGRACAO/V1/VENDAS",
-            params={"data_inicial": data_inicial},
-        )
+        try:
+            vendas = await self.client.get(
+                "/INTEGRACAO/V1/VENDAS",
+                params={"data_inicial": data_inicial},
+            )
+        except Exception as exc:  # noqa: BLE001
+            return _fonte_indisponivel(
+                f"falha ao ler VENDAS: {type(exc).__name__}: {exc}"
+            )
+        if vendas is None:
+            vendas = []
+        if vendas is not None and not isinstance(vendas, list):
+            return _fonte_indisponivel("VENDAS não retornou lista")
 
         # Calcular consumo por produto
         consumo_por_produto = {}
@@ -326,8 +384,14 @@ class BuyerAnalyzer:
         logger.info("Gerando recomendações de reposição...")
 
         # 1. Buscar análises anteriores
-        rupturas = await self.find_rupture_risk()
-        capital_parado = await self.find_immobilized_capital()
+        rupturas_raw = await self.find_rupture_risk()
+        if isinstance(rupturas_raw, dict) and rupturas_raw.get("status") == "fonte_indisponivel":
+            return rupturas_raw
+        rupturas = _extrair_itens(rupturas_raw)
+        capital_raw = await self.find_immobilized_capital()
+        if isinstance(capital_raw, dict) and capital_raw.get("status") == "fonte_indisponivel":
+            return capital_raw
+        _ = _extrair_itens(capital_raw)
 
         # Produtos com ruptura = PRIORIDADE 1
         produtos_prioritarios = {r["produto_id"]: 1 for r in rupturas}
@@ -594,9 +658,19 @@ class BuyerAnalyzer:
         logger.info("Gerando brief executivo...")
 
         # Executar todas análises
-        capital_parado_list = await self.find_immobilized_capital()
-        rupturas = await self.find_rupture_risk()
+        capital_raw = await self.find_immobilized_capital()
+        if isinstance(capital_raw, dict) and capital_raw.get("status") == "fonte_indisponivel":
+            return {**capital_raw, "data_audit": datetime.now().isoformat()}
+        capital_parado_list = _extrair_itens(capital_raw)
+
+        rupturas_raw = await self.find_rupture_risk()
+        if isinstance(rupturas_raw, dict) and rupturas_raw.get("status") == "fonte_indisponivel":
+            return {**rupturas_raw, "data_audit": datetime.now().isoformat()}
+        rupturas = _extrair_itens(rupturas_raw)
+
         reposicoes = await self.recommend_replenishment()
+        if isinstance(reposicoes, dict) and reposicoes.get("status") == "fonte_indisponivel":
+            return {**reposicoes, "data_audit": datetime.now().isoformat()}
         desequilibrios = await self.analyze_buy_vs_sell_mismatch()
 
         # Consolidar top 3 problemas

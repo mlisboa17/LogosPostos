@@ -111,6 +111,38 @@ class TestCapitalPardoAnalysis:
 
         assert len(resultado) == 0
 
+    @pytest.mark.asyncio
+    async def test_capital_estoque_nulo_fonte_indisponivel(
+        self, analyzer, mock_webposto_client
+    ):
+        mock_webposto_client.get.return_value = None
+
+        resultado = await analyzer.find_immobilized_capital()
+
+        assert resultado["status"] == "fonte_indisponivel"
+        assert "nulo" in resultado["motivo"]
+
+    @pytest.mark.asyncio
+    async def test_capital_cliente_falha_fonte_indisponivel(
+        self, analyzer, mock_webposto_client
+    ):
+        mock_webposto_client.get.side_effect = RuntimeError("estoque_offline")
+
+        resultado = await analyzer.find_immobilized_capital()
+
+        assert resultado["status"] == "fonte_indisponivel"
+        assert "estoque_offline" in resultado["motivo"]
+
+    @pytest.mark.asyncio
+    async def test_capital_estoque_vazio_fonte_ok(self, analyzer, mock_webposto_client):
+        mock_webposto_client.get.return_value = []
+
+        resultado = await analyzer.find_immobilized_capital()
+
+        assert resultado["fonte_ok"] is True
+        assert resultado["itens"] == []
+        assert resultado["status"] == "ok"
+
 
 class TestRuptureRiskAnalysis:
     """Testes de previsão de rupturas"""
@@ -205,6 +237,38 @@ class TestRuptureRiskAnalysis:
 
         # 500 un / (~100/30) ~ 150 dias de estoque >> lead 5 -> sem ruptura
         assert resultado == []
+
+    @pytest.mark.asyncio
+    async def test_rupture_estoque_nulo_fonte_indisponivel(
+        self, analyzer, mock_webposto_client
+    ):
+        mock_webposto_client.get.return_value = None
+
+        resultado = await analyzer.find_rupture_risk()
+
+        assert resultado["status"] == "fonte_indisponivel"
+        assert "nulo" in resultado["motivo"]
+
+    @pytest.mark.asyncio
+    async def test_rupture_cliente_falha_fonte_indisponivel(
+        self, analyzer, mock_webposto_client
+    ):
+        mock_webposto_client.get.side_effect = RuntimeError("ruptura_offline")
+
+        resultado = await analyzer.find_rupture_risk()
+
+        assert resultado["status"] == "fonte_indisponivel"
+        assert "ruptura_offline" in resultado["motivo"]
+
+    @pytest.mark.asyncio
+    async def test_rupture_estoque_vazio_fonte_ok(self, analyzer, mock_webposto_client):
+        mock_webposto_client.get.return_value = []
+
+        resultado = await analyzer.find_rupture_risk()
+
+        assert resultado["fonte_ok"] is True
+        assert resultado["itens"] == []
+        assert resultado["status"] == "ok"
 
 
 class TestReplenishmentRecommendation:

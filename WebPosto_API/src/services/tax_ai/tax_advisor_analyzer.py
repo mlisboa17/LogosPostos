@@ -22,6 +22,24 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+def _fonte_indisponivel(motivo: str) -> dict[str, Any]:
+    return {"status": "fonte_indisponivel", "motivo": motivo}
+
+
+def _leitura_vazia_ok() -> dict[str, Any]:
+    return {"status": "ok", "fonte_ok": True, "itens": []}
+
+
+def _extrair_itens(resultado: Any) -> list:
+    if isinstance(resultado, dict):
+        if resultado.get("fonte_ok"):
+            return list(resultado.get("itens") or [])
+        return []
+    if isinstance(resultado, list):
+        return resultado
+    return []
+
+
 class TaxAdvisorAnalyzer:
     """Auditor tributário de produtos e operações"""
 
@@ -200,7 +218,9 @@ class TaxAdvisorAnalyzer:
 
     # ========== 4. DETECTAR DIVERGÊNCIAS TRIBUTÁRIAS ==========
 
-    async def detect_tax_divergences(self, periodo_dias: int = 30) -> list[dict]:
+    async def detect_tax_divergences(
+        self, periodo_dias: int = 30
+    ) -> list[dict] | dict[str, Any]:
         """
         Detectar produtos com classificação inconsistente.
 
@@ -208,6 +228,8 @@ class TaxAdvisorAnalyzer:
         - Mesmo produto com NCM diferente
         - CST não alinhado com NCM
         - CEST faltando quando deveria existir
+
+        Leitura falha/nula → ``fonte_indisponivel``; vazia com sucesso → ``fonte_ok``.
         """
 
         logger.info(f"Detectando divergências tributárias ({periodo_dias} dias)...")
@@ -219,13 +241,21 @@ class TaxAdvisorAnalyzer:
             datetime.now() - __import__("datetime").timedelta(days=periodo_dias)
         ).isoformat()
 
-        notas = await self.client.get(
-            "/INTEGRACAO/V1/NOTAS_ENTRADA",
-            params={"data_inicial": data_inicial},
-        )
-
-        if not notas:
-            return []
+        try:
+            notas = await self.client.get(
+                "/INTEGRACAO/V1/NOTAS_ENTRADA",
+                params={"data_inicial": data_inicial},
+            )
+        except Exception as exc:  # noqa: BLE001
+            return _fonte_indisponivel(
+                f"falha ao ler NOTAS_ENTRADA: {type(exc).__name__}: {exc}"
+            )
+        if notas is None:
+            return _fonte_indisponivel("NOTAS_ENTRADA retornou nulo")
+        if not isinstance(notas, list):
+            return _fonte_indisponivel("NOTAS_ENTRADA não retornou lista")
+        if len(notas) == 0:
+            return _leitura_vazia_ok()
 
         # 2. Agrupar por produto e verificar inconsistências
         produtos_ncm = {}  # produto_id -> list(ncm)
@@ -379,8 +409,19 @@ class TaxAdvisorAnalyzer:
         logger.info("Gerando relatório de auditoria tributária...")
 
         # 1. Executar validações
-        divergencias = await self.detect_tax_divergences()
+        divergencias_raw = await self.detect_tax_divergences()
+        if (
+            isinstance(divergencias_raw, dict)
+            and divergencias_raw.get("status") == "fonte_indisponivel"
+        ):
+            return {
+                **divergencias_raw,
+                "data_audit": datetime.now().isoformat(),
+            }
+        divergencias = _extrair_itens(divergencias_raw)
         sem_classificacao = await self.find_unclassified_products()
+        if not isinstance(sem_classificacao, list):
+            sem_classificacao = []
 
         # 2. Consolidar problemas (sem inventar multa em R$)
         problemas_criticos = len([d for d in divergencias if d["severidade"] == "ALTA"])
