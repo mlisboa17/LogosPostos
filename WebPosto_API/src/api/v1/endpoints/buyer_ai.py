@@ -21,13 +21,18 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Depends, Query, HTTPException
 from pydantic import BaseModel
 
 from src.services.buyer_ai.buyer_analyzer import BuyerAnalyzer
 from src.api.v1.endpoints._webposto_factory import make_webposto_client
+from src.interfaces.http.dependencies import get_current_user
 
-router = APIRouter(prefix="/buyer-ai", tags=["Buyer AI"])
+router = APIRouter(
+    prefix="/buyer-ai",
+    tags=["Buyer AI"],
+    dependencies=[Depends(get_current_user)],
+)
 
 
 class ProdutoParado(BaseModel):

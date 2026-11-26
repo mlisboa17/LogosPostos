@@ -20,17 +20,22 @@ from decimal import Decimal
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from src.api.v1.endpoints._webposto_factory import make_webposto_client
+from src.interfaces.http.dependencies import get_current_user
 from src.services.financeiro_ai import fontes as fontes_reais
 from src.services.financeiro_ai.financeiro_analyzer import (
     EMPRESA_DOZE_FILIAL,
     FinanceiroAnalyzer,
 )
 
-router = APIRouter(prefix="/financeiro-ai", tags=["Financeiro AI"])
+router = APIRouter(
+    prefix="/financeiro-ai",
+    tags=["Financeiro AI"],
+    dependencies=[Depends(get_current_user)],
+)
 
 _webposto_client: Optional[object] = None
 _analyzer: Optional[FinanceiroAnalyzer] = None

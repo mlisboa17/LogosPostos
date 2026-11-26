@@ -30,13 +30,18 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from src.services.pricing_ai.pricing_analyzer import PricingAnalyzer
 from src.api.v1.endpoints._webposto_factory import make_webposto_client
+from src.interfaces.http.dependencies import get_current_user
 
-router = APIRouter(prefix="/pricing-ai", tags=["Pricing AI"])
+router = APIRouter(
+    prefix="/pricing-ai",
+    tags=["Pricing AI"],
+    dependencies=[Depends(get_current_user)],
+)
 
 
 class AnaliseMargemRequest(BaseModel):

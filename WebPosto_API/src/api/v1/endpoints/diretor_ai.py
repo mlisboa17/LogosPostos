@@ -10,13 +10,18 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from src.api.v1.endpoints._webposto_factory import make_webposto_client
+from src.interfaces.http.dependencies import get_current_user
 from src.services.diretor_ai.diretor_orquestrador import DiretorOrquestrador
 
-router = APIRouter(prefix="/diretor-ai", tags=["Diretor AI"])
+router = APIRouter(
+    prefix="/diretor-ai",
+    tags=["Diretor AI"],
+    dependencies=[Depends(get_current_user)],
+)
 
 _orquestrador: Optional[DiretorOrquestrador] = None
 
