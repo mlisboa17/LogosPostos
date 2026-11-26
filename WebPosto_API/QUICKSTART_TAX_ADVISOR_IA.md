@@ -17,8 +17,7 @@ test_valid_ncm PASSED
 test_ncm_formato_invalido_poucos_digitos PASSED
 test_ncm_formato_invalido_nao_numerico PASSED
 test_ncm_vazio PASSED
-test_ncm_checksum_valido PASSED
-test_ncm_checksum_invalido PASSED
+test_ncm_ausente_na_tabela_exemplo_nao_e_erro_definitivo PASSED
 test_cest_vazio_valido PASSED
 test_cest_valido PASSED
 test_cest_formato_invalido PASSED
@@ -28,13 +27,16 @@ test_cst_invalido_para_regime PASSED
 test_cst_formato_invalido PASSED
 test_detect_ncm_inconsistente PASSED
 test_no_divergencias_quando_consistente PASSED
+test_divergencias_notas_nulas_fonte_indisponivel PASSED
+test_divergencias_cliente_falha_fonte_indisponivel PASSED
+test_divergencias_notas_vazias_fonte_ok PASSED
 test_validate_tax_calculation PASSED
 test_tax_calculation_exemplo_concreto PASSED
 test_find_produtos_sem_ncm PASSED
 test_generate_tax_audit_report PASSED
 test_report_status_critico_quando_ha_problemas PASSED
 
-✅ 20 passed
+✅ 22 passed
 ```
 
 ---

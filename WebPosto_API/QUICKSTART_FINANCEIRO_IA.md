@@ -49,13 +49,13 @@ uvicorn src.interfaces.http.app:app --reload
 
 | Método | Rota | Uso |
 |---|---|---|
-| GET | `/fluxo-caixa` | Tenta fonte real; sem ela → `fonte_indisponivel` |
+| GET | `/fluxo-caixa` | `CorporateCashFlowService`; falha → `fonte_indisponivel` |
 | POST | `/fluxo-caixa/analisar` | Body com `movimentos`, `saldo_inicial`, `horizonte_dias` |
-| GET | `/conferencia-cartoes` | Sem listas → `fonte_indisponivel` |
+| GET | `/conferencia-cartoes` | Leitura `pagbank_edi` / `extrato_reader` / CARTOES; sem credencial → `fonte_indisponivel` com motivo |
 | POST | `/conferencia-cartoes/analisar` | Body com `vendas_cartao` + `recebimentos_adquirentes` |
-| GET | `/inadimplencia` | Títulos via cliente ou `fonte_indisponivel` |
+| GET | `/inadimplencia` | `CorporateFinanceCenterService` (recebíveis); falha → `fonte_indisponivel` |
 | POST | `/inadimplencia/analisar` | Body com `titulos` |
-| GET | `/despesas-problematicas` | Sem fonte → `fonte_indisponivel` |
+| GET | `/despesas-problematicas` | `webposto_detalhes.buscar_despesas`; falha → `fonte_indisponivel` |
 | POST | `/despesas-problematicas/analisar` | Body com `despesas` |
 | GET | `/relatorio` | Consolida as quatro frentes |
 | GET | `/health` | Health check |
@@ -75,8 +75,9 @@ Resposta esperada (trecho): `diferenca_total: 20.0`, `causa: webposto_maior_que_
 ## Reuso interno
 
 - Normalização monetária: `src.services.financial_reconciliation_engine.to_decimal`
-- Projeção corporativa existente (quando integrada depois): `CorporateCashFlowService` / `CashFlowSnapshotService`
-- Conferência operacional rica: `src.modules.cash_reconciliation` (não duplicada aqui; esta fachada aceita payloads ou declara fonte indisponível)
+- Fluxo e títulos: `CorporateCashFlowService` + `CorporateFinanceCenterService` (injetados nos GET)
+- Cartões/despesas (leitura): `src.modules.cash_reconciliation.adapters` (`pagbank_edi`, `extrato_reader`, `webposto_cartoes`, `webposto_detalhes`) — sem adaptadores de escrita
+- POST com payload continua disponível para diagnóstico offline
 
 ---
 
