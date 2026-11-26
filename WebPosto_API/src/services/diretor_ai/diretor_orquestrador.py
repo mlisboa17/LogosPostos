@@ -35,8 +35,26 @@ def _agora_br() -> str:
     return datetime.now(TZ_RECIFE).strftime("%d/%m/%Y %H:%M")
 
 
+# Milhar BR sem centavos: 1.000 | 12.345 | 1.234.567
+_RE_MILHAR_BR = re.compile(r"^[-+]?\d{1,3}(?:\.\d{3})+$")
+# Candidato numérico em texto (BR com/sem centavos, US decimal ou inteiro)
+_RE_NUMERO_RS = re.compile(
+    r"[-+]?(?:\d{1,3}(?:\.\d{3})+,\d+|\d{1,3}(?:\.\d{3})+|\d+,\d+|\d+\.\d+|\d+)"
+)
+
+
 def _parse_rs(valor: Any) -> float | None:
-    """Extrai número de R$ a partir de float/Decimal/str; None se não houver valor."""
+    """Extrai número de R$ a partir de float/Decimal/str; None se inválido/vazio.
+
+    Regras (explicitas — não chutar):
+    - Com vírgula → formato brasileiro: ponto é milhar, vírgula é decimal.
+      Ex.: ``1.000,50`` → 1000.5; ``980,00`` → 980.0.
+    - Sem vírgula e com grupos de três dígitos separados por ponto
+      (``1.000``, ``1.234.567``) → ponto é milhar.
+      Ex.: ``R$ 1.000`` → 1000.0.
+    - Caso contrário → ponto é decimal.
+      Ex.: ``1000.50`` → 1000.5; ``980.5`` → 980.5.
+    """
     if valor is None:
         return None
     if isinstance(valor, bool):
@@ -49,21 +67,21 @@ def _parse_rs(valor: Any) -> float | None:
     texto = str(valor).strip()
     if not texto:
         return None
-    # "R$ 1.234,56" ou "R$ 1,234" ou "1234.56"
-    limpo = texto.replace("R$", "").replace("r$", "").strip()
-    limpo = limpo.replace(".", "").replace(" ", "") if "," in limpo else limpo.replace(" ", "")
-    limpo = limpo.replace(",", ".")
-    # remove milhares estilo US se ainda houver
+    limpo = texto.replace("R$", "").replace("r$", "").replace(" ", "")
+    match = _RE_NUMERO_RS.search(limpo)
+    if not match:
+        return None
+    num = match.group(0)
+    if "," in num:
+        normalizado = num.replace(".", "").replace(",", ".")
+    elif _RE_MILHAR_BR.fullmatch(num):
+        normalizado = num.replace(".", "")
+    else:
+        normalizado = num
     try:
-        return float(Decimal(limpo))
+        return float(Decimal(normalizado))
     except (InvalidOperation, ValueError):
-        match = re.search(r"[-+]?\d+(?:[.,]\d+)?", texto)
-        if not match:
-            return None
-        try:
-            return float(Decimal(match.group(0).replace(",", ".")))
-        except (InvalidOperation, ValueError):
-            return None
+        return None
 
 
 @dataclass

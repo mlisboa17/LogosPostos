@@ -4,7 +4,27 @@ from __future__ import annotations
 
 import pytest
 
-from src.services.diretor_ai.diretor_orquestrador import DiretorOrquestrador
+from src.services.diretor_ai.diretor_orquestrador import DiretorOrquestrador, _parse_rs
+
+
+@pytest.mark.parametrize(
+    ("entrada", "esperado"),
+    [
+        ("R$ 1.000", 1000.0),
+        ("R$ 1.000,50", 1000.5),
+        ("1.000,50", 1000.5),
+        ("1.234.567", 1234567.0),
+        ("1000.50", 1000.5),
+        ("980.5", 980.5),
+        ("R$ 980,00", 980.0),
+        ("-400", -400.0),
+        ("", None),
+        ("abc", None),
+        (None, None),
+    ],
+)
+def test_parse_rs_formatos(entrada, esperado):
+    assert _parse_rs(entrada) == esperado
 
 
 class _BuyerComAchados:
