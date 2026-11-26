@@ -130,7 +130,7 @@ async def get_rupture_risk(
         le=30,
         description="Quantos dias no futuro prever",
     )
-) -> list[dict]:
+):
     """
     Prever rupturas iminentes.
 
@@ -142,6 +142,7 @@ async def get_rupture_risk(
     Se dias_estoque < dias_reabastecimento: RISCO
 
     Retorna: Lista de produtos em risco, ordenados por urgência.
+    Fonte indisponível: ``{"status": "fonte_indisponivel", "motivo": "..."}``.
     """
 
     analyzer = get_analyzer()
@@ -149,13 +150,17 @@ async def get_rupture_risk(
     try:
         resultado = await analyzer.find_rupture_risk()
 
-        # Filtrar por dias_ahead
-        resultado = [
+        if isinstance(resultado, dict) and resultado.get("status") == "fonte_indisponivel":
+            return resultado
+
+        if not isinstance(resultado, list):
+            return resultado
+
+        # Filtrar por dias_ahead somente quando a fonte devolveu lista
+        return [
             r for r in resultado
             if r["dias_de_estoque"] < dias_ahead
         ]
-
-        return resultado
 
     except Exception as e:
         raise HTTPException(
