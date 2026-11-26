@@ -22,6 +22,7 @@ from src.shared.logger import setup_logging
 from src.api.v1.endpoints import (
     buyer_ai,
     data_validation,
+    diretor_ai,
     financeiro_ai,
     pricing_ai,
     tax_advisor_ai,
@@ -75,6 +76,7 @@ def create_app() -> FastAPI:
     app.include_router(tax_advisor_ai.router, prefix="/api/v1")
     app.include_router(pricing_ai.router, prefix="/api/v1")
     app.include_router(financeiro_ai.router, prefix="/api/v1")
+    app.include_router(diretor_ai.router, prefix="/api/v1")
 
     frontend_dir = root / "frontend"
     if frontend_dir.is_dir():
