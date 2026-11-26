@@ -5,6 +5,16 @@ Repositório canônico: C:\Projetos\LOGOS\LogosPostos · branch feature/cash-aud
 PR a abrir: https://github.com/mlisboa17/LogosPostos/pull/new/feature/cash-audit-fechamento
 Histórico de sprints: um prompt por sprint em docs/prompts/ (SPRINT_05 ... SPRINT_12, PREMMIA_00, TELEGRAM_00)
 
+# FASES-IA-PRECIFICACAO-COMPRAS — Fases 1 a 5 + Diretor IA — 26/11/2026
+- Branch feature/fases-ia-precificacao-compras, PR #4 (base feature/cash-audit-fechamento). HEAD: d856dd7. Não mergeado.
+- IAs em modo leitura: Validação de Compras, Comprador, Tax Advisor, Precificador, Financeiro e Diretor (orquestrador). Routers em /api/v1/*-ai e /api/v1/diretor-ai.
+- Segurança: todas as rotas de IA exigem get_current_user (fail-closed). Sem escrita no ERP; adaptadores de escrita não importados.
+- Dados: Financeiro liga GET a CorporateCashFlowService, Finance Center e leitores do cash_reconciliation. Fonte que falha vira fonte_indisponivel com motivo; lista vazia só com leitura bem-sucedida.
+- Valores em R$: impacto_rs numérico; _parse_rs rejeita formatos ambíguos. Estimativa fiscal sem base auditada removida do total do Diretor.
+- Testes: 119 passando nas suítes de IA. create_app OK.
+- Pendências: (1) validação com credenciais e dados reais no ambiente do dono (GET dependem de .env local); (2) Tax Advisor usa tabela de NCM de exemplo (fonte_tabela=exemplo_local); (3) Comprador usa lead time e preço fixos quando não há histórico (origem_dado=padrao_fixo); (4) /v1/expenses duplicado no app (pré-existente, PR separado); (5) base feature/cash-audit-fechamento ainda não mergeada em main.
+- Revisão do PR #4: pronto com ressalvas. Achados: (ALTA) buyer_ai.get_rupture_risk assume lista e quebra com 500 quando a fonte devolve fonte_indisponivel/fonte_ok; (ALTA) analyze_buy_vs_sell_mismatch não trata falha de cliente e o GET /desequilibrios vira 500; (MÉDIA) data-validation sem Depends(get_current_user) — responde sem 401; (MÉDIA) QUICKSTART_BUYER_IA.md ainda diz 9 passed (há 15 testes); (pré-existente) /v1/expenses duplicado. Auth das rotas *-ai / tax-advisor / diretor-ai / pricing-ai / financeiro-ai: 401 sem credencial. Sem escrita ERP nem segredos no diff.
+
 # PLANOS-CONTA-MASTER-01 — Catálogo Compartilhado Completo — 23/10/2026
 
 - Mapeamento oficial somente leitura concluído: 251 planos gerenciais compartilhados por todas as empresas.
