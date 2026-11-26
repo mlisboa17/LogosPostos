@@ -270,11 +270,14 @@ class TestRelatorioAudit:
     @pytest.mark.asyncio
     async def test_gerar_relatorio_precificacao(self, analyzer):
         """Sem fonte real de preço/custo o relatório declara fonte_indisponivel."""
+        # Evita AsyncMock.produtos.listar_empresa() virar coroutine não awaited
+        analyzer.webposto_client = None
         relatorio = await analyzer.gerar_relatorio_precificacao()
 
         assert relatorio["status"] == "fonte_indisponivel"
         assert "motivo" in relatorio
         assert "data_audit" in relatorio
+        assert "não injetado" in relatorio["motivo"]
 
     @pytest.mark.asyncio
     async def test_relatorio_status_critico(self, analyzer):
