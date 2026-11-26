@@ -210,13 +210,20 @@ class BuyerAnalyzer:
         for produto_id, total in consumo_por_produto.items():
             consumo_diario_por_produto[produto_id] = Decimal(total) / Decimal("30")
 
-        # 3. Buscar info de fornecedores (tempo de reabastecimento)
+        # 3. Buscar info de fornecedores (lead time real se existir; senão padrao_fixo=5)
         fornecedores = await self.client.get("/INTEGRACAO/V1/FORNECEDORES")
-        tempo_reabastecimento = {}  # Default: 5 dias
+        tempo_reabastecimento: dict[Any, int] = {}
+        origem_lead_por_fornecedor: dict[Any, str] = {}
         if fornecedores:
             for f in fornecedores:
-                # TODO: Obter tempo real do fornecedor
-                tempo_reabastecimento[f.get("id")] = 5
+                fid = f.get("id")
+                lead = f.get("tempo_reabastecimento_dias") or f.get("prazoEntregaDias")
+                if lead not in (None, "", 0, "0"):
+                    tempo_reabastecimento[fid] = int(lead)
+                    origem_lead_por_fornecedor[fid] = "historico"
+                else:
+                    tempo_reabastecimento[fid] = 5
+                    origem_lead_por_fornecedor[fid] = "padrao_fixo"
 
         # 4. Análise de risco
         ruptures = []
@@ -235,6 +242,7 @@ class BuyerAnalyzer:
 
             fornecedor_id = estoque.get("fornecedor_id", "UNKNOWN")
             dias_reabastecimento = tempo_reabastecimento.get(fornecedor_id, 5)
+            origem_lead = origem_lead_por_fornecedor.get(fornecedor_id, "padrao_fixo")
 
             # Verificar se há risco
             if dias_de_estoque <= dias_reabastecimento and consumo_diario > 0:
@@ -270,6 +278,10 @@ class BuyerAnalyzer:
                             "consumo_diario": float(consumo_diario),
                             "dias_de_estoque": float(dias_de_estoque),
                             "tempo_reabastecimento_dias": dias_reabastecimento,
+                            "tempo_reabastecimento_origem": origem_lead,
+                            "custo_unitario": estoque.get("custo_unitario"),
+                            "preco_venda": estoque.get("preco_venda"),
+                            "fornecedor_id": fornecedor_id,
                             "rupture_probability": rupture_probability,
                             "data_provavel_ruptura": data_ruptura,
                             "vendas_perdidas_estimadas": float(vendas_perdidas),
@@ -327,7 +339,12 @@ class BuyerAnalyzer:
         for ruptura in rupturas:
             produto_id = ruptura["produto_id"]
             consumo_diario = Decimal(str(ruptura["consumo_diario"]))
-            dias_reabast = ruptura["tempo_reabastecimento_dias"]
+            dias_reabast = int(ruptura.get("tempo_reabastecimento_dias") or 5)
+            origem_lead = (
+                "historico"
+                if ruptura.get("tempo_reabastecimento_origem") == "historico"
+                else "padrao_fixo"
+            )
 
             # Quantidade ideal = consumo_diário * (dias_reabastecimento + margem)
             margem_seguranca = Decimal(str(self.config["margem_seguranca"]))
@@ -335,8 +352,20 @@ class BuyerAnalyzer:
                 consumo_diario * (dias_reabast + 7) * margem_seguranca
             )
 
-            # Estimar preço
-            preco_esperado = Decimal("5.0")  # TODO: Buscar do histórico
+            # Preço: histórico/custo real se vier na ruptura; senão padrão fixo 5.0
+            preco_raw = ruptura.get("custo_unitario") or ruptura.get("preco_venda")
+            if preco_raw not in (None, "", 0, "0"):
+                preco_esperado = Decimal(str(preco_raw))
+                origem_preco = "historico"
+            else:
+                preco_esperado = Decimal("5.0")
+                origem_preco = "padrao_fixo"
+
+            origem_dado = (
+                "historico"
+                if origem_preco == "historico" and origem_lead == "historico"
+                else "padrao_fixo"
+            )
 
             # Economia potencial (evitar ruptura)
             economia = Decimal(str(ruptura["vendas_perdidas_estimadas"]))
@@ -349,12 +378,17 @@ class BuyerAnalyzer:
                     "quantidade_sugerida": quantidade_ideal,
                     "estoque_atual": ruptura["estoque_atual"],
                     "consumo_diario": ruptura["consumo_diario"],
-                    "fornecedor_recomendado": "FORNECEDOR_A",  # TODO: Buscar melhor fornecedor
+                    "fornecedor_recomendado": ruptura.get("fornecedor_id")
+                    or "FORNECEDOR_A",
                     "preco_esperado": float(preco_esperado),
                     "custo_total": float(preco_esperado * quantidade_ideal),
                     "data_compra_ideal": (datetime.now()).isoformat(),
                     "economia_potencial": float(economia),
                     "justificativa": "Risco de ruptura iminente",
+                    "origem_dado": origem_dado,
+                    "origem_preco": origem_preco,
+                    "origem_tempo_reabastecimento": origem_lead,
+                    "tempo_reabastecimento_dias": dias_reabast,
                 }
             )
 

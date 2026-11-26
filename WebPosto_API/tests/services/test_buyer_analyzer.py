@@ -203,9 +203,8 @@ class TestRuptureRiskAnalysis:
 
         resultado = await analyzer.find_rupture_risk()
 
-        # Pode ter ou não resultado, mas se tiver não deve ser crítico
-        if resultado:
-            assert resultado[0]["urgencia"] != "CRÍTICA"
+        # 500 un / (~100/30) ~ 150 dias de estoque >> lead 5 -> sem ruptura
+        assert resultado == []
 
 
 class TestReplenishmentRecommendation:
@@ -245,6 +244,9 @@ class TestReplenishmentRecommendation:
         assert recomendacao["prioridade"] == 1
         assert recomendacao["quantidade_sugerida"] > 0
         assert recomendacao["economia_potencial"] > 0
+        assert recomendacao["origem_dado"] == "padrao_fixo"
+        assert recomendacao["origem_preco"] == "padrao_fixo"
+        assert recomendacao["preco_esperado"] == 5.0
 
 
 class TestBuyVsSellAnalysis:
