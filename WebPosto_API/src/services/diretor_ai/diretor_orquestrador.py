@@ -35,25 +35,31 @@ def _agora_br() -> str:
     return datetime.now(TZ_RECIFE).strftime("%d/%m/%Y %H:%M")
 
 
-# Milhar BR sem centavos: 1.000 | 12.345 | 1.234.567
-_RE_MILHAR_BR = re.compile(r"^[-+]?\d{1,3}(?:\.\d{3})+$")
-# Candidato numérico em texto (BR com/sem centavos, US decimal ou inteiro)
-_RE_NUMERO_RS = re.compile(
-    r"[-+]?(?:\d{1,3}(?:\.\d{3})+,\d+|\d{1,3}(?:\.\d{3})+|\d+,\d+|\d+\.\d+|\d+)"
-)
+# BR com centavos: 1.000,50 | 980,00 (vírgula + exatamente 2 dígitos no fim)
+_RE_BR_DECIMAL = re.compile(r"^([-+]?)(\d{1,3}(?:\.\d{3})*|\d+),(\d{2})$")
+# BR milhar sem centavos: 1.000 | 1.234.567
+_RE_BR_MILHAR = re.compile(r"^([-+]?)(\d{1,3}(?:\.\d{3})+)$")
+# Número puro: inteiro ou decimal com ponto (1000.50, 980.5, -400)
+_RE_NUMERO_PURO = re.compile(r"^([-+]?)(\d+)(?:\.(\d+))?$")
+_RE_PREFIXO_RS = re.compile(r"^[Rr]\$\s*")
 
 
 def _parse_rs(valor: Any) -> float | None:
-    """Extrai número de R$ a partir de float/Decimal/str; None se inválido/vazio.
+    """Extrai número de R$ a partir de float/Decimal/str; None se inválido/ambíguo.
 
-    Regras (explicitas — não chutar):
-    - Com vírgula → formato brasileiro: ponto é milhar, vírgula é decimal.
-      Ex.: ``1.000,50`` → 1000.5; ``980,00`` → 980.0.
-    - Sem vírgula e com grupos de três dígitos separados por ponto
-      (``1.000``, ``1.234.567``) → ponto é milhar.
-      Ex.: ``R$ 1.000`` → 1000.0.
-    - Caso contrário → ponto é decimal.
-      Ex.: ``1000.50`` → 1000.5; ``980.5`` → 980.5.
+    Regras (explícitas — não chutar; o texto inteiro deve casar, sem extrair
+    o "primeiro número" do meio de uma frase):
+
+    - Prefixo opcional ``R$``; espaços laterais são ignorados. Letras ou texto
+      extra (ex.: ``em vendas perdidas``) → ``None``.
+    - Com vírgula seguida de exatamente 2 dígitos no final → decimal brasileiro
+      (ponto = milhar). Ex.: ``1.000,50`` → 1000.5; ``980,00`` → 980.0.
+    - Qualquer outra vírgula (``1,000``, ``1,000.50``, ``120,000``) → ambíguo
+      → ``None``.
+    - Sem vírgula, com grupos de três dígitos separados por ponto
+      (``1.000``, ``1.234.567``) → milhar brasileiro.
+    - Número puro com ponto decimal ou inteiro → aceito.
+      Ex.: ``1000.50`` → 1000.5; ``980.5`` → 980.5; ``-400`` → -400.0.
     """
     if valor is None:
         return None
@@ -67,21 +73,61 @@ def _parse_rs(valor: Any) -> float | None:
     texto = str(valor).strip()
     if not texto:
         return None
-    limpo = texto.replace("R$", "").replace("r$", "").replace(" ", "")
-    match = _RE_NUMERO_RS.search(limpo)
-    if not match:
+    limpo = _RE_PREFIXO_RS.sub("", texto).strip().replace(" ", "")
+    if not limpo or re.search(r"[A-Za-z]", limpo):
         return None
-    num = match.group(0)
-    if "," in num:
-        normalizado = num.replace(".", "").replace(",", ".")
-    elif _RE_MILHAR_BR.fullmatch(num):
-        normalizado = num.replace(".", "")
-    else:
-        normalizado = num
-    try:
-        return float(Decimal(normalizado))
-    except (InvalidOperation, ValueError):
+
+    m_br = _RE_BR_DECIMAL.fullmatch(limpo)
+    if m_br:
+        sinal, inteiro, cents = m_br.groups()
+        normalizado = f"{sinal}{inteiro.replace('.', '')}.{cents}"
+        try:
+            return float(Decimal(normalizado))
+        except (InvalidOperation, ValueError):
+            return None
+
+    if "," in limpo:
+        # Vírgula que não é decimal BR estrito (2 dígitos) → ambíguo
         return None
+
+    m_milhar = _RE_BR_MILHAR.fullmatch(limpo)
+    if m_milhar:
+        sinal, corpo = m_milhar.groups()
+        try:
+            return float(Decimal(f"{sinal}{corpo.replace('.', '')}"))
+        except (InvalidOperation, ValueError):
+            return None
+
+    if _RE_NUMERO_PURO.fullmatch(limpo):
+        try:
+            return float(Decimal(limpo))
+        except (InvalidOperation, ValueError):
+            return None
+
+    return None
+
+
+def _impacto_buyer_item(item: dict[str, Any]) -> float | None:
+    """Preferência: impacto_rs → ganho_estimado_rs → texto BR estrito/número puro."""
+    for chave in ("impacto_rs", "ganho_estimado_rs"):
+        bruto = item.get(chave)
+        if bruto is None:
+            continue
+        if isinstance(bruto, bool):
+            continue
+        if isinstance(bruto, (int, float, Decimal)):
+            try:
+                return float(Decimal(str(bruto)).quantize(Decimal("0.01")))
+            except (InvalidOperation, ValueError):
+                continue
+        interpretado = _parse_rs(bruto)
+        if interpretado is not None:
+            return interpretado
+    for chave in ("impacto", "ganho_estimado"):
+        interpretado = _parse_rs(item.get(chave))
+        if interpretado is not None:
+            return interpretado
+    return None
 
 
 @dataclass
@@ -343,9 +389,7 @@ class DiretorOrquestrador:
         for item in rel.get("top_problemas") or []:
             if not isinstance(item, dict):
                 continue
-            impacto = _parse_rs(item.get("impacto"))
-            if impacto is None:
-                impacto = _parse_rs(item.get("ganho_estimado"))
+            impacto = _impacto_buyer_item(item)
             achados.append(
                 AchadoDiretor(
                     area=AREA_COMPRAS,
