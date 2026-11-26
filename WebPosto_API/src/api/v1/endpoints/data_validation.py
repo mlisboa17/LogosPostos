@@ -10,13 +10,18 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Depends, Query, HTTPException
 from pydantic import BaseModel
 
 from src.services.data_validation.compras_validator import ComprasValidator
 from src.api.v1.endpoints._webposto_factory import make_webposto_client
+from src.interfaces.http.dependencies import get_current_user
 
-router = APIRouter(prefix="/data-validation", tags=["Data Validation"])
+router = APIRouter(
+    prefix="/data-validation",
+    tags=["Data Validation"],
+    dependencies=[Depends(get_current_user)],
+)
 
 
 class ComprasValidationReport(BaseModel):
