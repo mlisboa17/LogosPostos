@@ -18,6 +18,9 @@ from src.services.diretor_ai.diretor_orquestrador import DiretorOrquestrador, _p
         ("980.5", 980.5),
         ("R$ 980,00", 980.0),
         ("-400", -400.0),
+        ("R$ 1,000", None),
+        ("1,000.50", None),
+        ("R$ 120,000 em vendas perdidas", None),
         ("", None),
         ("abc", None),
         (None, None),
@@ -35,18 +38,41 @@ class _BuyerComAchados:
             "top_problemas": [
                 {
                     "problema": "Capital parado em 3 produtos",
-                    "impacto": "R$ 1000",
+                    "impacto": "R$ 1,000",
+                    "impacto_rs": 1000.0,
                     "prioridade": "ALTA",
                     "acao": "Desconto/liquidação",
                     "ganho_estimado": "R$ 300",
+                    "ganho_estimado_rs": 300.0,
                 },
                 {
                     "problema": "2 produtos em risco de ruptura",
-                    "impacto": "R$ 500",
+                    "impacto": "R$ 500 em vendas perdidas",
+                    "impacto_rs": 500.0,
                     "prioridade": "CRÍTICA",
                     "acao": "Comprar hoje",
                     "ganho_estimado": "R$ 500",
+                    "ganho_estimado_rs": 500.0,
                 },
+            ],
+        }
+
+
+class _BuyerSoTextoAmbiguo:
+    """Simula brief antigo só com texto US — sem campos numéricos."""
+
+    async def generate_executive_brief(self):
+        return {
+            "status": "OK",
+            "economia_potencial_total": 0,
+            "top_problemas": [
+                {
+                    "problema": "Ruptura formatada à americana",
+                    "impacto": "R$ 120,000 em vendas perdidas",
+                    "prioridade": "CRÍTICA",
+                    "acao": "Comprar hoje",
+                    "ganho_estimado": "R$ 1,000",
+                }
             ],
         }
 
@@ -152,6 +178,38 @@ class TestDiretorOrquestrador:
         assert brief["achados"][1]["impacto_rs"] == 500.0
         assert brief["achados"][0]["origem"] == "BuyerAnalyzer.generate_executive_brief"
         assert brief["pendencias"] == []
+
+    @pytest.mark.asyncio
+    async def test_buyer_soma_campos_numericos_ignora_texto_ambiguo(self):
+        """Totais vêm de impacto_rs; texto 'R$ 1,000' / frase longa não entram no cálculo."""
+        orq = DiretorOrquestrador(
+            buyer_analyzer=_BuyerComAchados(),
+            tax_analyzer=_TaxVazio(),
+            pricing_analyzer=_PricingVazio(),
+            compras_validator=_ComprasVazio(),
+            financeiro_analyzer=_FinanceiroVazio(),
+        )
+        brief = await orq.gerar_brief()
+        soma_campos = 1000.0 + 500.0
+
+        assert brief["impacto_total_rs"] == soma_campos
+        assert [a["impacto_rs"] for a in brief["achados"]] == [1000.0, 500.0]
+
+    @pytest.mark.asyncio
+    async def test_buyer_texto_ambiguo_sem_numero_vira_sem_valor(self):
+        orq = DiretorOrquestrador(
+            buyer_analyzer=_BuyerSoTextoAmbiguo(),
+            tax_analyzer=_TaxVazio(),
+            pricing_analyzer=_PricingVazio(),
+            compras_validator=_ComprasVazio(),
+            financeiro_analyzer=_FinanceiroVazio(),
+        )
+        brief = await orq.gerar_brief()
+
+        assert brief["impacto_total_rs"] == 0.0
+        assert brief["achados"] == []
+        assert len(brief["achados_sem_valor"]) == 1
+        assert brief["achados_sem_valor"][0]["impacto_rs"] is None
 
     @pytest.mark.asyncio
     async def test_fonte_indisponivel_vira_pendencia_nao_zero(self):

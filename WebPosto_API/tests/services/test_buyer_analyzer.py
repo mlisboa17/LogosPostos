@@ -382,3 +382,16 @@ class TestExecutiveBrief:
         assert brief["economia_potencial_total"] > 0
         assert len(brief["top_problemas"]) > 0
         assert len(brief["proximas_acoes"]) > 0
+        for item in brief["top_problemas"]:
+            assert "impacto" in item
+            assert "impacto_rs" in item
+            assert isinstance(item["impacto_rs"], float)
+            assert "ganho_estimado" in item
+            assert "ganho_estimado_rs" in item
+            assert isinstance(item["ganho_estimado_rs"], float)
+        capital = next(p for p in brief["top_problemas"] if "Capital parado" in p["problema"])
+        assert capital["impacto_rs"] == 5000.0
+        assert capital["ganho_estimado_rs"] == 1500.0
+        ruptura = next(p for p in brief["top_problemas"] if "ruptura" in p["problema"])
+        assert ruptura["impacto_rs"] == 10000.0
+        assert ruptura["ganho_estimado_rs"] == 10000.0
