@@ -269,22 +269,16 @@ class TestRelatorioAudit:
 
     @pytest.mark.asyncio
     async def test_gerar_relatorio_precificacao(self, analyzer):
-        """Gerar relatório consolidado"""
+        """Sem fonte real de preço/custo o relatório declara fonte_indisponivel."""
         relatorio = await analyzer.gerar_relatorio_precificacao()
 
+        assert relatorio["status"] == "fonte_indisponivel"
+        assert "motivo" in relatorio
         assert "data_audit" in relatorio
-        assert "estado" in relatorio
-        assert "margens_negativas" in relatorio
-        assert "margens_baixas" in relatorio
-        assert "oportunidades_reajuste" in relatorio
-        assert "impacto_total_mensal" in relatorio
-        assert "recomendacoes" in relatorio
-        assert "status" in relatorio
 
     @pytest.mark.asyncio
     async def test_relatorio_status_critico(self, analyzer):
         """Relatório deve marcar status CRÍTICO quando há margens negativas"""
-        # Mock para forçar margens negativas
         analyzer.identificar_margens_negativas = AsyncMock(
             return_value=[
                 AnaliseMargem(
@@ -301,16 +295,21 @@ class TestRelatorioAudit:
                 )
             ]
         )
+        analyzer.identificar_produtos_baixa_margem = AsyncMock(return_value=[])
+        analyzer.gerar_sugestoes_reajuste = AsyncMock(return_value=[])
+        analyzer.listar_perdas_ocultas = AsyncMock(
+            return_value={"status": "fonte_indisponivel", "motivo": "teste"}
+        )
 
         relatorio = await analyzer.gerar_relatorio_precificacao()
 
-        # Quando há margens negativas, status deve ser CRÍTICO
-        if relatorio["margens_negativas"] > 0:
-            assert relatorio["status"] == "CRÍTICO"
+        assert relatorio["margens_negativas"] == 1
+        assert relatorio["status"] == "CRÍTICO"
 
     @pytest.mark.asyncio
     async def test_relatorio_status_alerta(self, analyzer):
         """Relatório deve marcar ALERTA quando há muitos produtos com baixa margem"""
+        analyzer.identificar_margens_negativas = AsyncMock(return_value=[])
         analyzer.identificar_produtos_baixa_margem = AsyncMock(
             return_value=[
                 AnaliseMargem(
@@ -326,12 +325,15 @@ class TestRelatorioAudit:
                 for i in range(6)
             ]
         )
+        analyzer.gerar_sugestoes_reajuste = AsyncMock(return_value=[])
+        analyzer.listar_perdas_ocultas = AsyncMock(
+            return_value={"status": "fonte_indisponivel", "motivo": "teste"}
+        )
 
         relatorio = await analyzer.gerar_relatorio_precificacao()
 
-        # Com 6 produtos de margem baixa, status deve ser ALERTA
-        if relatorio["margens_baixas"] > 5:
-            assert relatorio["status"] == "ALERTA"
+        assert relatorio["margens_baixas"] == 6
+        assert relatorio["status"] == "ALERTA"
 
 
 class TestArredondamentoPsicologico:
@@ -400,26 +402,26 @@ class TestIntegracaoCompleta:
     async def test_cenario_produto_boom(self, analyzer):
         """Cenário: Produto em boom (margem ok, muita venda)"""
 
-        # Analisar
         analise = await analyzer.analisar_margem_produto(
             "SKU_BOOM",
             preco_venda=Decimal("100"),
             custo_produto=Decimal("60"),
+            aliquota_icms=Decimal("0"),
         )
 
         assert analise.margem_status == "SAUDÁVEL"
 
-        # Sugestão (margem já boa)
         sugestao = await analyzer.recomendar_reajuste_preco(
             "SKU_BOOM",
             preco_atual=Decimal("100"),
             margem_atual_percentual=analise.margem_percentual,
-            velocidade_venda_mensal=1000,  # Muita venda
+            margem_alvo_percentual=25,
+            velocidade_venda_mensal=1000,
         )
 
-        # Urgência deve ser baixa
-        assert sugestao.urgencia in ["BAIXA", "MÉDIA"]
-
-        # Mas impacto pode ser alto (volume alto)
-        if sugestao.percentual_ajuste > 5:
-            assert sugestao.impacto_mensal > Decimal("200")
+        # Margem já acima do alvo → urgência baixa; impacto = Δpreço * volume
+        assert sugestao.urgencia == "BAIXA"
+        impacto_esperado = (sugestao.preco_sugerido - sugestao.preco_atual) * Decimal(
+            "1000"
+        )
+        assert sugestao.impacto_mensal == impacto_esperado
