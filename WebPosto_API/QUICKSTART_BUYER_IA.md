@@ -23,7 +23,7 @@ test_comprado_demais_nao_vendeu PASSED
 test_comprado_pouco_vendeu_muito PASSED
 test_generate_executive_brief PASSED
 
-✅ 9 passed
+✅ 17 passed
 ```
 
 ---
