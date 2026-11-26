@@ -486,48 +486,64 @@ class BuyerAnalyzer:
         data_inicial = (datetime.now() - timedelta(days=periodo_dias)).isoformat()
 
         # 1. Buscar compras
-        compras = await self.client.get(
-            "/INTEGRACAO/V1/COMPRAS",
-            params={"data_inicial": data_inicial},
-        )
+        try:
+            compras = await self.client.get(
+                "/INTEGRACAO/V1/COMPRAS",
+                params={"data_inicial": data_inicial},
+            )
+        except Exception as exc:  # noqa: BLE001
+            return _fonte_indisponivel(
+                f"falha ao ler COMPRAS: {type(exc).__name__}: {exc}"
+            )
+        if compras is None:
+            return _fonte_indisponivel("COMPRAS retornou nulo")
+        if not isinstance(compras, list):
+            return _fonte_indisponivel("COMPRAS não retornou lista")
 
         comprado_por_produto = {}
-        if compras:
-            for compra in compras:
-                for item in compra.get("itens", []):
-                    produto_id = item.get("produto_id")
-                    quantidade = int(item.get("quantidade", 0))
-                    custo = Decimal(str(item.get("preco_unitario", 0)))
+        for compra in compras:
+            for item in compra.get("itens", []):
+                produto_id = item.get("produto_id")
+                quantidade = int(item.get("quantidade", 0))
+                custo = Decimal(str(item.get("preco_unitario", 0)))
 
-                    if produto_id not in comprado_por_produto:
-                        comprado_por_produto[produto_id] = {
-                            "quantidade": 0,
-                            "custo_medio": custo,
-                        }
-                    comprado_por_produto[produto_id]["quantidade"] += quantidade
-                    comprado_por_produto[produto_id]["custo_medio"] = custo
+                if produto_id not in comprado_por_produto:
+                    comprado_por_produto[produto_id] = {
+                        "quantidade": 0,
+                        "custo_medio": custo,
+                    }
+                comprado_por_produto[produto_id]["quantidade"] += quantidade
+                comprado_por_produto[produto_id]["custo_medio"] = custo
 
         # 2. Buscar vendas
-        vendas = await self.client.get(
-            "/INTEGRACAO/V1/VENDAS",
-            params={"data_inicial": data_inicial},
-        )
+        try:
+            vendas = await self.client.get(
+                "/INTEGRACAO/V1/VENDAS",
+                params={"data_inicial": data_inicial},
+            )
+        except Exception as exc:  # noqa: BLE001
+            return _fonte_indisponivel(
+                f"falha ao ler VENDAS: {type(exc).__name__}: {exc}"
+            )
+        if vendas is None:
+            return _fonte_indisponivel("VENDAS retornou nulo")
+        if not isinstance(vendas, list):
+            return _fonte_indisponivel("VENDAS não retornou lista")
 
         vendido_por_produto = {}
-        if vendas:
-            for venda in vendas:
-                for item in venda.get("itens", []):
-                    produto_id = item.get("produto_id")
-                    quantidade = int(item.get("quantidade", 0))
-                    preco_venda = Decimal(str(item.get("preco_venda", 0)))
+        for venda in vendas:
+            for item in venda.get("itens", []):
+                produto_id = item.get("produto_id")
+                quantidade = int(item.get("quantidade", 0))
+                preco_venda = Decimal(str(item.get("preco_venda", 0)))
 
-                    if produto_id not in vendido_por_produto:
-                        vendido_por_produto[produto_id] = {
-                            "quantidade": 0,
-                            "preco_medio": preco_venda,
-                        }
-                    vendido_por_produto[produto_id]["quantidade"] += quantidade
-                    vendido_por_produto[produto_id]["preco_medio"] = preco_venda
+                if produto_id not in vendido_por_produto:
+                    vendido_por_produto[produto_id] = {
+                        "quantidade": 0,
+                        "preco_medio": preco_venda,
+                    }
+                vendido_por_produto[produto_id]["quantidade"] += quantidade
+                vendido_por_produto[produto_id]["preco_medio"] = preco_venda
 
         # 3. Analisar desequilíbrios
         produtos_comprado_demais = []
@@ -671,7 +687,12 @@ class BuyerAnalyzer:
         reposicoes = await self.recommend_replenishment()
         if isinstance(reposicoes, dict) and reposicoes.get("status") == "fonte_indisponivel":
             return {**reposicoes, "data_audit": datetime.now().isoformat()}
+        if not isinstance(reposicoes, list):
+            reposicoes = _extrair_itens(reposicoes)
+
         desequilibrios = await self.analyze_buy_vs_sell_mismatch()
+        if isinstance(desequilibrios, dict) and desequilibrios.get("status") == "fonte_indisponivel":
+            return {**desequilibrios, "data_audit": datetime.now().isoformat()}
 
         # Consolidar top 3 problemas
         problemas = []

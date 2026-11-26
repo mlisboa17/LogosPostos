@@ -393,6 +393,28 @@ class TestBuyVsSellAnalysis:
         assert produto["deficit"] == 400
         assert produto["vendas_perdidas_potenciais"] == 4000.0
 
+    @pytest.mark.asyncio
+    async def test_desequilibrio_cliente_falha_fonte_indisponivel(
+        self, analyzer, mock_webposto_client
+    ):
+        mock_webposto_client.get.side_effect = RuntimeError("compras_offline")
+
+        resultado = await analyzer.analyze_buy_vs_sell_mismatch(periodo_dias=30)
+
+        assert resultado["status"] == "fonte_indisponivel"
+        assert "compras_offline" in resultado["motivo"]
+
+    @pytest.mark.asyncio
+    async def test_desequilibrio_compras_nulas_fonte_indisponivel(
+        self, analyzer, mock_webposto_client
+    ):
+        mock_webposto_client.get.return_value = None
+
+        resultado = await analyzer.analyze_buy_vs_sell_mismatch(periodo_dias=30)
+
+        assert resultado["status"] == "fonte_indisponivel"
+        assert "nulo" in resultado["motivo"]
+
 
 class TestExecutiveBrief:
     """Testes de relatório executivo"""

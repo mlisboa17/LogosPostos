@@ -71,3 +71,45 @@ def test_ruptures_risk_sem_credencial_401(app):
         resp = client.get("/api/v1/buyer-ai/ruptures-risk")
 
     assert resp.status_code == 401
+
+
+def test_desequilibrios_fonte_indisponivel_retorna_200(app, monkeypatch):
+    class _Analyzer:
+        async def analyze_buy_vs_sell_mismatch(self, periodo_dias: int = 30):
+            return {
+                "status": "fonte_indisponivel",
+                "motivo": "falha ao ler COMPRAS: RuntimeError: compras_offline",
+            }
+
+    monkeypatch.setattr(buyer_ai, "get_analyzer", lambda: _Analyzer())
+    _auth(app)
+
+    with TestClient(app) as client:
+        resp = client.get("/api/v1/buyer-ai/desequilibrios")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "fonte_indisponivel"
+    assert "compras_offline" in body["motivo"]
+
+
+def test_desequilibrios_erro_inesperado_retorna_500(app, monkeypatch):
+    class _Analyzer:
+        async def analyze_buy_vs_sell_mismatch(self, periodo_dias: int = 30):
+            raise RuntimeError("bug_interno")
+
+    monkeypatch.setattr(buyer_ai, "get_analyzer", lambda: _Analyzer())
+    _auth(app)
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        resp = client.get("/api/v1/buyer-ai/desequilibrios")
+
+    assert resp.status_code == 500
+    assert "bug_interno" in resp.json()["detail"]
+
+
+def test_desequilibrios_sem_credencial_401(app):
+    with TestClient(app) as client:
+        resp = client.get("/api/v1/buyer-ai/desequilibrios")
+
+    assert resp.status_code == 401
