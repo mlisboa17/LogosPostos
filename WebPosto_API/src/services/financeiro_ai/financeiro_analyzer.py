@@ -12,10 +12,11 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any, Awaitable, Callable, Optional
 from zoneinfo import ZoneInfo
 
 from src.services.financial_reconciliation_engine import to_decimal
+from src.services.financeiro_ai import fontes as fontes_reais
 
 TZ_RECIFE = ZoneInfo("America/Recife")
 
@@ -126,10 +127,22 @@ class FinanceiroAnalyzer:
         *,
         empresa_codigo: int = EMPRESA_DOZE_FILIAL,
         horizonte_dias_padrao: int = 7,
+        cash_flow_service: Optional[object] = None,
+        finance_center_service: Optional[object] = None,
+        cartoes_fonte: Optional[
+            Callable[..., Awaitable[list[dict[str, Any]] | dict[str, Any]]]
+        ] = None,
+        despesas_fonte: Optional[
+            Callable[..., Awaitable[list[dict[str, Any]] | dict[str, Any]]]
+        ] = None,
     ) -> None:
         self.webposto_client = webposto_client
         self.empresa_codigo = empresa_codigo
         self.horizonte_dias_padrao = horizonte_dias_padrao
+        self.cash_flow_service = cash_flow_service
+        self.finance_center_service = finance_center_service
+        self.cartoes_fonte = cartoes_fonte
+        self.despesas_fonte = despesas_fonte
 
     # ---------- 1. Fluxo de caixa projetado ----------
 
@@ -148,14 +161,39 @@ class FinanceiroAnalyzer:
         """
         n = horizonte_dias if horizonte_dias is not None else self.horizonte_dias_padrao
         ref = data_referencia or datetime.now(TZ_RECIFE).date()
+        da_fonte = False
 
         if movimentos is None:
             carregado = await self._carregar_movimentos_fluxo(ref, n)
             if isinstance(carregado, dict) and carregado.get("status") == "fonte_indisponivel":
                 return {**carregado, "data_audit": _agora_br()}
             movimentos = carregado
+            da_fonte = True
 
-        if not isinstance(movimentos, list) or len(movimentos) == 0:
+        if not isinstance(movimentos, list):
+            return _fonte_indisponivel(
+                "sem movimentos de entrada/saída para projetar o fluxo; "
+                "lista vazia não autoriza concluir que o caixa está saudável"
+            )
+        if len(movimentos) == 0:
+            if da_fonte:
+                return {
+                    "status": "OK",
+                    "data_audit": _agora_br(),
+                    "empresa_codigo": self.empresa_codigo,
+                    "empresa_nome": EMPRESA_DOZE_FILIAL_NOME
+                    if self.empresa_codigo == EMPRESA_DOZE_FILIAL
+                    else str(self.empresa_codigo),
+                    "horizonte_dias": n,
+                    "saldo_inicial": float(
+                        to_decimal(saldo_inicial if saldo_inicial is not None else 0)
+                    ),
+                    "serie_diaria": [],
+                    "alertas_saldo_negativo": [],
+                    "observacao": (
+                        "fonte respondeu com sucesso; nenhum movimento no recorte"
+                    ),
+                }
             return _fonte_indisponivel(
                 "sem movimentos de entrada/saída para projetar o fluxo; "
                 "lista vazia não autoriza concluir que o caixa está saudável"
@@ -248,16 +286,15 @@ class FinanceiroAnalyzer:
     async def _carregar_movimentos_fluxo(
         self, ref: date, n: int
     ) -> list[dict[str, Any]] | dict[str, str]:
-        if self.webposto_client is None:
+        if self.cash_flow_service is None:
             return _fonte_indisponivel(
-                "webposto_client não injetado; informe movimentos=... para projeção offline"
+                "CorporateCashFlowService não injetado; informe movimentos=... para projeção offline"
             )
-        # Cliente de fábrica (src.webposto) não expõe série diária consolidada de fluxo.
-        # CorporateCashFlowService depende de gateway async + finance center — fora desta fachada.
-        return _fonte_indisponivel(
-            "cliente WebPosto injetado não fornece série diária de entradas/saídas "
-            "para projeção; use CorporateCashFlowService/cash_flow_snapshot ou "
-            "passe movimentos explicitamente"
+        return await fontes_reais.carregar_movimentos_cash_flow(
+            self.cash_flow_service,
+            empresa_codigo=self.empresa_codigo,
+            ref=ref,
+            horizonte_dias=n,
         )
 
     # ---------- 2. Conferência de cartões ----------
@@ -273,18 +310,36 @@ class FinanceiroAnalyzer:
 
         Diferença por dia e bandeira, em R$. Aportes não entram na conciliação.
         """
+        da_fonte = False
         if vendas_cartao is None or recebimentos_adquirentes is None:
             carregado = await self._carregar_fontes_cartao()
             if isinstance(carregado, dict) and carregado.get("status") == "fonte_indisponivel":
                 return {**carregado, "data_audit": _agora_br()}
             vendas_cartao = carregado.get("vendas_cartao")  # type: ignore[assignment]
             recebimentos_adquirentes = carregado.get("recebimentos")  # type: ignore[assignment]
+            da_fonte = True
 
         if not isinstance(vendas_cartao, list) or not isinstance(recebimentos_adquirentes, list):
             return _fonte_indisponivel(
                 "fontes de venda cartão e/ou recebimento de adquirente ausentes ou inválidas"
             )
         if len(vendas_cartao) == 0 and len(recebimentos_adquirentes) == 0:
+            if da_fonte:
+                return {
+                    "status": "OK",
+                    "data_audit": _agora_br(),
+                    "empresa_codigo": self.empresa_codigo,
+                    "adquirentes_esperadas": list(ADQUIRENTES_ESPERADAS),
+                    "total_venda_cartao_webposto": 0.0,
+                    "total_recebido_adquirentes": 0.0,
+                    "diferenca_total": 0.0,
+                    "diferencas": [],
+                    "avisos_aporte": [],
+                    "observacao": (
+                        "fonte respondeu com sucesso; nenhum lançamento no recorte"
+                    ),
+                    "escopo_excluido": "conciliação depósito × extrato bancário (fora do escopo)",
+                }
             return _fonte_indisponivel(
                 "nenhuma venda em cartão nem recebimento de adquirente informado; "
                 "lista vazia não significa conferência ok"
@@ -409,17 +464,21 @@ class FinanceiroAnalyzer:
         }
 
     async def _carregar_fontes_cartao(self) -> dict[str, Any]:
-        if self.webposto_client is None:
-            return _fonte_indisponivel(
-                "webposto_client não injetado e listas vendas_cartao/"
-                "recebimentos_adquirentes não foram informadas"
-            )
-        # A conciliação operacional vive em cash_reconciliation (PagBank/Cielo/Premmia).
-        # Esta fachada não baixa portal/adquirente sozinha para não inventar totais.
+        if self.cartoes_fonte is not None:
+            try:
+                resultado = await self.cartoes_fonte()
+            except Exception as exc:  # noqa: BLE001
+                return _fonte_indisponivel(
+                    f"fonte de cartões falhou: {type(exc).__name__}: {exc}"
+                )
+            if isinstance(resultado, dict) and resultado.get("status") == "fonte_indisponivel":
+                return resultado
+            if isinstance(resultado, dict):
+                return resultado
+            return _fonte_indisponivel("fonte de cartões retornou formato inválido")
         return _fonte_indisponivel(
-            "fonte de adquirentes (PagBank/Cielo/Premmia/Mais Pagamentos) não disponível "
-            "nesta fachada; use o módulo cash_reconciliation ou informe "
-            "vendas_cartao e recebimentos_adquirentes"
+            "fonte de cartões (pagbank_edi/extrato_reader) não injetada; "
+            "informe vendas_cartao e recebimentos_adquirentes"
         )
 
     # ---------- 3. Recebimentos / inadimplência ----------
@@ -432,13 +491,32 @@ class FinanceiroAnalyzer:
     ) -> dict[str, Any]:
         """Títulos vencidos e clientes frota/prazo em atraso."""
         ref = data_referencia or datetime.now(TZ_RECIFE).date()
+        da_fonte = False
         if titulos is None:
-            carregado = await self._carregar_titulos_receber()
+            carregado = await self._carregar_titulos_receber(ref)
             if isinstance(carregado, dict) and carregado.get("status") == "fonte_indisponivel":
                 return {**carregado, "data_audit": _agora_br()}
             titulos = carregado
+            da_fonte = True
 
-        if not isinstance(titulos, list) or len(titulos) == 0:
+        if not isinstance(titulos, list):
+            return _fonte_indisponivel(
+                "nenhum título a receber informado; lista vazia não prova ausência de inadimplência"
+            )
+        if len(titulos) == 0:
+            if da_fonte:
+                return {
+                    "status": "OK",
+                    "data_audit": _agora_br(),
+                    "empresa_codigo": self.empresa_codigo,
+                    "data_referencia": _fmt_dia(ref),
+                    "quantidade": 0,
+                    "valor_total_inadimplencia": 0.0,
+                    "titulos": [],
+                    "observacao": (
+                        "fonte respondeu com sucesso; nenhum título no recorte"
+                    ),
+                }
             return _fonte_indisponivel(
                 "nenhum título a receber informado; lista vazia não prova ausência de inadimplência"
             )
@@ -535,38 +613,18 @@ class FinanceiroAnalyzer:
             return "PRAZO"
         return "OUTRO"
 
-    async def _carregar_titulos_receber(self) -> list[dict[str, Any]] | dict[str, str]:
-        if self.webposto_client is None:
+    async def _carregar_titulos_receber(
+        self, ref: date
+    ) -> list[dict[str, Any]] | dict[str, str]:
+        if self.finance_center_service is None:
             return _fonte_indisponivel(
-                "webposto_client não injetado; informe titulos=... para análise offline"
+                "CorporateFinanceCenterService não injetado; informe titulos=... para análise offline"
             )
-        fin = getattr(self.webposto_client, "financeiro", None)
-        listar = getattr(fin, "listar_titulos_receber", None) if fin else None
-        if not callable(listar):
-            return _fonte_indisponivel(
-                "cliente WebPosto não expõe financeiro.listar_titulos_receber"
-            )
-        try:
-            rows = listar(empresa_codigo=self.empresa_codigo)
-        except TypeError:
-            try:
-                rows = listar()
-            except Exception as exc:  # noqa: BLE001
-                return _fonte_indisponivel(
-                    f"falha ao ler títulos a receber: {type(exc).__name__}: {exc}"
-                )
-        except Exception as exc:  # noqa: BLE001
-            return _fonte_indisponivel(
-                f"falha ao ler títulos a receber: {type(exc).__name__}: {exc}"
-            )
-        if not isinstance(rows, list):
-            return _fonte_indisponivel("listar_titulos_receber não retornou lista")
-        if len(rows) == 0:
-            return _fonte_indisponivel(
-                "listar_titulos_receber retornou zero registros; "
-                "não dá para afirmar ausência de inadimplência"
-            )
-        return rows
+        return await fontes_reais.carregar_titulos_finance_center(
+            self.finance_center_service,
+            empresa_codigo=self.empresa_codigo,
+            ref=ref,
+        )
 
     # ---------- 4. Saídas / despesas sem categoria ou comprovante ----------
 
@@ -580,13 +638,31 @@ class FinanceiroAnalyzer:
         Mesma ideia do dashboard de auditoria (despesasSemConta + sem comprovante).
         Identifica o caixa por posto + setor/centro ou nome_caixa — nunca frentista.
         """
+        da_fonte = False
         if despesas is None:
             carregado = await self._carregar_despesas_caixa()
             if isinstance(carregado, dict) and carregado.get("status") == "fonte_indisponivel":
                 return {**carregado, "data_audit": _agora_br()}
             despesas = carregado
+            da_fonte = True
 
-        if not isinstance(despesas, list) or len(despesas) == 0:
+        if not isinstance(despesas, list):
+            return _fonte_indisponivel(
+                "nenhuma despesa de caixa informada; lista vazia não prova que não há "
+                "despesa sem categoria/comprovante"
+            )
+        if len(despesas) == 0:
+            if da_fonte:
+                return {
+                    "status": "OK",
+                    "data_audit": _agora_br(),
+                    "empresa_codigo": self.empresa_codigo,
+                    "quantidade": 0,
+                    "despesas": [],
+                    "observacao": (
+                        "fonte respondeu com sucesso; nenhuma despesa no recorte"
+                    ),
+                }
             return _fonte_indisponivel(
                 "nenhuma despesa de caixa informada; lista vazia não prova que não há "
                 "despesa sem categoria/comprovante"
@@ -715,14 +791,21 @@ class FinanceiroAnalyzer:
         return f"{posto}|CAIXA_NAO_IDENTIFICADO"
 
     async def _carregar_despesas_caixa(self) -> list[dict[str, Any]] | dict[str, str]:
-        if self.webposto_client is None:
-            return _fonte_indisponivel(
-                "webposto_client não injetado; informe despesas=... para análise offline"
-            )
+        if self.despesas_fonte is not None:
+            try:
+                resultado = await self.despesas_fonte()
+            except Exception as exc:  # noqa: BLE001
+                return _fonte_indisponivel(
+                    f"fonte de despesas falhou: {type(exc).__name__}: {exc}"
+                )
+            if isinstance(resultado, dict) and resultado.get("status") == "fonte_indisponivel":
+                return resultado
+            if isinstance(resultado, list):
+                return resultado
+            return _fonte_indisponivel("fonte de despesas retornou formato inválido")
         return _fonte_indisponivel(
-            "cliente WebPosto injetado não expõe despesas de caixa com categoria/"
-            "comprovante nesta fachada; use cash_reconciliation/data_quality ou "
-            "passe despesas explicitamente"
+            "fonte de despesas (cash_reconciliation/webposto_detalhes) não injetada; "
+            "informe despesas=... para análise offline"
         )
 
     # ---------- Relatório consolidado ----------
