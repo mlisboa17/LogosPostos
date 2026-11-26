@@ -604,27 +604,32 @@ class BuyerAnalyzer:
 
         # Problema 1: Capital parado
         if capital_parado_list:
-            total_capital = sum(p["capital_parado"] for p in capital_parado_list)
+            total_capital = float(sum(p["capital_parado"] for p in capital_parado_list))
+            ganho_capital = round(total_capital * 0.3, 2)
             problemas.append(
                 {
                     "problema": f"Capital parado em {len(capital_parado_list)} produtos",
                     "impacto": f"R$ {total_capital:,.0f}",
+                    "impacto_rs": round(total_capital, 2),
                     "prioridade": "ALTA",
                     "acao": "Desconto/liquidação",
-                    "ganho_estimado": f"R$ {total_capital * 0.3:,.0f}",
+                    "ganho_estimado": f"R$ {ganho_capital:,.0f}",
+                    "ganho_estimado_rs": ganho_capital,
                 }
             )
 
         # Problema 2: Rupturas
         if rupturas:
-            total_perdas = sum(r["vendas_perdidas_estimadas"] for r in rupturas)
+            total_perdas = float(sum(r["vendas_perdidas_estimadas"] for r in rupturas))
             problemas.append(
                 {
                     "problema": f"{len(rupturas)} produtos em risco de ruptura",
                     "impacto": f"R$ {total_perdas:,.0f} em vendas perdidas",
+                    "impacto_rs": round(total_perdas, 2),
                     "prioridade": "CRÍTICA",
                     "acao": "Comprar hoje",
                     "ganho_estimado": f"R$ {total_perdas:,.0f} (evitar perda)",
+                    "ganho_estimado_rs": round(total_perdas, 2),
                 }
             )
 
@@ -633,17 +638,20 @@ class BuyerAnalyzer:
             desequilibrios["produtos_comprado_demais"]
             or desequilibrios["produtos_comprado_pouco"]
         ):
-            total_desequilibrio = (
+            total_desequilibrio = float(
                 desequilibrios["capital_parado_total"]
                 + desequilibrios["vendas_perdidas_total"]
             )
+            ganho_deseq = round(total_desequilibrio * 0.2, 2)
             problemas.append(
                 {
                     "problema": f"Desequilíbrio compras vs vendas",
                     "impacto": f"R$ {total_desequilibrio:,.0f}",
+                    "impacto_rs": round(total_desequilibrio, 2),
                     "prioridade": "ALTA",
                     "acao": "Rebalancear compras",
-                    "ganho_estimado": f"R$ {total_desequilibrio * 0.2:,.0f}",
+                    "ganho_estimado": f"R$ {ganho_deseq:,.0f}",
+                    "ganho_estimado_rs": ganho_deseq,
                 }
             )
 
