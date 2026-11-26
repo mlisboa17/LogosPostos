@@ -19,6 +19,14 @@ from src.modules.commercial_performance.interfaces.http import router as commerc
 from src.interfaces.http.routes import financial_intelligence
 from src.modules.cash_reconciliation.interfaces.http import router as cash_audit_router
 from src.shared.logger import setup_logging
+from src.api.v1.endpoints import (
+    buyer_ai,
+    data_validation,
+    diretor_ai,
+    financeiro_ai,
+    pricing_ai,
+    tax_advisor_ai,
+)
 
 
 def create_app() -> FastAPI:
@@ -62,6 +70,13 @@ def create_app() -> FastAPI:
     app.include_router(financial_intelligence.router)
     app.include_router(cash_audit_router)
     app.include_router(commercial_router)
+    # IAs de negócio (fases 1-5) — prefixo /api/v1, como documentado nos QUICKSTART
+    app.include_router(data_validation.router, prefix="/api/v1")
+    app.include_router(buyer_ai.router, prefix="/api/v1")
+    app.include_router(tax_advisor_ai.router, prefix="/api/v1")
+    app.include_router(pricing_ai.router, prefix="/api/v1")
+    app.include_router(financeiro_ai.router, prefix="/api/v1")
+    app.include_router(diretor_ai.router, prefix="/api/v1")
 
     # Rotas de integração WebPosto (catálogo de produtos, grupos, proxy, etc.)
     try:
