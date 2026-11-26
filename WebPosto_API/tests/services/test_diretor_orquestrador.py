@@ -105,18 +105,24 @@ class _TaxVazio:
             "status": "OK",
             "problemas_encontrados": 0,
             "problemas_criticos": 0,
-            "risco_fiscal_estimado": 0,
+            "risco_fiscal": {
+                "status": "nao_estimado",
+                "motivo": "sem base de multa auditada",
+            },
             "recomendacoes": [],
         }
 
 
-class _TaxMesmoValor:
+class _TaxComCriticosSemValor:
     async def generate_tax_audit_report(self):
         return {
-            "status": "OK",
+            "status": "CRÍTICO",
             "problemas_encontrados": 1,
             "problemas_criticos": 1,
-            "risco_fiscal_estimado": 1000.0,
+            "risco_fiscal": {
+                "status": "nao_estimado",
+                "motivo": "sem base de multa auditada",
+            },
             "recomendacoes": ["Corrigir NCM"],
         }
 
@@ -128,6 +134,16 @@ class _PricingVazio:
             "margens_negativas": 0,
             "impacto_total_mensal": 0,
             "recomendacoes": [],
+        }
+
+
+class _PricingComValor:
+    async def gerar_relatorio_precificacao(self):
+        return {
+            "status": "CRÍTICO",
+            "margens_negativas": 1,
+            "impacto_total_mensal": 1000.0,
+            "recomendacoes": ["Corrigir margem"],
         }
 
 
@@ -233,8 +249,8 @@ class TestDiretorOrquestrador:
     async def test_excecao_vira_erro_sem_derrubar_outras(self):
         orq = DiretorOrquestrador(
             buyer_analyzer=_BuyerErro(),
-            tax_analyzer=_TaxMesmoValor(),
-            pricing_analyzer=_PricingVazio(),
+            tax_analyzer=_TaxVazio(),
+            pricing_analyzer=_PricingComValor(),
             compras_validator=_ComprasVazio(),
             financeiro_analyzer=_FinanceiroVazio(),
         )
@@ -243,7 +259,7 @@ class TestDiretorOrquestrador:
 
         assert quadro["Comprador IA"]["status"] == "erro"
         assert "buyer_explodiu" in (quadro["Comprador IA"]["motivo"] or "")
-        assert quadro["Tax Advisor IA"]["status"] in {"ok", "vazio"}
+        assert quadro["Precificador IA"]["status"] in {"ok", "vazio"}
         assert brief["impacto_total_rs"] == 1000.0
         assert len(brief["status_ias"]) == 5
 
@@ -251,20 +267,37 @@ class TestDiretorOrquestrador:
     async def test_mesmo_valor_origens_diferentes_nao_fundem(self):
         orq = DiretorOrquestrador(
             buyer_analyzer=_BuyerComAchados(),
-            tax_analyzer=_TaxMesmoValor(),
+            tax_analyzer=_TaxVazio(),
+            pricing_analyzer=_PricingComValor(),
+            compras_validator=_ComprasVazio(),
+            financeiro_analyzer=_FinanceiroVazio(),
+        )
+        brief = await orq.gerar_brief()
+
+        # Buyer tem R$ 1000 e Pricing tem R$ 1000 — permanecem dois achados distintos
+        mil = [a for a in brief["achados"] if a["impacto_rs"] == 1000.0]
+        assert len(mil) == 2
+        origens = {a["origem"] for a in mil}
+        assert "BuyerAnalyzer.generate_executive_brief" in origens
+        assert "PricingAnalyzer.gerar_relatorio_precificacao" in origens
+        assert brief["impacto_total_rs"] == 2500.0
+
+    @pytest.mark.asyncio
+    async def test_tax_critico_nao_entra_no_total_sem_multa_auditada(self):
+        orq = DiretorOrquestrador(
+            buyer_analyzer=_BuyerVazio(),
+            tax_analyzer=_TaxComCriticosSemValor(),
             pricing_analyzer=_PricingVazio(),
             compras_validator=_ComprasVazio(),
             financeiro_analyzer=_FinanceiroVazio(),
         )
         brief = await orq.gerar_brief()
 
-        # Buyer tem R$ 1000 e Tax tem R$ 1000 — permanecem dois achados distintos
-        mil = [a for a in brief["achados"] if a["impacto_rs"] == 1000.0]
-        assert len(mil) == 2
-        origens = {a["origem"] for a in mil}
-        assert "BuyerAnalyzer.generate_executive_brief" in origens
-        assert "TaxAdvisorAnalyzer.generate_tax_audit_report" in origens
-        assert brief["impacto_total_rs"] == 2500.0
+        assert brief["impacto_total_rs"] == 0.0
+        assert brief["achados"] == []
+        assert len(brief["achados_sem_valor"]) == 1
+        assert brief["achados_sem_valor"][0]["impacto_rs"] is None
+        assert "multa" in brief["achados_sem_valor"][0]["achado"]
 
     @pytest.mark.asyncio
     async def test_todos_vazios_com_fonte_ok_sem_inventar(self):

@@ -294,6 +294,8 @@ class TestTaxAuditReport:
         assert "problemas_encontrados" in report
         assert "recomendacoes" in report
         assert "status" in report
+        assert report["risco_fiscal"]["status"] == "nao_estimado"
+        assert "multa" in report["risco_fiscal"]["motivo"]
 
     @pytest.mark.asyncio
     async def test_report_status_critico_quando_ha_problemas(
@@ -317,3 +319,6 @@ class TestTaxAuditReport:
 
         assert report["problemas_encontrados"] > 0
         assert report["problemas_criticos"] > 0
+        assert report["status"] == "CRÍTICO"
+        assert report["risco_fiscal"]["status"] == "nao_estimado"
+        assert "risco_fiscal_estimado" not in report

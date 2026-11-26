@@ -382,13 +382,15 @@ class TaxAdvisorAnalyzer:
         divergencias = await self.detect_tax_divergences()
         sem_classificacao = await self.find_unclassified_products()
 
-        # 2. Consolidar problemas
+        # 2. Consolidar problemas (sem inventar multa em R$)
         problemas_criticos = len([d for d in divergencias if d["severidade"] == "ALTA"])
         problemas_totais = len(divergencias) + len(sem_classificacao)
 
-        # 3. Estimar risco fiscal
-        # Cada divergência alta = R$ 5k de risco potencial
-        risco_fiscal_estimado = problemas_criticos * 5000
+        # 3. Risco fiscal: sem base de multa auditada — não estima valor
+        risco_fiscal = {
+            "status": "nao_estimado",
+            "motivo": "sem base de multa auditada",
+        }
 
         # 4. Próximas ações
         acoes = []
@@ -410,7 +412,7 @@ class TaxAdvisorAnalyzer:
             "problemas_criticos": problemas_criticos,
             "divergencias": divergencias[:20],  # Top 20
             "produtos_sem_classificacao": len(sem_classificacao),
-            "risco_fiscal_estimado": risco_fiscal_estimado,
+            "risco_fiscal": risco_fiscal,
             "recomendacoes": acoes,
             "status": "CRÍTICO" if problemas_criticos > 0 else "OK",
         }

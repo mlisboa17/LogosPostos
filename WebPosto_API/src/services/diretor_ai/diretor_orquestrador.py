@@ -438,32 +438,25 @@ class DiretorOrquestrador:
                 [],
             )
         achados: list[AchadoDiretor] = []
-        risco = _parse_rs(rel.get("risco_fiscal_estimado"))
         problemas = int(rel.get("problemas_encontrados") or 0)
+        criticos = int(rel.get("problemas_criticos") or 0)
         acoes = rel.get("recomendacoes") or []
         acao = acoes[0] if acoes else "Revisar classificação fiscal"
-        if risco is not None and risco > 0:
+        risco = rel.get("risco_fiscal") if isinstance(rel.get("risco_fiscal"), dict) else {}
+        # Nunca soma estimativa inventada: impacto_rs fica None
+        if problemas > 0 or criticos > 0:
+            motivo_risco = str(
+                risco.get("motivo") or "risco fiscal sem base de multa auditada"
+            )
             achados.append(
                 AchadoDiretor(
                     area=AREA_FISCAL,
                     achado=(
                         f"{problemas} problema(s) tributário(s) "
-                        f"({rel.get('problemas_criticos', 0)} crítico(s))"
+                        f"({criticos} crítico(s)); {motivo_risco}"
                     ),
-                    impacto_rs=risco,
-                    urgencia="CRÍTICA" if (rel.get("problemas_criticos") or 0) > 0 else "ALTA",
-                    acao_sugerida=str(acao),
-                    origem=metodo,
-                    status_fonte=STATUS_OK,
-                )
-            )
-        elif problemas > 0:
-            achados.append(
-                AchadoDiretor(
-                    area=AREA_FISCAL,
-                    achado=f"{problemas} problema(s) tributário(s) sem risco monetário informado",
                     impacto_rs=None,
-                    urgencia="ALTA",
+                    urgencia="CRÍTICA" if criticos > 0 else "ALTA",
                     acao_sugerida=str(acao),
                     origem=metodo,
                     status_fonte=STATUS_OK,
@@ -471,7 +464,6 @@ class DiretorOrquestrador:
             )
         status = STATUS_VAZIO if not achados else STATUS_OK
         return StatusIA(ia=ia, status=status, metodo=metodo), achados
-
     def _normalizar_pricing(
         self, rel: Any, metodo: str
     ) -> tuple[StatusIA, list[AchadoDiretor]]:
