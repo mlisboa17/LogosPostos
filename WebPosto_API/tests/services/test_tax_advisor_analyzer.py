@@ -33,7 +33,9 @@ class TestNCMValidation:
         # Nota: 27160000 está na tabela de exemplo
         assert resultado["ncm"] == "27160000"
         assert resultado["is_valid"] is True
+        assert resultado["fonte_tabela"] == "exemplo_local"
         assert len(resultado["problemas"]) == 0
+        assert resultado["avisos"] == []
 
     @pytest.mark.asyncio
     async def test_ncm_formato_invalido_poucos_digitos(self, analyzer):
@@ -58,6 +60,16 @@ class TestNCMValidation:
 
         assert resultado["is_valid"] is False
         assert len(resultado["problemas"]) > 0
+
+    @pytest.mark.asyncio
+    async def test_ncm_ausente_na_tabela_exemplo_nao_e_erro_definitivo(self, analyzer):
+        """NCM com formato ok fora da amostra local: aviso, não erro fiscal definitivo."""
+        resultado = await analyzer.validate_ncm("SKU_123", "12345678")
+
+        assert resultado["is_valid"] is True
+        assert resultado["fonte_tabela"] == "exemplo_local"
+        assert len(resultado["problemas"]) == 0
+        assert any("exemplo_local" in a for a in resultado["avisos"])
 
 
 class TestCESTValidation:

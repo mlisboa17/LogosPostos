@@ -60,7 +60,9 @@ class TaxAdvisorAnalyzer:
                 "produto_id": produto_id,
                 "ncm": ncm,
                 "is_valid": False,
+                "fonte_tabela": "exemplo_local",
                 "problemas": problemas,
+                "avisos": [],
             }
 
         if not ncm.isdigit():
@@ -69,14 +71,20 @@ class TaxAdvisorAnalyzer:
                 "produto_id": produto_id,
                 "ncm": ncm,
                 "is_valid": False,
+                "fonte_tabela": "exemplo_local",
                 "problemas": problemas,
+                "avisos": [],
             }
 
-        # 2. Verificar se NCM está vigente
+        # 2. Tabela local é apenas exemplo — ausência NÃO é erro fiscal definitivo
+        avisos: list[str] = []
         if ncm not in self.ncm_validos:
-            problemas.append(f"NCM {ncm} não encontrado na tabela vigente")
+            avisos.append(
+                f"NCM {ncm} ausente da tabela local de exemplo "
+                "(fonte_tabela=exemplo_local; não constitui erro fiscal definitivo)"
+            )
 
-        # 3. Buscar informações do NCM
+        # 3. Buscar informações do NCM (se houver na amostra local)
         ncm_info = self.ncm_validos.get(ncm, {})
 
         is_valid = len(problemas) == 0
@@ -85,10 +93,12 @@ class TaxAdvisorAnalyzer:
             "produto_id": produto_id,
             "ncm": ncm,
             "is_valid": is_valid,
+            "fonte_tabela": "exemplo_local",
             "categoria": ncm_info.get("categoria", "DESCONHECIDA"),
             "descricao": ncm_info.get("descricao", ""),
             "aliquota_ii": ncm_info.get("aliquota_ii", 0),  # Imposto de Importação
             "problemas": problemas,
+            "avisos": avisos,
         }
 
     # ========== 2. VALIDAR CEST ==========
