@@ -83,13 +83,17 @@ async def get_analise_margens() -> dict:
 
     try:
         margens_negativas = await analyzer.identificar_margens_negativas()
+        if isinstance(margens_negativas, dict) and margens_negativas.get("status") == "fonte_indisponivel":
+            return margens_negativas
         margens_baixas = await analyzer.identificar_produtos_baixa_margem(15)
+        if isinstance(margens_baixas, dict) and margens_baixas.get("status") == "fonte_indisponivel":
+            return margens_baixas
 
         return {
-            "total_produtos": 0,  # Placeholder
+            "total_produtos": len(margens_negativas) + len(margens_baixas),
             "margens_negativas": {
                 "quantidade": len(margens_negativas),
-                "impacto_mensal": 0,
+                "impacto_mensal": float(sum((abs(m.margem_bruta) for m in margens_negativas), Decimal("0"))),
                 "produtos": [
                     {
                         "produto_id": m.produto_id,
@@ -141,6 +145,8 @@ async def get_margens_negativas() -> list[dict]:
 
     try:
         margens_negativas = await analyzer.identificar_margens_negativas()
+        if isinstance(margens_negativas, dict) and margens_negativas.get("status") == "fonte_indisponivel":
+            return margens_negativas
 
         return [
             {
@@ -193,6 +199,8 @@ async def get_margens_baixas(
         margens_baixas = await analyzer.identificar_produtos_baixa_margem(
             threshold_percentual
         )
+        if isinstance(margens_baixas, dict) and margens_baixas.get("status") == "fonte_indisponivel":
+            return margens_baixas
 
         return [
             {
@@ -272,23 +280,22 @@ async def get_sugestoes_reajuste(
         default=False,
         description="Apenas sugestões críticas/altas",
     )
-) -> list[dict]:
+) -> dict | list[dict]:
     """
-    Gerar sugestões de reajuste de preço.
+    Gerar sugestões de reajuste de preço a partir de PRODUTO_EMPRESA.
 
-    Baseado em:
-    - Margem atual vs. margem alvo
-    - Velocidade de venda
-    - Impacto financeiro
-
-    Retorna: Lista de sugestões priorizadas por urgência.
+    Sem inventar lista vazia: se a fonte não estiver disponível, retorna
+    ``{"status": "fonte_indisponivel", "motivo": "..."}``.
     """
 
     analyzer = get_analyzer()
 
     try:
-        # Placeholder: em produção, analisar todos produtos
-        sugestoes = []
+        sugestoes = await analyzer.gerar_sugestoes_reajuste(
+            apenas_urgentes=apenas_urgentes
+        )
+        if isinstance(sugestoes, dict) and sugestoes.get("status") == "fonte_indisponivel":
+            return sugestoes
 
         return [
             {
@@ -304,7 +311,6 @@ async def get_sugestoes_reajuste(
                 "urgencia": s.urgencia,
             }
             for s in sugestoes
-            if not apenas_urgentes or s.urgencia in ["CRÍTICA", "ALTA"]
         ]
 
     except Exception as e:
@@ -319,24 +325,20 @@ async def get_sugestoes_reajuste(
     summary="Produtos com perdas ocultas",
     description="Obsoletos, lentidão, desperdício",
 )
-async def get_perdas_ocultas() -> list[dict]:
+async def get_perdas_ocultas() -> dict | list[dict]:
     """
-    Detectar perdas ocultas por:
-    - Obsolescência (>90 dias sem venda)
-    - Baixa rotação (45-90 dias)
-    - Possível erro de precificação
-    - Desperdício/quebra estimada
+    Detectar perdas ocultas (obsolescência / baixa rotação).
 
-    Risco: Perda de capital, oportunidade custo.
-
-    Retorna: Lista de produtos com perdas ocultas.
+    Sem inventar lista vazia: exige histórico de vendas/estoque que o
+    cliente de fábrica ainda não expõe → ``fonte_indisponivel``.
     """
 
     analyzer = get_analyzer()
 
     try:
-        # Placeholder: em produção, analisar histórico de vendas
-        perdas = []
+        perdas = await analyzer.listar_perdas_ocultas()
+        if isinstance(perdas, dict) and perdas.get("status") == "fonte_indisponivel":
+            return perdas
 
         return [
             {
