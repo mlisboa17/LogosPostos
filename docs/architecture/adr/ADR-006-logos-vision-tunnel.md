@@ -2,9 +2,9 @@
 
 ## Status
 
-**Proposed — 27/11/2026.** Decisões de produto desta ADR foram aprovadas pelo CTO na sessão TUN-00.1. Isso não é aceite de governança.
+**Accepted — 2026-11-28** (aprovado pelo responsável do produto, com a recomendação técnica do CTO; oficial após merge na `main` de `mlisboa17/LogosPostos`, pull request #5).
 
-Não está **Accepted**. ADR-001 condiciona o efeito oficial ao registro na branch canônica de `mlisboa17/LogosPostos`. Esta cópia está em `logos-vision-pdv` porque o checkout canônico, em 27/11/2026, está em `feature/cash-audit-fechamento`, com conflitos, e não deve receber este arquivo. A sequência verificada no canônico é ADR-001 a ADR-005. ADR-006 estava livre. Não substitui `VISION-INTEGRATION-01`, que continua inexistente e não foi criado.
+A aceitação não comprova conectividade, compatibilidade de hardware nem percepção visual. Não substitui `VISION-INTEGRATION-01`, que continua inexistente e não foi criado.
 
 Relaciona-se com ADR-001 item 5, DIRECTIVE §6.4 e §7, CURRENT_ARCHITECTURE_STATE §3 e ADR-003 (ERP em leitura para este produto).
 
@@ -103,7 +103,7 @@ Rollback: revogar a credencial, parar de emitir tarefa, desinstalar o agente. O 
 
 ### Critérios de aceite desta decisão
 
-- A ADR permanece Proposed até o registro canônico.
+- O registro oficial é esta ADR Accepted na `main`, pull request #5.
 - Nenhuma implementação nasce deste arquivo.
 - O desenho não abre porta na loja, não instala VPN e não coloca chave de ERP ou Gemini no agente.
 - `task_id` e `evidence_id` são independentes de `occurrence_id`.
@@ -124,7 +124,7 @@ HTTPS de saída atravessa NAT e CGNAT sem IP público e sem porta publicada. A V
 
 ## Consequências
 
-- O Vision continua isolado do núcleo. Um deployable de loja, quando existir, precisa desta ADR Accepted. DIRECTIVE §7 exige esse registro para extrair workload por hardware e por isolamento de falha. Esta proposta não cumpre esse registro sozinha.
+- O Vision continua isolado do núcleo. O registro exigido pela DIRECTIVE §7 é esta ADR Accepted na `main`. Isso não autoriza a implementação nesta entrega e não prova conectividade, hardware nem percepção visual.
 - A central passa a ser a única dona de tarefa, regra, ERP e Gemini.
 - O agente pode operar sem internet: a fila espera e o NVR grava. Nada disso foi ensaiado.
 - Produção continua não autorizada.
